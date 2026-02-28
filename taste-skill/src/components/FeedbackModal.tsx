@@ -5,22 +5,22 @@ import { feedbackSubmit } from '@/lib/api';
 import type { FeedbackStatus, TryLevel, AbortReason } from '@/types/story';
 
 const TRY_LEVELS: { value: TryLevel; label: string; icon: React.ReactNode }[] = [
-  { value: 'look', label: 'Looked', icon: <Eye size={24} weight="light" /> },
-  { value: 'smell', label: 'Smelled', icon: <Flower size={24} weight="light" /> },
-  { value: 'touch', label: 'Touched', icon: <Hand size={24} weight="light" /> },
-  { value: 'lick', label: 'Licked', icon: <Drop size={24} weight="light" /> },
-  { value: 'bite', label: 'Bit', icon: <Cookie size={24} weight="light" /> },
-  { value: 'chew', label: 'Chewed', icon: <Smiley size={24} weight="light" /> },
-  { value: 'swallow', label: 'Swallowed', icon: <Star size={24} weight="fill" /> },
+  { value: 'look',    label: '看了看',   icon: <Eye size={24} weight="light" /> },
+  { value: 'smell',   label: '闻了闻',   icon: <Flower size={24} weight="light" /> },
+  { value: 'touch',   label: '摸了摸',   icon: <Hand size={24} weight="light" /> },
+  { value: 'lick',    label: '舔了舔',   icon: <Drop size={24} weight="light" /> },
+  { value: 'bite',    label: '咬一口',   icon: <Cookie size={24} weight="light" /> },
+  { value: 'chew',    label: '嚼了嚼',   icon: <Smiley size={24} weight="light" /> },
+  { value: 'swallow', label: '吞下去了', icon: <Star size={24} weight="fill" /> },
 ];
 
 const ABORT_REASONS: { value: AbortReason; label: string }[] = [
-  { value: 'bored', label: 'Got bored' },
-  { value: 'scared', label: 'Got scared' },
-  { value: 'distracted', label: 'Got distracted' },
-  { value: 'parent_stopped', label: 'Parent stopped' },
-  { value: 'technical', label: 'Technical issue' },
-  { value: 'other', label: 'Other' },
+  { value: 'bored',          label: '孩子无聊了' },
+  { value: 'scared',         label: '孩子害怕了' },
+  { value: 'distracted',     label: '孩子分心了' },
+  { value: 'parent_stopped', label: '家长主动停止' },
+  { value: 'technical',      label: '技术问题' },
+  { value: 'other',          label: '其他原因' },
 ];
 
 interface Props {
@@ -67,7 +67,7 @@ export function FeedbackModal({ status, session_id, onDone }: Props) {
           style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.1)' }}>
 
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-xl font-semibold tracking-tight">{status === 'COMPLETED' ? 'How did it go?' : 'Why did we stop?'}</h2>
+            <h2 className="text-xl font-semibold tracking-tight">{status === 'COMPLETED' ? '用餐怎么样？' : '为什么提前结束？'}</h2>
             <button onClick={onDone} className="p-1 rounded-lg hover:bg-[var(--color-warm-100)] transition-colors">
               <X size={20} weight="bold" className="text-[var(--color-muted)]" />
             </button>
@@ -96,14 +96,14 @@ export function FeedbackModal({ status, session_id, onDone }: Props) {
             </div>
           )}
 
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Additional notes (optional)"
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="补充说明（可选）"
             className="w-full border border-[var(--color-border-light)] rounded-xl p-3 text-sm mb-4 resize-none h-20 bg-[var(--color-warm-50)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] transition-colors" />
 
           {error && <p className="text-sm text-[var(--color-error)] mb-3">{error}</p>}
 
           <button onClick={handleSubmit} disabled={!canSubmit || submitting}
             className="w-full py-3 rounded-xl font-semibold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] transition-all">
-            {submitting ? 'Submitting...' : 'Submit Feedback'}
+            {submitting ? '提交中...' : '提交反馈'}
           </button>
         </motion.div>
       </motion.div>
