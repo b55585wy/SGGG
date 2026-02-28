@@ -7,14 +7,20 @@ import { logout, currentUser } from '@/hooks/useAuth';
 import type { StoryType } from '@/types/story';
 
 const STORY_TYPES: { value: StoryType; label: string }[] = [
-  { value: 'adventure', label: 'Adventure' },
-  { value: 'daily_life', label: 'Daily Life' },
-  { value: 'fantasy', label: 'Fantasy' },
-  { value: 'animal_friend', label: 'Animal Friend' },
-  { value: 'superhero', label: 'Superhero' },
+  { value: 'adventure',    label: '🗺️ 冒险故事' },
+  { value: 'daily_life',   label: '🏠 日常生活' },
+  { value: 'fantasy',      label: '✨ 奇幻世界' },
+  { value: 'animal_friend',label: '🐾 动物朋友' },
+  { value: 'superhero',    label: '🦸 超级英雄' },
 ];
 
-const MOODS = ['happy', 'neutral', 'fussy', 'tired', 'excited'];
+const MOODS: { value: string; label: string }[] = [
+  { value: 'happy',   label: '😊 开心' },
+  { value: 'neutral', label: '😐 平静' },
+  { value: 'fussy',   label: '😤 挑食' },
+  { value: 'tired',   label: '😴 疲倦' },
+  { value: 'excited', label: '🤩 兴奋' },
+];
 
 export default function GeneratePage() {
   const navigate = useNavigate();
@@ -84,7 +90,7 @@ export default function GeneratePage() {
       <header className="flex-shrink-0 flex items-center justify-between h-11 px-6 bg-[var(--color-surface)]/90 backdrop-blur-sm border-b border-[var(--color-border-light)] z-20">
         <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
           <Sparkle size={13} weight="fill" className="text-[var(--color-accent)]" />
-          <span className="font-mono font-medium tracking-wider uppercase">AI Storybook</span>
+          <span className="font-mono font-medium tracking-wider uppercase">AI 绘本</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
@@ -107,63 +113,63 @@ export default function GeneratePage() {
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={spring} className="mb-8">
             <div className="flex items-center gap-2 mb-2">
               <Sparkle size={20} weight="fill" className="text-[var(--color-accent)]" />
-              <span className="text-xs font-mono font-medium tracking-wider text-[var(--color-muted)] uppercase">Story Generator</span>
+              <span className="text-xs font-mono font-medium tracking-wider text-[var(--color-muted)] uppercase">故事生成器</span>
             </div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tighter leading-none">Create a Story</h1>
-            <p className="mt-2 text-sm text-[var(--color-muted)]">Fill in the details to generate a personalized interactive storybook.</p>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tighter leading-none">创建故事</h1>
+            <p className="mt-2 text-sm text-[var(--color-muted)]">填写孩子信息，生成专属互动绘本。</p>
           </motion.div>
 
-          {/* Child Profile */}
+          {/* 孩子档案 */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.05 }}
             className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6 mb-4"
             style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
-            <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-4">Child Profile</p>
+            <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-4">孩子档案</p>
             <div className="space-y-4">
-              <Field label="Nickname">
+              <Field label="昵称">
                 <input type="text" value={nickname} onChange={e => setNickname(e.target.value)}
-                  placeholder="Child's name" className="form-input" required />
+                  placeholder="孩子的名字" className="form-input" required />
               </Field>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Age">
+                <Field label="年龄">
                   <select value={age} onChange={e => setAge(+e.target.value)} className="form-input">
-                    {[2,3,4,5,6,7].map(a => <option key={a} value={a}>{a} yrs</option>)}
+                    {[2,3,4,5,6,7].map(a => <option key={a} value={a}>{a} 岁</option>)}
                   </select>
                 </Field>
-                <Field label="Gender">
+                <Field label="性别">
                   <select value={gender} onChange={e => setGender(e.target.value)} className="form-input">
-                    <option value="boy">Boy</option><option value="girl">Girl</option>
+                    <option value="boy">男孩</option><option value="girl">女孩</option>
                   </select>
                 </Field>
               </div>
             </div>
           </motion.div>
 
-          {/* Meal Context */}
+          {/* 进餐情况 */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.1 }}
             className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6"
             style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
-            <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-4">Meal Context</p>
+            <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-4">进餐情况</p>
             <div className="space-y-4">
-              <Field label="Target Food">
+              <Field label="目标食物">
                 <input type="text" value={targetFood} onChange={e => setTargetFood(e.target.value)}
-                  placeholder="e.g. broccoli" className="form-input" required />
+                  placeholder="例：西兰花" className="form-input" required />
               </Field>
-              <Field label={`Meal Score: ${mealScore} / 5`}>
+              <Field label={`进餐评分：${mealScore} / 5`}>
                 <input type="range" min={1} max={5} value={mealScore}
                   onChange={e => setMealScore(+e.target.value)} className="w-full accent-[var(--color-accent)]" />
               </Field>
-              <Field label="Mood">
+              <Field label="当前心情">
                 <select value={sessionMood} onChange={e => setSessionMood(e.target.value)} className="form-input">
-                  {MOODS.map(m => <option key={m} value={m}>{m[0].toUpperCase() + m.slice(1)}</option>)}
+                  {MOODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                 </select>
               </Field>
-              <Field label="Description (optional)">
+              <Field label="进餐描述（可选）">
                 <textarea value={mealText} onChange={e => setMealText(e.target.value)}
-                  placeholder="Describe the meal situation..." className="form-input resize-none h-20" />
+                  placeholder="描述一下今天的进餐情况…" className="form-input resize-none h-20" />
               </Field>
-              <Field label="Why refuse? (optional)">
+              <Field label="拒食原因（可选）">
                 <input type="text" value={possibleReason} onChange={e => setPossibleReason(e.target.value)}
-                  placeholder="e.g. doesn't like the texture" className="form-input" />
+                  placeholder="例：不喜欢这个口感" className="form-input" />
               </Field>
             </div>
           </motion.div>
@@ -173,15 +179,15 @@ export default function GeneratePage() {
         <div className="w-[45%] px-10 py-10 flex flex-col overflow-y-auto">
 
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.05 }} className="mb-6">
-            <p className="text-sm font-semibold tracking-tight">Story Settings</p>
-            <p className="text-xs text-[var(--color-muted)] mt-1">Customize how the story is generated.</p>
+            <p className="text-sm font-semibold tracking-tight">故事设定</p>
+            <p className="text-xs text-[var(--color-muted)] mt-1">自定义故事的生成方式。</p>
           </motion.div>
 
-          {/* Story type */}
+          {/* 故事类型 */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.1 }}
             className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6 mb-4 space-y-4"
             style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
-            <Field label="Story Type">
+            <Field label="故事类型">
               <div className="grid grid-cols-1 gap-2">
                 {STORY_TYPES.map(s => (
                   <button type="button" key={s.value} onClick={() => setStoryType(s.value)}
@@ -194,36 +200,34 @@ export default function GeneratePage() {
             </Field>
           </motion.div>
 
-          {/* Difficulty + Pages + Density */}
+          {/* 高级设置 */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.15 }}
             className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6 mb-4 space-y-4"
             style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
-
-            {/* Advanced settings toggle */}
             <button type="button" onClick={() => setStoryOpen(v => !v)}
               className="w-full flex items-center justify-between text-left">
-              <span className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase">Advanced</span>
+              <span className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase">高级设置</span>
               {storyOpen ? <CaretUp size={14} weight="bold" className="text-[var(--color-muted)]" /> : <CaretDown size={14} weight="bold" className="text-[var(--color-muted)]" />}
             </button>
             {storyOpen && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Difficulty">
+                  <Field label="难度">
                     <select value={difficulty} onChange={e => setDifficulty(e.target.value)} className="form-input">
-                      <option value="easy">Easy</option>
-                      <option value="medium">Medium</option>
-                      <option value="hard">Hard</option>
+                      <option value="easy">简单</option>
+                      <option value="medium">中等</option>
+                      <option value="hard">困难</option>
                     </select>
                   </Field>
-                  <Field label="Interactions">
+                  <Field label="互动密度">
                     <select value={interactiveDensity} onChange={e => setInteractiveDensity(e.target.value)} className="form-input">
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
+                      <option value="low">少</option>
+                      <option value="medium">中</option>
+                      <option value="high">多</option>
                     </select>
                   </Field>
                 </div>
-                <Field label={`Pages: ${pages}`}>
+                <Field label={`页数：${pages} 页`}>
                   <input type="range" min={6} max={12} value={pages}
                     onChange={e => setPages(+e.target.value)} className="w-full accent-[var(--color-accent)]" />
                 </Field>
@@ -248,9 +252,9 @@ export default function GeneratePage() {
             {loading
               ? <span className="flex items-center justify-center gap-2">
                   <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Generating...
+                  生成中…
                 </span>
-              : '✦  Generate Story'}
+              : '✦  生成故事'}
           </button>
         </div>
 
