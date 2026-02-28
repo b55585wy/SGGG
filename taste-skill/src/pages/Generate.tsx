@@ -32,9 +32,7 @@ export default function GeneratePage() {
   const [difficulty, setDifficulty] = useState('medium');
   const [pages, setPages] = useState(8);
   const [interactiveDensity, setInteractiveDensity] = useState('medium');
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({ child: true, meal: true, story: false });
-
-  const toggle = (k: string) => setExpanded((p) => ({ ...p, [k]: !p[k] }));
+  const [storyOpen, setStoryOpen] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,66 +54,174 @@ export default function GeneratePage() {
     }
   };
 
+  const spring = { type: 'spring' as const, stiffness: 100, damping: 20 };
+
   return (
-    <div className="max-w-2xl mx-auto px-8 py-10 pb-16">
-      <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 100, damping: 20 }} className="mb-8">
-        <div className="flex items-center gap-2 mb-2">
-          <Sparkle size={20} weight="fill" className="text-[var(--color-accent)]" />
-          <span className="text-xs font-mono font-medium tracking-wider text-[var(--color-muted)] uppercase">Story Generator</span>
+    <div className="min-h-screen flex items-start">
+      <form onSubmit={handleSubmit} className="flex w-full min-h-screen">
+
+        {/* ── 左栏：标题 + 孩子信息 + 进餐信息 ── */}
+        <div className="w-[55%] px-12 py-10 overflow-y-auto border-r border-[var(--color-border-light)]">
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={spring} className="mb-8">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkle size={20} weight="fill" className="text-[var(--color-accent)]" />
+              <span className="text-xs font-mono font-medium tracking-wider text-[var(--color-muted)] uppercase">Story Generator</span>
+            </div>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tighter leading-none">Create a Story</h1>
+            <p className="mt-2 text-sm text-[var(--color-muted)]">Fill in the details to generate a personalized interactive storybook.</p>
+          </motion.div>
+
+          {/* Child Profile */}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.05 }}
+            className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6 mb-4"
+            style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
+            <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-4">Child Profile</p>
+            <div className="space-y-4">
+              <Field label="Nickname">
+                <input type="text" value={nickname} onChange={e => setNickname(e.target.value)}
+                  placeholder="Child's name" className="form-input" required />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Age">
+                  <select value={age} onChange={e => setAge(+e.target.value)} className="form-input">
+                    {[2,3,4,5,6,7].map(a => <option key={a} value={a}>{a} yrs</option>)}
+                  </select>
+                </Field>
+                <Field label="Gender">
+                  <select value={gender} onChange={e => setGender(e.target.value)} className="form-input">
+                    <option value="boy">Boy</option><option value="girl">Girl</option>
+                  </select>
+                </Field>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Meal Context */}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.1 }}
+            className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6"
+            style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
+            <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-4">Meal Context</p>
+            <div className="space-y-4">
+              <Field label="Target Food">
+                <input type="text" value={targetFood} onChange={e => setTargetFood(e.target.value)}
+                  placeholder="e.g. broccoli" className="form-input" required />
+              </Field>
+              <Field label={`Meal Score: ${mealScore} / 5`}>
+                <input type="range" min={1} max={5} value={mealScore}
+                  onChange={e => setMealScore(+e.target.value)} className="w-full accent-[var(--color-accent)]" />
+              </Field>
+              <Field label="Mood">
+                <select value={sessionMood} onChange={e => setSessionMood(e.target.value)} className="form-input">
+                  {MOODS.map(m => <option key={m} value={m}>{m[0].toUpperCase() + m.slice(1)}</option>)}
+                </select>
+              </Field>
+              <Field label="Description (optional)">
+                <textarea value={mealText} onChange={e => setMealText(e.target.value)}
+                  placeholder="Describe the meal situation..." className="form-input resize-none h-20" />
+              </Field>
+              <Field label="Why refuse? (optional)">
+                <input type="text" value={possibleReason} onChange={e => setPossibleReason(e.target.value)}
+                  placeholder="e.g. doesn't like the texture" className="form-input" />
+              </Field>
+            </div>
+          </motion.div>
         </div>
-        <h1 className="text-3xl md:text-4xl font-semibold tracking-tighter leading-none">Create a Story</h1>
-        <p className="mt-2 text-sm text-[var(--color-muted)] max-w-[65ch]">Fill in the details to generate a personalized interactive storybook.</p>
-      </motion.div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <Section title="Child Profile" open={expanded.child} onToggle={() => toggle('child')}>
-          <Field label="Nickname"><input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Child's name" className="form-input" required /></Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Age"><select value={age} onChange={(e) => setAge(+e.target.value)} className="form-input">{[2,3,4,5,6,7].map(a=><option key={a} value={a}>{a} yrs</option>)}</select></Field>
-            <Field label="Gender"><select value={gender} onChange={(e) => setGender(e.target.value)} className="form-input"><option value="boy">Boy</option><option value="girl">Girl</option></select></Field>
-          </div>
-        </Section>
+        {/* ── 右栏：故事配置 + 提交 ── */}
+        <div className="w-[45%] px-10 py-10 flex flex-col">
 
-        <Section title="Meal Context" open={expanded.meal} onToggle={() => toggle('meal')}>
-          <Field label="Target Food"><input type="text" value={targetFood} onChange={(e) => setTargetFood(e.target.value)} placeholder="e.g. broccoli" className="form-input" required /></Field>
-          <Field label={`Meal Score: ${mealScore}/5`}><input type="range" min={1} max={5} value={mealScore} onChange={(e) => setMealScore(+e.target.value)} className="w-full accent-[var(--color-accent)]" /></Field>
-          <Field label="Description"><textarea value={mealText} onChange={(e) => setMealText(e.target.value)} placeholder="Describe the meal..." className="form-input resize-none h-20" /></Field>
-          <Field label="Possible Reason"><input type="text" value={possibleReason} onChange={(e) => setPossibleReason(e.target.value)} placeholder="Why refuse? (optional)" className="form-input" /></Field>
-          <Field label="Mood"><select value={sessionMood} onChange={(e) => setSessionMood(e.target.value)} className="form-input">{MOODS.map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}</select></Field>
-        </Section>
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.05 }} className="mb-6">
+            <p className="text-sm font-semibold tracking-tight">Story Settings</p>
+            <p className="text-xs text-[var(--color-muted)] mt-1">Customize how the story is generated.</p>
+          </motion.div>
 
-        <Section title="Story Settings" open={expanded.story} onToggle={() => toggle('story')}>
-          <Field label="Story Type"><select value={storyType} onChange={(e) => setStoryType(e.target.value as StoryType)} className="form-input">{STORY_TYPES.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}</select></Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Difficulty"><select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className="form-input"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></Field>
-            <Field label={`Pages: ${pages}`}><input type="range" min={6} max={12} value={pages} onChange={(e) => setPages(+e.target.value)} className="w-full accent-[var(--color-accent)]" /></Field>
-          </div>
-          <Field label="Interactive Density"><select value={interactiveDensity} onChange={(e) => setInteractiveDensity(e.target.value)} className="form-input"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></Field>
-        </Section>
+          {/* Story type */}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.1 }}
+            className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6 mb-4 space-y-4"
+            style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
+            <Field label="Story Type">
+              <div className="grid grid-cols-1 gap-2">
+                {STORY_TYPES.map(s => (
+                  <button type="button" key={s.value} onClick={() => setStoryType(s.value)}
+                    className={`py-2 px-4 rounded-xl text-sm font-medium border text-left transition-all active:scale-[0.98]
+                      ${storyType === s.value ? 'border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent)]' : 'border-[var(--color-border-light)] hover:border-[var(--color-border)]'}`}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          </motion.div>
 
-        {error && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-[var(--color-error)] bg-[var(--color-error-light)] px-4 py-3 rounded-xl">{error}</motion.p>}
+          {/* Difficulty + Pages + Density */}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.15 }}
+            className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6 mb-4 space-y-4"
+            style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
 
-        <button type="submit" disabled={loading}
-          className="w-full py-3.5 rounded-xl font-semibold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] transition-all">
-          {loading ? <span className="flex items-center justify-center gap-2"><span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating...</span> : 'Generate Story'}
-        </button>
+            {/* Advanced settings toggle */}
+            <button type="button" onClick={() => setStoryOpen(v => !v)}
+              className="w-full flex items-center justify-between text-left">
+              <span className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase">Advanced</span>
+              {storyOpen ? <CaretUp size={14} weight="bold" className="text-[var(--color-muted)]" /> : <CaretDown size={14} weight="bold" className="text-[var(--color-muted)]" />}
+            </button>
+            {storyOpen && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Difficulty">
+                    <select value={difficulty} onChange={e => setDifficulty(e.target.value)} className="form-input">
+                      <option value="easy">Easy</option>
+                      <option value="medium">Medium</option>
+                      <option value="hard">Hard</option>
+                    </select>
+                  </Field>
+                  <Field label="Interactions">
+                    <select value={interactiveDensity} onChange={e => setInteractiveDensity(e.target.value)} className="form-input">
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label={`Pages: ${pages}`}>
+                  <input type="range" min={6} max={12} value={pages}
+                    onChange={e => setPages(+e.target.value)} className="w-full accent-[var(--color-accent)]" />
+                </Field>
+              </div>
+            )}
+          </motion.div>
+
+          {/* 弹性空白 */}
+          <div className="flex-1" />
+
+          {/* 错误提示 */}
+          {error && (
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="text-sm text-[var(--color-error)] bg-[var(--color-error-light)] px-4 py-3 rounded-xl mb-4">
+              {error}
+            </motion.p>
+          )}
+
+          {/* 提交按钮 */}
+          <button type="submit" disabled={loading}
+            className="w-full py-4 rounded-xl font-semibold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] transition-all text-base">
+            {loading
+              ? <span className="flex items-center justify-center gap-2">
+                  <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Generating...
+                </span>
+              : '✦  Generate Story'}
+          </button>
+        </div>
+
       </form>
     </div>
   );
 }
 
-function Section({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] overflow-hidden" style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
-      <button type="button" onClick={onToggle} className="w-full flex items-center justify-between px-5 py-4 text-left">
-        <span className="font-semibold text-sm tracking-tight">{title}</span>
-        {open ? <CaretUp size={16} weight="bold" className="text-[var(--color-muted)]" /> : <CaretDown size={16} weight="bold" className="text-[var(--color-muted)]" />}
-      </button>
-      {open && <div className="px-5 pb-5 space-y-4">{children}</div>}
+    <div className="space-y-1.5">
+      <label className="block text-xs font-medium text-[var(--color-muted)] tracking-wide">{label}</label>
+      {children}
     </div>
   );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="space-y-1.5"><label className="block text-xs font-medium text-[var(--color-muted)] tracking-wide">{label}</label>{children}</div>;
 }
