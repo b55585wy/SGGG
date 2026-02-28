@@ -107,7 +107,7 @@ export function InteractionLayer({
         <button onClick={handleComplete} disabled={completed}
           className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all active:scale-[0.98]
             ${completed ? 'bg-[var(--color-accent-light)] text-[var(--color-accent)]' : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]'}`}>
-          {completed ? <><CheckCircle size={20} weight="fill" /><span>Well done</span></> : <><PersonArmsSpread size={20} weight="light" /><span>I did it</span></>}
+          {completed ? <><CheckCircle size={20} weight="fill" /><span>太棒了</span></> : <><PersonArmsSpread size={20} weight="light" /><span>我做到了</span></>}
         </button>
       </motion.div>
     );
@@ -120,9 +120,9 @@ export function InteractionLayer({
         <button onClick={handleComplete} disabled={completed}
           className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all active:scale-[0.98]
             ${completed ? 'bg-[var(--color-accent-light)] text-[var(--color-accent)]' : 'bg-[var(--color-error-light)] text-[var(--color-error)] hover:opacity-80'}`}>
-          {completed ? <><CheckCircle size={20} weight="fill" /><span>Recorded</span></> : <><Microphone size={20} weight="fill" /><span>Record</span></>}
+          {completed ? <><CheckCircle size={20} weight="fill" /><span>已录音</span></> : <><Microphone size={20} weight="fill" /><span>录音</span></>}
         </button>
-        {!completed && <p className="text-xs text-[var(--color-muted)]">Coming soon</p>}
+        {!completed && <p className="text-xs text-[var(--color-muted)]">即将开放</p>}
       </motion.div>
     );
   }

@@ -86,3 +86,13 @@ export const feedbackSubmit = (_body: FeedbackSubmitRequest): Promise<FeedbackSu
   }
   return request<FeedbackSubmitResponse>('/api/v1/feedback/submit', _body);
 };
+
+export const storyGet = (storyId: string): Promise<GenerateResponse> => {
+  if (IS_MOCK) {
+    const raw = localStorage.getItem('storybook_draft');
+    const draft = raw ? JSON.parse(raw) : {};
+    return mockDelay({ draft }, 0);
+  }
+  return fetch(`${BASE_URL}/api/v1/story/${storyId}`)
+    .then(res => res.json() as Promise<GenerateResponse>);
+};

@@ -7,11 +7,11 @@ import { useSession } from '@/hooks/useSession';
 import type { Draft, DissatisfactionReason } from '@/types/story';
 
 const REASONS: { value: DissatisfactionReason; label: string }[] = [
-  { value: 'too_long', label: 'Too long' }, { value: 'too_short', label: 'Too short' },
-  { value: 'too_scary', label: 'Too scary' }, { value: 'too_preachy', label: 'Too preachy' },
-  { value: 'not_cute', label: 'Not cute' }, { value: 'style_inconsistent', label: 'Style inconsistent' },
-  { value: 'interaction_unclear', label: 'Interactions unclear' }, { value: 'repetitive', label: 'Repetitive' },
-  { value: 'wrong_age_level', label: 'Wrong age level' }, { value: 'other', label: 'Other' },
+  { value: 'too_long', label: '太长了' }, { value: 'too_short', label: '太短了' },
+  { value: 'too_scary', label: '太恐怖了' }, { value: 'too_preachy', label: '太说教了' },
+  { value: 'not_cute', label: '不够可爱' }, { value: 'style_inconsistent', label: '风格不统一' },
+  { value: 'interaction_unclear', label: '互动不清晰' }, { value: 'repetitive', label: '内容重复' },
+  { value: 'wrong_age_level', label: '年龄不符合' }, { value: 'other', label: '其他' },
 ];
 
 export default function PreviewPage() {
@@ -68,7 +68,7 @@ export default function PreviewPage() {
         <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={spring} className="mb-6">
           <div className="flex items-center gap-2 mb-2">
             <BookOpen size={20} weight="fill" className="text-[var(--color-accent)]" />
-            <span className="text-xs font-mono font-medium tracking-wider text-[var(--color-muted)] uppercase">Story Preview</span>
+            <span className="text-xs font-mono font-medium tracking-wider text-[var(--color-muted)] uppercase">故事预览</span>
           </div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tighter leading-none">{m.title}</h1>
           {m.subtitle && <p className="mt-1 text-base text-[var(--color-muted)]">{m.subtitle}</p>}
@@ -83,9 +83,9 @@ export default function PreviewPage() {
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.1 }}
           className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-5"
           style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
-          <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-2">Ending Preview</p>
+          <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-2">结尾预览</p>
           <p className="text-sm">{draft.ending.positive_feedback}</p>
-          <p className="text-xs text-[var(--color-muted)] mt-2">Next goal: {draft.ending.next_micro_goal}</p>
+          <p className="text-xs text-[var(--color-muted)] mt-2">下一个目标：{draft.ending.next_micro_goal}</p>
         </motion.div>
       </div>
 
@@ -97,7 +97,7 @@ export default function PreviewPage() {
           className="bg-[var(--color-accent-light)] rounded-2xl border border-[var(--color-accent)]/20 p-5 mb-4">
           <div className="flex items-center gap-2 mb-3">
             <Lightbulb size={18} weight="fill" className="text-[var(--color-accent)]" />
-            <span className="text-xs font-semibold tracking-wider text-[var(--color-accent)] uppercase">Design Logic</span>
+            <span className="text-xs font-semibold tracking-wider text-[var(--color-accent)] uppercase">设计逻辑</span>
           </div>
           <p className="text-sm leading-relaxed">{m.design_logic}</p>
         </motion.div>
@@ -105,7 +105,7 @@ export default function PreviewPage() {
         {/* Meta tags */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.1 }}
           className="flex flex-wrap gap-2 mb-4">
-          {[m.theme_food, m.story_type, m.target_behavior_level, `${draft.pages.length} pages`].map((t, i) => (
+          {[m.theme_food, m.story_type, m.target_behavior_level, `${draft.pages.length} 页`].map((t, i) => (
             <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--color-warm-100)] text-[var(--color-muted)] text-xs font-medium">
               {i < 2 ? <Tag size={12} weight="bold" /> : <Star size={12} weight="bold" />}{t}
             </span>
@@ -129,7 +129,7 @@ export default function PreviewPage() {
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-4">
               <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold">What to change?</p>
+                  <p className="text-sm font-semibold">哪里不满意？</p>
                   <button onClick={() => setShowRegen(false)} className="p-1 rounded-lg hover:bg-[var(--color-warm-100)]">
                     <X size={16} weight="bold" className="text-[var(--color-muted)]" />
                   </button>
@@ -144,7 +144,7 @@ export default function PreviewPage() {
                 </div>
                 <button onClick={handleRegen} disabled={!reason || regenLoading}
                   className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[var(--color-foreground)] text-[var(--color-background)] hover:opacity-90 disabled:opacity-40 active:scale-[0.98] transition-all">
-                  {regenLoading ? 'Regenerating...' : 'Regenerate'}
+                  {regenLoading ? '重新生成中...' : '确认重新生成'}
                 </button>
               </div>
             </motion.div>
@@ -155,11 +155,11 @@ export default function PreviewPage() {
         <div className="grid grid-cols-5 gap-3">
           <button onClick={() => setShowRegen(true)} disabled={regenCount >= 2 || showRegen}
             className="col-span-2 py-3.5 rounded-xl font-semibold text-sm border border-[var(--color-border)] hover:bg-[var(--color-warm-100)] disabled:opacity-40 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
-            <ArrowCounterClockwise size={16} weight="bold" />Regen{regenCount > 0 && <span className="text-xs text-[var(--color-muted)]">({regenCount}/2)</span>}
+            <ArrowCounterClockwise size={16} weight="bold" />重新生成{regenCount > 0 && <span className="text-xs text-[var(--color-muted)]">({regenCount}/2)</span>}
           </button>
           <button onClick={handleStart} disabled={sessionLoading}
             className="col-span-3 py-3.5 rounded-xl font-semibold text-sm text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-40 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
-            {sessionLoading ? <><span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Starting...</> : <>Start Reading<ArrowRight size={16} weight="bold" /></>}
+            {sessionLoading ? <><span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />启动中...</> : <>开始阅读<ArrowRight size={16} weight="bold" /></>}
           </button>
         </div>
 

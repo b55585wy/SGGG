@@ -79,13 +79,13 @@ export default function RegisterPage() {
           className="w-full max-w-sm space-y-8"
         >
           <div>
-            <h1 className="text-2xl font-bold text-[var(--color-foreground)]">Create an account</h1>
+            <h1 className="text-2xl font-bold text-[var(--color-foreground)]">创建账号</h1>
             <p className="text-sm text-[var(--color-muted)] mt-1">注册后立即开始你的故事之旅</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-[var(--color-foreground)]">Username</label>
+              <label className="text-sm font-medium text-[var(--color-foreground)]">用户名</label>
               <input
                 className="form-input"
                 type="text"
@@ -97,7 +97,7 @@ export default function RegisterPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-[var(--color-foreground)]">Password</label>
+              <label className="text-sm font-medium text-[var(--color-foreground)]">密码</label>
               <input
                 className="form-input"
                 type="password"
@@ -109,7 +109,7 @@ export default function RegisterPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-[var(--color-foreground)]">Confirm Password</label>
+              <label className="text-sm font-medium text-[var(--color-foreground)]">确认密码</label>
               <input
                 className="form-input"
                 type="password"
@@ -131,14 +131,14 @@ export default function RegisterPage() {
               disabled={loading}
               className="w-full py-2.5 rounded-xl bg-[var(--color-accent)] text-white text-sm font-semibold hover:bg-[var(--color-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? '注册中…' : 'Create Account'}
+              {loading ? '注册中…' : '创建账号'}
             </button>
           </form>
 
           <p className="text-sm text-center text-[var(--color-muted)]">
             已有账号？{' '}
             <Link to="/login" className="text-[var(--color-accent)] font-medium hover:underline">
-              Sign in →
+              登录 →
             </Link>
           </p>
         </motion.div>

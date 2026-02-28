@@ -7,6 +7,7 @@ import { FeedbackModal } from '@/components/FeedbackModal';
 import { useSession } from '@/hooks/useSession';
 import { useTelemetry } from '@/hooks/useTelemetry';
 import { useTTS } from '@/hooks/useTTS';
+import { storyGet } from '@/lib/api';
 import type { Draft, FeedbackStatus } from '@/types/story';
 
 export default function ReaderPage() {
@@ -28,6 +29,26 @@ export default function ReaderPage() {
       setDraft(JSON.parse(s));
     } catch { navigate('/'); }
   }, [navigate]);
+
+  // 轮询图片：后台生成完成后自动刷新（最多 10 次，每 3 秒一次）
+  useEffect(() => {
+    if (!draft) return;
+    if (draft.pages.every(p => p.image_url)) return;
+    let attempts = 0;
+    const timer = setInterval(async () => {
+      if (++attempts > 10) { clearInterval(timer); return; }
+      try {
+        const res = await storyGet(draft.story_id);
+        if (res.draft.pages.some(p => p.image_url)) {
+          setDraft(res.draft);
+          localStorage.setItem('storybook_draft', JSON.stringify(res.draft));
+          if (res.draft.pages.every(p => p.image_url)) clearInterval(timer);
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.story_id]);
 
   // track page_view
   useEffect(() => {
@@ -107,7 +128,7 @@ export default function ReaderPage() {
         {/* 退出 */}
         <button onClick={onExit}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--color-muted)] hover:bg-[var(--color-warm-100)] active:scale-[0.98] transition-colors">
-          <SignOut size={14} weight="bold" />Exit
+          <SignOut size={14} weight="bold" />退出
         </button>
 
         {/* 进度条 + 页码（绝对居中） */}
@@ -128,11 +149,11 @@ export default function ReaderPage() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium active:scale-[0.98] transition-colors
               ${tts.isSpeaking ? 'bg-[var(--color-accent-light)] text-[var(--color-accent)]' : 'text-[var(--color-muted)] hover:bg-[var(--color-warm-100)]'}`}>
             {tts.isSpeaking ? <SpeakerHigh size={14} weight="fill" /> : <SpeakerSlash size={14} weight="light" />}
-            {tts.isSpeaking ? 'Speaking' : 'Read aloud'}
+            {tts.isSpeaking ? '朗读中' : '朗读'}
           </button>
         ) : (
           <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
-            <Warning size={12} weight="fill" />TTS unavailable
+            <Warning size={12} weight="fill" />朗读不可用
           </span>
         )}
       </header>
@@ -223,7 +244,7 @@ export default function ReaderPage() {
                     className="mt-6 bg-[var(--color-accent-light)] rounded-2xl border border-[var(--color-accent)]/20 p-5"
                   >
                     <p className="text-sm font-medium text-[var(--color-accent)]">{draft.ending.positive_feedback}</p>
-                    <p className="text-xs text-[var(--color-muted)] mt-2">Next goal: {draft.ending.next_micro_goal}</p>
+                    <p className="text-xs text-[var(--color-muted)] mt-2">下一个目标：{draft.ending.next_micro_goal}</p>
                   </motion.div>
                 )}
               </motion.div>
@@ -237,13 +258,13 @@ export default function ReaderPage() {
               disabled={isFirst}
               className="flex items-center gap-1.5 px-4 py-3 rounded-xl text-sm font-medium border border-[var(--color-border-light)] hover:bg-[var(--color-warm-100)] disabled:opacity-30 active:scale-[0.98] transition-all"
             >
-              <CaretLeft size={14} weight="bold" />Prev
+              <CaretLeft size={14} weight="bold" />上一页
             </button>
             <button
               onClick={() => goTo(pageIdx + 1)}
               className="flex-1 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] active:scale-[0.98] transition-all"
             >
-              {isLast ? 'Finish' : 'Next'}<CaretRight size={14} weight="bold" />
+              {isLast ? '完成' : '下一页'}<CaretRight size={14} weight="bold" />
             </button>
           </div>
 

@@ -71,13 +71,13 @@ export default function LoginPage() {
           className="w-full max-w-sm space-y-8"
         >
           <div>
-            <h1 className="text-2xl font-bold text-[var(--color-foreground)]">Welcome back</h1>
+            <h1 className="text-2xl font-bold text-[var(--color-foreground)]">欢迎回来</h1>
             <p className="text-sm text-[var(--color-muted)] mt-1">登录以继续你的故事之旅</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-[var(--color-foreground)]">Username</label>
+              <label className="text-sm font-medium text-[var(--color-foreground)]">用户名</label>
               <input
                 className="form-input"
                 type="text"
@@ -89,7 +89,7 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-[var(--color-foreground)]">Password</label>
+              <label className="text-sm font-medium text-[var(--color-foreground)]">密码</label>
               <input
                 className="form-input"
                 type="password"
@@ -111,14 +111,14 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full py-2.5 rounded-xl bg-[var(--color-accent)] text-white text-sm font-semibold hover:bg-[var(--color-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? '登录中…' : 'Sign In'}
+              {loading ? '登录中…' : '登录'}
             </button>
           </form>
 
           <p className="text-sm text-center text-[var(--color-muted)]">
             还没有账号？{' '}
             <Link to="/register" className="text-[var(--color-accent)] font-medium hover:underline">
-              Register →
+              注册 →
             </Link>
           </p>
         </motion.div>

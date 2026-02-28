@@ -1,12 +1,32 @@
 import os
+import uuid as _uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http import HTTPStatus
-import dashscope
 from dashscope import ImageSynthesis
+
+BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
+_IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "images")
+
+
+def _save_locally(dash_url: str) -> str:
+    """下载 DashScope 临时图片保存到本地，返回永久本地 URL。失败则返回原始 URL。"""
+    try:
+        import requests as _req
+        os.makedirs(_IMAGES_DIR, exist_ok=True)
+        img_name = _uuid.uuid4().hex + ".jpg"
+        path = os.path.join(_IMAGES_DIR, img_name)
+        with _req.get(dash_url, timeout=30) as r:
+            r.raise_for_status()
+            with open(path, "wb") as f:
+                f.write(r.content)
+        return f"{BACKEND_BASE_URL}/static/images/{img_name}"
+    except Exception as e:
+        print(f"[IMG] 本地保存失败，使用原始 URL: {e}")
+        return dash_url  # fallback：直接用临时 URL
 
 
 def generate_page_image(prompt: str, global_style: str = "") -> str | None:
-    """生成单页插图，返回图片 URL，失败返回 None（不影响故事生成）。"""
+    """生成单页插图，返回本地永久 URL（或 DashScope 原始 URL），失败返回 None。"""
     api_key = os.getenv("DASHSCOPE_API_KEY")
     if not api_key:
         return None
@@ -16,15 +36,17 @@ def generate_page_image(prompt: str, global_style: str = "") -> str | None:
     try:
         rsp = ImageSynthesis.call(
             api_key=api_key,
-            model="wanx2.1-t2i-turbo",   # 速度快、价格低
+            model="wanx2.1-t2i-turbo",
             prompt=full_prompt,
             n=1,
-            size="1024*576",              # 横版 16:9，适合绘本阅读界面
+            size="1024*576",              # 横版 16:9
         )
         if rsp.status_code == HTTPStatus.OK:
             results = rsp.output.get("results", [])
             if results:
-                return results[0].get("url")
+                dash_url = results[0].get("url")
+                if dash_url:
+                    return _save_locally(dash_url)
     except Exception as e:
         print(f"[IMG] page image error: {e}")
 

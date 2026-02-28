@@ -1,9 +1,11 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import os
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from database import init_db
 from routers import story, session, telemetry, feedback
 
@@ -39,6 +41,9 @@ app.include_router(story.router)
 app.include_router(session.router)
 app.include_router(telemetry.router)
 app.include_router(feedback.router)
+
+os.makedirs("static/images", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.on_event("startup")
