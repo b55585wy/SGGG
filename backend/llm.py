@@ -1,18 +1,21 @@
 import json
 import os
-import anthropic
+from openai import OpenAI
 from prompt import SYSTEM_PROMPT, build_user_prompt
 
-_client: anthropic.Anthropic | None = None
+_client: OpenAI | None = None
 
 
-def get_client() -> anthropic.Anthropic:
+def get_client() -> OpenAI:
     global _client
     if _client is None:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = os.getenv("MOONSHOT_API_KEY")
         if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY not set")
-        _client = anthropic.Anthropic(api_key=api_key)
+            raise RuntimeError("MOONSHOT_API_KEY not set")
+        _client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.moonshot.cn/v1",
+        )
     return _client
 
 
@@ -22,20 +25,19 @@ def generate_story_content(
     story_config: dict,
     dissatisfaction_reason: str | None = None,
 ) -> dict:
-    """Call Claude and return parsed story dict (book_meta + pages + ending)."""
+    """Call Kimi and return parsed story dict (book_meta + pages + ending)."""
     client = get_client()
     user_prompt = build_user_prompt(child_profile, meal_context, story_config, dissatisfaction_reason)
 
-    # Prefill assistant turn with "{" to force pure JSON output
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=8192,
-        system=SYSTEM_PROMPT,
+    response = client.chat.completions.create(
+        model="moonshot-v1-32k",
         messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
-            {"role": "assistant", "content": "{"},
         ],
+        response_format={"type": "json_object"},
+        temperature=0.7,
     )
 
-    raw = "{" + response.content[0].text
+    raw = response.choices[0].message.content
     return json.loads(raw)
