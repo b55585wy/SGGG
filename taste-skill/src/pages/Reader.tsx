@@ -140,7 +140,7 @@ export default function ReaderPage() {
       {/* ── 主区域：左图 + 右文 ── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* 左栏 58%：插图占位 */}
+        {/* 左栏 58%：插图 */}
         <div className="relative w-[58%] flex-shrink-0 bg-gradient-to-br from-[var(--color-warm-100)] to-[var(--color-accent-light)]/40">
           <AnimatePresence mode="wait">
             <motion.div
@@ -151,23 +151,35 @@ export default function ReaderPage() {
               transition={{ duration: 0.35 }}
               className="absolute inset-0 flex flex-col items-center justify-center px-14"
             >
-              {/* 页码 badge */}
-              <div className="absolute top-5 left-5 px-2.5 py-1 rounded-full bg-white/60 backdrop-blur-sm text-xs font-mono text-[var(--color-muted)]">
-                P{page.page_no}
-              </div>
+              {page.image_url ? (
+                /* 真实插图 */
+                <img
+                  src={page.image_url}
+                  alt={page.image_prompt}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                /* 占位卡片（无图时显示 image_prompt） */
+                <>
+                  {/* 页码 badge */}
+                  <div className="absolute top-5 left-5 px-2.5 py-1 rounded-full bg-white/60 backdrop-blur-sm text-xs font-mono text-[var(--color-muted)]">
+                    P{page.page_no}
+                  </div>
 
-              {/* 画笔图标 */}
-              <div className="w-14 h-14 rounded-2xl bg-white/60 backdrop-blur-sm flex items-center justify-center mb-5">
-                <PaintBrush size={28} weight="light" className="text-[var(--color-accent)]" />
-              </div>
+                  {/* 画笔图标 */}
+                  <div className="w-14 h-14 rounded-2xl bg-white/60 backdrop-blur-sm flex items-center justify-center mb-5">
+                    <PaintBrush size={28} weight="light" className="text-[var(--color-accent)]" />
+                  </div>
 
-              {/* 标签 */}
-              <p className="text-[10px] font-semibold tracking-widest uppercase text-[var(--color-accent)]/70 mb-3">插图场景</p>
+                  {/* 标签 */}
+                  <p className="text-[10px] font-semibold tracking-widest uppercase text-[var(--color-accent)]/70 mb-3">插图场景</p>
 
-              {/* 图片描述 */}
-              <p className="text-center text-sm leading-relaxed text-[var(--color-foreground)]/65 max-w-xs">
-                {page.image_prompt}
-              </p>
+                  {/* 图片描述 */}
+                  <p className="text-center text-sm leading-relaxed text-[var(--color-foreground)]/65 max-w-xs">
+                    {page.image_prompt}
+                  </p>
+                </>
+              )}
             </motion.div>
           </AnimatePresence>
         </div>

@@ -1,10 +1,13 @@
 import json
 import uuid
+import traceback
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
+from openai import RateLimitError
 from models import GenerateRequest, RegenerateRequest
 from database import get_db
 from llm import generate_story_content
+from image_gen import generate_images_for_pages
 
 router = APIRouter(prefix="/api/v1/story", tags=["story"])
 
@@ -29,13 +32,21 @@ def story_generate(req: GenerateRequest):
             req.meal_context.model_dump(),
             req.story_config.model_dump(),
         )
+    except RateLimitError:
+        raise HTTPException(429, detail={"error": {"code": "RATE_LIMIT", "message": "AI 生成频率超限，请等待 1 分钟后重试。"}})
     except json.JSONDecodeError as e:
+        traceback.print_exc()
         raise HTTPException(500, detail={"error": {"code": "LLM_PARSE_ERROR", "message": str(e)}})
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, detail={"error": {"code": "INTERNAL_ERROR", "message": str(e)}})
 
     story_id = "st_" + uuid.uuid4().hex[:16]
     draft = _build_draft(content, story_id)
+
+    # 并行生成每页插图（需要 DASHSCOPE_API_KEY，无 key 时跳过）
+    global_style = draft.get("book_meta", {}).get("global_visual_style", "")
+    generate_images_for_pages(draft["pages"], global_style)
 
     with get_db() as db:
         db.execute(
@@ -70,13 +81,21 @@ def story_regenerate(req: RegenerateRequest):
             story_config,
             dissatisfaction_reason=req.dissatisfaction_reason,
         )
+    except RateLimitError:
+        raise HTTPException(429, detail={"error": {"code": "RATE_LIMIT", "message": "AI 生成频率超限，请等待 1 分钟后重试。"}})
     except json.JSONDecodeError as e:
+        traceback.print_exc()
         raise HTTPException(500, detail={"error": {"code": "LLM_PARSE_ERROR", "message": str(e)}})
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, detail={"error": {"code": "INTERNAL_ERROR", "message": str(e)}})
 
     story_id = "st_" + uuid.uuid4().hex[:16]
     draft = _build_draft(content, story_id)
+
+    # 并行生成每页插图（需要 DASHSCOPE_API_KEY，无 key 时跳过）
+    global_style = draft.get("book_meta", {}).get("global_visual_style", "")
+    generate_images_for_pages(draft["pages"], global_style)
 
     with get_db() as db:
         db.execute(

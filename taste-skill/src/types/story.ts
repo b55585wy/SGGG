@@ -65,6 +65,7 @@ export interface Page {
   behavior_anchor: BehaviorLevel;
   text: string;
   image_prompt: string;
+  image_url?: string;
   interaction: Interaction;
   branch_choices: BranchChoice[];
 }
