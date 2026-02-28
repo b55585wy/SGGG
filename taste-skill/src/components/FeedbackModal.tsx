@@ -51,7 +51,7 @@ export function FeedbackModal({ status, session_id, onDone }: Props) {
       });
       onDone();
     } catch {
-      setError('Submission failed. Please try again.');
+      setError('提交失败，请稍后重试。');
     } finally {
       setSubmitting(false);
     }

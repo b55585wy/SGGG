@@ -40,7 +40,7 @@ export default function PreviewPage() {
       localStorage.setItem('storybook_draft', JSON.stringify(res.draft));
       setDraft(res.draft); setRegenCount(c => c + 1); setShowRegen(false); setReason(null);
     } catch (e) {
-      setError(e instanceof Error && e.message.includes('429') ? 'Max regeneration limit reached.' : (e instanceof Error ? e.message : 'Regeneration failed.'));
+      setError(e instanceof Error && e.message.includes('429') ? '已达到重新生成上限（最多 2 次）。' : (e instanceof Error ? e.message : '重新生成失败，请稍后重试。'));
     } finally { setRegenLoading(false); }
   };
 
@@ -48,7 +48,7 @@ export default function PreviewPage() {
     if (!draft) return;
     setError(null);
     try { await startSession(draft.story_id); navigate('/reader'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Failed to start.'); }
+    catch (e) { setError(e instanceof Error ? e.message : '启动阅读失败，请重试。'); }
   };
 
   if (!draft) return (

@@ -56,7 +56,7 @@ export default function GeneratePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nickname.trim() || !targetFood.trim()) { setError('Please fill in nickname and target food.'); return; }
+    if (!nickname.trim() || !targetFood.trim()) { setError('请填写孩子昵称和目标食物。'); return; }
     setLoading(true);
     setError(null);
     try {
@@ -69,7 +69,7 @@ export default function GeneratePage() {
       localStorage.setItem('storybook_draft', JSON.stringify(res.draft));
       navigate('/preview');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generation failed.');
+      setError(err instanceof Error ? err.message : '生成失败，请稍后重试。');
     } finally {
       setLoading(false);
     }
