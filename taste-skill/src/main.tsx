@@ -9,7 +9,7 @@ import ReaderPage from './pages/Reader'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <main className="max-w-lg mx-auto px-4 py-6 min-h-[100dvh]">
+      <main className="min-h-screen bg-[var(--color-background)]">
         <Routes>
           <Route path="/" element={<GeneratePage />} />
           <Route path="/preview" element={<PreviewPage />} />

@@ -57,7 +57,7 @@ export default function GeneratePage() {
   };
 
   return (
-    <div className="pb-12">
+    <div className="max-w-2xl mx-auto px-8 py-10 pb-16">
       <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 100, damping: 20 }} className="mb-8">
         <div className="flex items-center gap-2 mb-2">
           <Sparkle size={20} weight="fill" className="text-[var(--color-accent)]" />
