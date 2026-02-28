@@ -12,8 +12,15 @@ import type {
   TelemetryReportRequest,
   TelemetryReportResponse,
 } from '@/types/telemetry';
+import { MOCK_DRAFT } from './mockData';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const IS_MOCK = import.meta.env.VITE_MOCK === 'true';
+
+// Mock 延迟，模拟网络请求
+function mockDelay<T>(data: T, ms = 1200): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(data), ms));
+}
 
 export class ApiClientError extends Error {
   constructor(
@@ -43,17 +50,39 @@ async function request<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export const storyGenerate = (body: GenerateRequest) =>
-  request<GenerateResponse>('/api/v1/story/generate', body);
+export const storyGenerate = (_body: GenerateRequest): Promise<GenerateResponse> => {
+  if (IS_MOCK) {
+    const draft = { ...MOCK_DRAFT, story_id: crypto.randomUUID(), generated_at: new Date().toISOString() };
+    return mockDelay({ draft });
+  }
+  return request<GenerateResponse>('/api/v1/story/generate', _body);
+};
 
-export const storyRegenerate = (body: RegenerateRequest) =>
-  request<GenerateResponse>('/api/v1/story/regenerate', body);
+export const storyRegenerate = (_body: RegenerateRequest): Promise<GenerateResponse> => {
+  if (IS_MOCK) {
+    const draft = { ...MOCK_DRAFT, story_id: crypto.randomUUID(), generated_at: new Date().toISOString() };
+    return mockDelay({ draft }, 1500);
+  }
+  return request<GenerateResponse>('/api/v1/story/regenerate', _body);
+};
 
-export const sessionStart = (body: SessionStartRequest) =>
-  request<SessionStartResponse>('/api/v1/session/start', body);
+export const sessionStart = (_body: SessionStartRequest): Promise<SessionStartResponse> => {
+  if (IS_MOCK) {
+    return mockDelay({ session_id: crypto.randomUUID(), status: 'created' as const }, 600);
+  }
+  return request<SessionStartResponse>('/api/v1/session/start', _body);
+};
 
-export const telemetryReport = (body: TelemetryReportRequest) =>
-  request<TelemetryReportResponse>('/api/v1/telemetry/report', body);
+export const telemetryReport = (_body: TelemetryReportRequest): Promise<TelemetryReportResponse> => {
+  if (IS_MOCK) {
+    return mockDelay({ ok: true }, 0);
+  }
+  return request<TelemetryReportResponse>('/api/v1/telemetry/report', _body);
+};
 
-export const feedbackSubmit = (body: FeedbackSubmitRequest) =>
-  request<FeedbackSubmitResponse>('/api/v1/feedback/submit', body);
+export const feedbackSubmit = (_body: FeedbackSubmitRequest): Promise<FeedbackSubmitResponse> => {
+  if (IS_MOCK) {
+    return mockDelay({ ok: true }, 800);
+  }
+  return request<FeedbackSubmitResponse>('/api/v1/feedback/submit', _body);
+};
