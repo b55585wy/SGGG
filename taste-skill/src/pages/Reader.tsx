@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag, ImageBroken } from '@phosphor-icons/react';
+import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag, PaintBrush } from '@phosphor-icons/react';
 import { InteractionLayer } from '@/components/InteractionLayer';
 import { FeedbackModal } from '@/components/FeedbackModal';
 import { useSession } from '@/hooks/useSession';
@@ -18,7 +18,6 @@ export default function ReaderPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pageIdx, setPageIdx] = useState(0);
   const [feedback, setFeedback] = useState<FeedbackStatus | null>(null);
-  const [imgStatus, setImgStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const enterRef = useRef(Date.now());
   const trackedRef = useRef(false);
 
@@ -29,9 +28,6 @@ export default function ReaderPage() {
       setDraft(JSON.parse(s));
     } catch { navigate('/'); }
   }, [navigate]);
-
-  // 换页时重置图片状态
-  useEffect(() => { setImgStatus('loading'); }, [pageIdx]);
 
   // track page_view
   useEffect(() => {
@@ -144,8 +140,8 @@ export default function ReaderPage() {
       {/* ── 主区域：左图 + 右文 ── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* 左栏 58%：插图 */}
-        <div className="relative w-[58%] flex-shrink-0 bg-[var(--color-warm-100)]">
+        {/* 左栏 58%：插图占位 */}
+        <div className="relative w-[58%] flex-shrink-0 bg-gradient-to-br from-[var(--color-warm-100)] to-[var(--color-accent-light)]/40">
           <AnimatePresence mode="wait">
             <motion.div
               key={page.page_id + '-img'}
@@ -153,29 +149,25 @@ export default function ReaderPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35 }}
-              className="absolute inset-0"
+              className="absolute inset-0 flex flex-col items-center justify-center px-14"
             >
-              {/* 骨架屏 */}
-              {imgStatus === 'loading' && (
-                <div className="absolute inset-0 skeleton-shimmer" />
-              )}
-              {/* 加载失败 */}
-              {imgStatus === 'error' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-[var(--color-muted)] gap-3">
-                  <ImageBroken size={56} weight="light" />
-                  <p className="text-sm">Illustration unavailable</p>
-                </div>
-              )}
-              {/* 图片（有 imageUrl 时渲染） */}
-              {page.image_prompt && (
-                <img
-                  src={undefined}
-                  alt={`Page ${page.page_no}`}
-                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${imgStatus === 'loaded' ? 'opacity-100' : 'opacity-0'}`}
-                  onLoad={() => setImgStatus('loaded')}
-                  onError={() => setImgStatus('error')}
-                />
-              )}
+              {/* 页码 badge */}
+              <div className="absolute top-5 left-5 px-2.5 py-1 rounded-full bg-white/60 backdrop-blur-sm text-xs font-mono text-[var(--color-muted)]">
+                P{page.page_no}
+              </div>
+
+              {/* 画笔图标 */}
+              <div className="w-14 h-14 rounded-2xl bg-white/60 backdrop-blur-sm flex items-center justify-center mb-5">
+                <PaintBrush size={28} weight="light" className="text-[var(--color-accent)]" />
+              </div>
+
+              {/* 标签 */}
+              <p className="text-[10px] font-semibold tracking-widest uppercase text-[var(--color-accent)]/70 mb-3">插图场景</p>
+
+              {/* 图片描述 */}
+              <p className="text-center text-sm leading-relaxed text-[var(--color-foreground)]/65 max-w-xs">
+                {page.image_prompt}
+              </p>
             </motion.div>
           </AnimatePresence>
         </div>

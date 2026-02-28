@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Sparkle, CaretDown, CaretUp, SignOut, User } from '@phosphor-icons/react';
@@ -41,6 +41,19 @@ export default function GeneratePage() {
   const [interactiveDensity, setInteractiveDensity] = useState('medium');
   const [storyOpen, setStoryOpen] = useState(false);
 
+  // 读取上次保存的孩子档案
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('storybook_child_profile');
+      if (saved) {
+        const { nickname: n, age: a, gender: g } = JSON.parse(saved);
+        if (n) setNickname(n);
+        if (a) setAge(a);
+        if (g) setGender(g);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nickname.trim() || !targetFood.trim()) { setError('Please fill in nickname and target food.'); return; }
@@ -52,6 +65,7 @@ export default function GeneratePage() {
         meal_context: { target_food: targetFood.trim(), meal_score: mealScore, meal_text: mealText.trim(), possible_reason: possibleReason.trim() || undefined, session_mood: sessionMood },
         story_config: { story_type: storyType, difficulty, pages, interactive_density: interactiveDensity, must_include_positive_feedback: true, language: 'zh-CN' },
       });
+      localStorage.setItem('storybook_child_profile', JSON.stringify({ nickname: nickname.trim(), age, gender }));
       localStorage.setItem('storybook_draft', JSON.stringify(res.draft));
       navigate('/preview');
     } catch (err) {
