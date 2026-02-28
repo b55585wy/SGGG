@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Sparkle, CaretDown, CaretUp } from '@phosphor-icons/react';
+import { Sparkle, CaretDown, CaretUp, SignOut, User } from '@phosphor-icons/react';
 import { storyGenerate } from '@/lib/api';
+import { logout, currentUser } from '@/hooks/useAuth';
 import type { StoryType } from '@/types/story';
 
 const STORY_TYPES: { value: StoryType; label: string }[] = [
@@ -19,6 +20,12 @@ export default function GeneratePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const username = currentUser();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
 
   const [nickname, setNickname] = useState('');
   const [age, setAge] = useState(4);
@@ -57,8 +64,29 @@ export default function GeneratePage() {
   const spring = { type: 'spring' as const, stiffness: 100, damping: 20 };
 
   return (
-    <div className="min-h-screen flex items-start">
-      <form onSubmit={handleSubmit} className="flex w-full min-h-screen">
+    <div className="flex flex-col h-screen overflow-hidden">
+
+      {/* ── 顶部 Header ── */}
+      <header className="flex-shrink-0 flex items-center justify-between h-11 px-6 bg-[var(--color-surface)]/90 backdrop-blur-sm border-b border-[var(--color-border-light)] z-20">
+        <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+          <Sparkle size={13} weight="fill" className="text-[var(--color-accent)]" />
+          <span className="font-mono font-medium tracking-wider uppercase">AI Storybook</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+            <User size={13} weight="bold" />{username}
+          </span>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--color-muted)] hover:bg-[var(--color-warm-100)] active:scale-[0.98] transition-colors"
+          >
+            <SignOut size={13} weight="bold" />退出
+          </button>
+        </div>
+      </header>
+
+      {/* ── 主体：左右两栏 ── */}
+      <form onSubmit={handleSubmit} className="flex flex-1 overflow-hidden">
 
         {/* ── 左栏：标题 + 孩子信息 + 进餐信息 ── */}
         <div className="w-[55%] px-12 py-10 overflow-y-auto border-r border-[var(--color-border-light)]">
@@ -128,7 +156,7 @@ export default function GeneratePage() {
         </div>
 
         {/* ── 右栏：故事配置 + 提交 ── */}
-        <div className="w-[45%] px-10 py-10 flex flex-col">
+        <div className="w-[45%] px-10 py-10 flex flex-col overflow-y-auto">
 
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.05 }} className="mb-6">
             <p className="text-sm font-semibold tracking-tight">Story Settings</p>
