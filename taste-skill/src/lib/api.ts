@@ -14,8 +14,9 @@ import type {
 } from '@/types/telemetry';
 import { MOCK_DRAFT } from './mockData';
 
+export const IS_MOCK = import.meta.env.VITE_MOCK === 'true';
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const IS_MOCK = import.meta.env.VITE_MOCK === 'true';
 
 // Mock 延迟，模拟网络请求
 function mockDelay<T>(data: T, ms = 1200): Promise<T> {
@@ -95,4 +96,9 @@ export const storyGet = (storyId: string): Promise<GenerateResponse> => {
   }
   return fetch(`${BASE_URL}/api/v1/story/${storyId}`)
     .then(res => res.json() as Promise<GenerateResponse>);
+};
+
+export const susSubmit = (body: { session_id: string; answers: number[] }): Promise<{ ok: boolean; sus_score: number }> => {
+  if (IS_MOCK) return mockDelay({ ok: true, sus_score: 75 }, 0);
+  return request('/api/v1/sus/submit', body);
 };

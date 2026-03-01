@@ -58,10 +58,22 @@ class RegenerateRequest(BaseModel):
 class SessionStartRequest(BaseModel):
     story_id: str
     client_session_token: str
+    child_id: Optional[str] = None
 
 class SessionStartResponse(BaseModel):
     session_id: str
     status: Literal["created", "existed"]
+    session_index: int = 0
+
+
+# ── SUS ───────────────────────────────────────────────────────
+class SUSSubmitRequest(BaseModel):
+    session_id: str
+    answers: list[int]   # 10 个 1-5 的评分
+
+class SUSSubmitResponse(BaseModel):
+    ok: bool
+    sus_score: float
 
 
 # ── Telemetry ─────────────────────────────────────────────────

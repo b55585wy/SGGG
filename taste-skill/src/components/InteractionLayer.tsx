@@ -15,6 +15,7 @@ interface Props {
   branchChoices: BranchChoice[];
   onInteractionComplete: (eventKey: string, latencyMs: number) => void;
   onBranchSelect: (choiceId: string, nextPageId: string) => void;
+  onInteractionStart?: (interactionType: string, eventKey: string) => void;
 }
 
 export function InteractionLayer({
@@ -22,6 +23,7 @@ export function InteractionLayer({
   branchChoices,
   onInteractionComplete,
   onBranchSelect,
+  onInteractionStart,
 }: Props) {
   const mountTimeRef = useRef(Date.now());
   const [completed, setCompleted] = useState(false);
@@ -29,7 +31,10 @@ export function InteractionLayer({
   useEffect(() => {
     mountTimeRef.current = Date.now();
     setCompleted(false);
-  }, [interaction.event_key]);
+    if (interaction.type !== 'none') {
+      onInteractionStart?.(interaction.type, interaction.event_key);
+    }
+  }, [interaction.event_key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleComplete = useCallback(() => {
     if (completed) return;

@@ -10,6 +10,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS stories (
                 story_id        TEXT PRIMARY KEY,
                 parent_story_id TEXT,
+                child_id        TEXT,
                 regen_count     INTEGER NOT NULL DEFAULT 0,
                 story_json      TEXT NOT NULL,
                 created_at      TEXT NOT NULL DEFAULT (datetime('now'))
@@ -18,6 +19,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id           TEXT PRIMARY KEY,
                 story_id             TEXT NOT NULL,
+                child_id             TEXT,
+                session_index        INTEGER NOT NULL DEFAULT 0,
                 client_session_token TEXT NOT NULL,
                 status               TEXT NOT NULL DEFAULT 'READING',
                 created_at           TEXT NOT NULL DEFAULT (datetime('now')),
@@ -44,7 +47,25 @@ def init_db():
                 notes        TEXT,
                 created_at   TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS sus_responses (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT UNIQUE NOT NULL,
+                answers    TEXT NOT NULL,
+                sus_score  REAL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
+        # 迁移旧数据库（列已存在则忽略）
+        for sql in [
+            "ALTER TABLE stories ADD COLUMN child_id TEXT",
+            "ALTER TABLE sessions ADD COLUMN child_id TEXT",
+            "ALTER TABLE sessions ADD COLUMN session_index INTEGER NOT NULL DEFAULT 0",
+        ]:
+            try:
+                conn.execute(sql)
+            except Exception:
+                pass
 
 
 @contextmanager

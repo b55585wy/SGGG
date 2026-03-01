@@ -7,6 +7,7 @@ import { FeedbackModal } from '@/components/FeedbackModal';
 import { useSession } from '@/hooks/useSession';
 import { useTelemetry } from '@/hooks/useTelemetry';
 import { useTTS } from '@/hooks/useTTS';
+import { SUSModal } from '@/components/SUSModal';
 import { storyGet } from '@/lib/api';
 import type { Draft, FeedbackStatus } from '@/types/story';
 
@@ -19,6 +20,7 @@ export default function ReaderPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pageIdx, setPageIdx] = useState(0);
   const [feedback, setFeedback] = useState<FeedbackStatus | null>(null);
+  const [showSUS, setShowSUS] = useState(false);
   const enterRef = useRef(Date.now());
   const trackedRef = useRef(false);
 
@@ -50,6 +52,24 @@ export default function ReaderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.story_id]);
 
+  // 阅读前问卷：session 建立后上报（数据存在 localStorage）
+  useEffect(() => {
+    if (!session) return;
+    const raw = localStorage.getItem('storybook_pre_survey');
+    if (raw) {
+      try { track('pre_session_survey', JSON.parse(raw)); } catch { /* ignore */ }
+      localStorage.removeItem('storybook_pre_survey');
+    }
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 页面可见性变化埋点
+  useEffect(() => {
+    if (!session) return;
+    const handler = () => track('session_visibility', { state: document.hidden ? 'hidden' : 'visible' });
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // track page_view
   useEffect(() => {
     if (!draft || !session) return;
@@ -72,7 +92,11 @@ export default function ReaderPage() {
 
   const goTo = useCallback((next: number) => {
     if (!draft) return;
+    const fromPage = draft.pages[pageIdx]?.page_no ?? pageIdx + 1;
     trackDwell();
+    if (next < pageIdx) {
+      track('page_back', { from_page: fromPage, to_page: next + 1 }, draft.pages[pageIdx].page_id);
+    }
     if (next >= draft.pages.length) {
       track('story_complete', { completion_rate: 1.0 }, draft.pages[draft.pages.length - 1].page_id);
       flush();
@@ -80,7 +104,12 @@ export default function ReaderPage() {
       return;
     }
     setPageIdx(next);
-  }, [draft, trackDwell, track, flush]);
+  }, [draft, pageIdx, trackDwell, track, flush]);
+
+  const onInteractionStart = useCallback((interactionType: string, eventKey: string) => {
+    if (!draft) return;
+    track('interaction_start', { interaction_type: interactionType, event_key: eventKey }, draft.pages[pageIdx].page_id);
+  }, [draft, pageIdx, track]);
 
   const onInteraction = useCallback((key: string, ms: number) => {
     if (!draft) return;
@@ -104,6 +133,11 @@ export default function ReaderPage() {
   const onExit = useCallback(() => { trackDwell(); flush(); setFeedback('ABORTED'); }, [trackDwell, flush]);
 
   const onFeedbackDone = useCallback(() => {
+    setFeedback(null);
+    setShowSUS(true);
+  }, []);
+
+  const onSUSDone = useCallback(() => {
     clearSession();
     localStorage.removeItem('storybook_draft');
     navigate('/');
@@ -233,6 +267,7 @@ export default function ReaderPage() {
                   branchChoices={page.branch_choices}
                   onInteractionComplete={onInteraction}
                   onBranchSelect={onBranch}
+                  onInteractionStart={onInteractionStart}
                 />
 
                 {/* 最后一页：正反馈区 */}
@@ -273,6 +308,9 @@ export default function ReaderPage() {
 
       {feedback && session && (
         <FeedbackModal status={feedback} session_id={session.session_id} onDone={onFeedbackDone} />
+      )}
+      {showSUS && session && (
+        <SUSModal session_id={session.session_id} onDone={onSUSDone} />
       )}
     </div>
   );

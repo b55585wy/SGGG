@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { BookOpen, ArrowCounterClockwise, Lightbulb, Tag, Star, ArrowRight, Warning, X } from '@phosphor-icons/react';
 import { storyRegenerate } from '@/lib/api';
 import { useSession } from '@/hooks/useSession';
+import { PreSessionModal } from '@/components/PreSessionModal';
+import type { PreSessionAnswers } from '@/components/PreSessionModal';
 import type { Draft, DissatisfactionReason } from '@/types/story';
 
 const REASONS: { value: DissatisfactionReason; label: string }[] = [
@@ -23,6 +25,7 @@ export default function PreviewPage() {
   const [reason, setReason] = useState<DissatisfactionReason | null>(null);
   const [regenLoading, setRegenLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPreSurvey, setShowPreSurvey] = useState(false);
 
   useEffect(() => {
     try {
@@ -44,11 +47,19 @@ export default function PreviewPage() {
     } finally { setRegenLoading(false); }
   };
 
-  const handleStart = async () => {
+  const handleStart = async (preAnswers?: PreSessionAnswers) => {
     if (!draft) return;
     setError(null);
-    try { await startSession(draft.story_id); navigate('/reader'); }
-    catch (e) { setError(e instanceof Error ? e.message : '启动阅读失败，请重试。'); }
+    if (preAnswers) {
+      localStorage.setItem('storybook_pre_survey', JSON.stringify({
+        ...preAnswers, target_food: draft.book_meta.theme_food,
+      }));
+    }
+    const child_id = localStorage.getItem('storybook_active_child_id') || undefined;
+    try {
+      await startSession(draft.story_id, child_id);
+      navigate('/reader');
+    } catch (e) { setError(e instanceof Error ? e.message : '启动阅读失败，请重试。'); }
   };
 
   if (!draft) return (
@@ -61,6 +72,7 @@ export default function PreviewPage() {
   const spring = { type: 'spring' as const, stiffness: 100, damping: 20 };
 
   return (
+    <>
     <div className="flex h-screen overflow-hidden bg-[var(--color-background)]">
 
       {/* ── 左栏 55%：故事内容（可滚动） ── */}
@@ -157,7 +169,7 @@ export default function PreviewPage() {
             className="col-span-2 py-3.5 rounded-xl font-semibold text-sm border border-[var(--color-border)] hover:bg-[var(--color-warm-100)] disabled:opacity-40 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
             <ArrowCounterClockwise size={16} weight="bold" />重新生成{regenCount > 0 && <span className="text-xs text-[var(--color-muted)]">({regenCount}/2)</span>}
           </button>
-          <button onClick={handleStart} disabled={sessionLoading}
+          <button onClick={() => setShowPreSurvey(true)} disabled={sessionLoading}
             className="col-span-3 py-3.5 rounded-xl font-semibold text-sm text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-40 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
             {sessionLoading ? <><span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />启动中...</> : <>开始阅读<ArrowRight size={16} weight="bold" /></>}
           </button>
@@ -165,5 +177,13 @@ export default function PreviewPage() {
 
       </div>
     </div>
+
+    {showPreSurvey && draft && (
+      <PreSessionModal
+        targetFood={draft.book_meta.theme_food}
+        onConfirm={(answers) => { setShowPreSurvey(false); handleStart(answers); }}
+      />
+    )}
+    </>
   );
 }

@@ -5,6 +5,7 @@ interface SessionData {
   story_id: string;
   session_id: string;
   client_session_token: string;
+  session_index: number;
 }
 
 const STORAGE_KEY = 'storybook_session';
@@ -21,13 +22,18 @@ export function useSession() {
     } catch { /* ignore */ }
   }, []);
 
-  const start = useCallback(async (story_id: string) => {
+  const start = useCallback(async (story_id: string, child_id?: string) => {
     setLoading(true);
     setError(null);
     try {
       const client_session_token = crypto.randomUUID();
-      const res = await sessionStart({ story_id, client_session_token });
-      const data: SessionData = { story_id, session_id: res.session_id, client_session_token };
+      const res = await sessionStart({ story_id, client_session_token, child_id });
+      const data: SessionData = {
+        story_id,
+        session_id: res.session_id,
+        client_session_token,
+        session_index: res.session_index,
+      };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       setSession(data);
       return data;

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Sparkle, CaretDown, CaretUp, SignOut, User } from '@phosphor-icons/react';
+import { Sparkle, CaretDown, CaretUp, SignOut, User, Plus } from '@phosphor-icons/react';
 import { storyGenerate } from '@/lib/api';
 import { logout, currentUser } from '@/hooks/useAuth';
+import { useChildren } from '@/hooks/useChildren';
 import type { StoryType } from '@/types/story';
 
 const STORY_TYPES: { value: StoryType; label: string }[] = [
@@ -27,6 +28,8 @@ export default function GeneratePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const username = currentUser();
+  const { children, activeChild, saveChild, selectChild } = useChildren();
+  const [isCreatingNew, setIsCreatingNew] = useState(children.length === 0);
 
   const handleLogout = () => {
     logout();
@@ -47,18 +50,25 @@ export default function GeneratePage() {
   const [interactiveDensity, setInteractiveDensity] = useState('medium');
   const [storyOpen, setStoryOpen] = useState(false);
 
-  // 读取上次保存的孩子档案
+  // 读取活跃孩子档案（优先 useChildren，兼容旧 storybook_child_profile）
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('storybook_child_profile');
-      if (saved) {
-        const { nickname: n, age: a, gender: g } = JSON.parse(saved);
-        if (n) setNickname(n);
-        if (a) setAge(a);
-        if (g) setGender(g);
-      }
-    } catch { /* ignore */ }
-  }, []);
+    if (activeChild) {
+      setNickname(activeChild.nickname);
+      setAge(activeChild.age);
+      setGender(activeChild.gender);
+      setIsCreatingNew(false);
+    } else {
+      try {
+        const saved = localStorage.getItem('storybook_child_profile');
+        if (saved) {
+          const { nickname: n, age: a, gender: g } = JSON.parse(saved);
+          if (n) setNickname(n);
+          if (a) setAge(a);
+          if (g) setGender(g);
+        }
+      } catch { /* ignore */ }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,12 +76,17 @@ export default function GeneratePage() {
     setLoading(true);
     setError(null);
     try {
+      const child_id = saveChild(
+        { nickname: nickname.trim(), age, gender },
+        isCreatingNew ? undefined : activeChild?.child_id,
+      );
       const res = await storyGenerate({
         child_profile: { nickname: nickname.trim(), age, gender },
         meal_context: { target_food: targetFood.trim(), meal_score: mealScore, meal_text: mealText.trim(), possible_reason: possibleReason.trim() || undefined, session_mood: sessionMood },
         story_config: { story_type: storyType, difficulty, pages, interactive_density: interactiveDensity, must_include_positive_feedback: true, language: 'zh-CN' },
       });
       localStorage.setItem('storybook_child_profile', JSON.stringify({ nickname: nickname.trim(), age, gender }));
+      localStorage.setItem('storybook_active_child_id', child_id);
       localStorage.setItem('storybook_draft', JSON.stringify(res.draft));
       navigate('/preview');
     } catch (err) {
@@ -123,7 +138,32 @@ export default function GeneratePage() {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.05 }}
             className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border-light)] p-6 mb-4"
             style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.03)' }}>
-            <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-4">孩子档案</p>
+            <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-3">孩子档案</p>
+
+            {/* 孩子选择器 */}
+            {children.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {children.map(c => (
+                  <button type="button" key={c.child_id}
+                    onClick={() => { selectChild(c.child_id); setNickname(c.nickname); setAge(c.age); setGender(c.gender); setIsCreatingNew(false); }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all
+                      ${!isCreatingNew && activeChild?.child_id === c.child_id
+                        ? 'border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent)]'
+                        : 'border-[var(--color-border-light)] text-[var(--color-muted)] hover:border-[var(--color-border)]'}`}>
+                    {c.nickname} · {c.age}岁
+                  </button>
+                ))}
+                <button type="button"
+                  onClick={() => { selectChild(null); setNickname(''); setAge(4); setGender('boy'); setIsCreatingNew(true); }}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border transition-all
+                    ${isCreatingNew
+                      ? 'border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent)]'
+                      : 'border-dashed border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'}`}>
+                  <Plus size={11} weight="bold" />新建孩子
+                </button>
+              </div>
+            )}
+
             <div className="space-y-4">
               <Field label="昵称">
                 <input type="text" value={nickname} onChange={e => setNickname(e.target.value)}
