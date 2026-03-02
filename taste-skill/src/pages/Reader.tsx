@@ -132,10 +132,18 @@ export default function ReaderPage() {
 
   const onExit = useCallback(() => { trackDwell(); flush(); setFeedback('ABORTED'); }, [trackDwell, flush]);
 
+  const TOTAL_SESSIONS = 9;
+
   const onFeedbackDone = useCallback(() => {
     setFeedback(null);
-    setShowSUS(true);
-  }, []);
+    if (session && session.session_index >= TOTAL_SESSIONS - 1) {
+      setShowSUS(true);
+    } else {
+      clearSession();
+      localStorage.removeItem('storybook_draft');
+      navigate('/');
+    }
+  }, [session, clearSession, navigate]);
 
   const onSUSDone = useCallback(() => {
     clearSession();

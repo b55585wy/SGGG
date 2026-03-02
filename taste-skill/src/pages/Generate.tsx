@@ -159,7 +159,7 @@ export default function GeneratePage() {
                     ${isCreatingNew
                       ? 'border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent)]'
                       : 'border-dashed border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]'}`}>
-                  <Plus size={11} weight="bold" />新建孩子
+                  <Plus size={11} weight="bold" />新建档案
                 </button>
               </div>
             )}
