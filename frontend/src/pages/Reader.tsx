@@ -27,9 +27,9 @@ export default function ReaderPage() {
   useEffect(() => {
     try {
       const s = localStorage.getItem('storybook_draft');
-      if (!s) { navigate('/'); return; }
+      if (!s) { navigate('/noa/home'); return; }
       setDraft(JSON.parse(s));
-    } catch { navigate('/'); }
+    } catch { navigate('/noa/home'); }
   }, [navigate]);
 
   // 轮询图片：后台生成完成后自动刷新（最多 10 次，每 3 秒一次）
@@ -141,14 +141,14 @@ export default function ReaderPage() {
     } else {
       clearSession();
       localStorage.removeItem('storybook_draft');
-      navigate('/');
+      navigate('/noa/home');
     }
   }, [session, clearSession, navigate]);
 
   const onSUSDone = useCallback(() => {
     clearSession();
     localStorage.removeItem('storybook_draft');
-    navigate('/');
+    navigate('/noa/home');
   }, [clearSession, navigate]);
 
   if (!draft || !session) return (

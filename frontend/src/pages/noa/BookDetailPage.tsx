@@ -1,68 +1,82 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getJson } from '@/lib/ncApi'
-
-type BookDetail = {
-  bookID: string
-  title: string
-  preview: string
-  description: string
-  content: string
-  confirmed: boolean
-}
+import { sessionStart } from '@/lib/api'
 
 type BookDetailResponse = {
-  book: BookDetail
+  book: {
+    bookID: string
+    title: string
+    preview: string
+    description: string
+    content: string
+    confirmed: boolean
+  }
 }
 
 export default function BookDetailPage() {
   const navigate = useNavigate()
   const { bookId } = useParams()
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [book, setBook] = useState<BookDetail | null>(null)
-
-  const loadBook = useCallback(async (id: string) => {
-    setError('')
-    setLoading(true)
-    try {
-      const data = await getJson<BookDetailResponse>(`/api/books/${id}`)
-      setBook(data.book)
-    } catch (e) {
-      const message =
-        e &&
-        typeof e === 'object' &&
-        'message' in e &&
-        typeof (e as { message?: unknown }).message === 'string'
-          ? (e as { message: string }).message
-          : '加载失败'
-      setError(message)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
 
   useEffect(() => {
     if (!bookId) {
       navigate('/noa/home', { replace: true })
       return
     }
-    void loadBook(bookId)
-  }, [bookId, loadBook, navigate])
 
-  const parsedContent = useMemo(() => {
-    if (!book?.content) return null
-    try {
-      return JSON.parse(book.content) as { pages?: Array<{ text?: string }> }
-    } catch {
-      return null
+    let cancelled = false
+
+    async function init() {
+      try {
+        // 1. 从 user-api 获取绘本详情
+        const data = await getJson<BookDetailResponse>(`/api/books/${bookId}`)
+        if (cancelled) return
+
+        // 2. 解析 content 中的 story draft JSON
+        const draft = JSON.parse(data.book.content)
+        const storyId: string = draft.story_id
+
+        // 3. 存入 localStorage（Reader 从这里读取）
+        localStorage.setItem('storybook_draft', JSON.stringify(draft))
+
+        // 4. 调用 FastAPI 创建阅读 session
+        const clientToken = crypto.randomUUID()
+        const sessionRes = await sessionStart({
+          story_id: storyId,
+          client_session_token: clientToken,
+        })
+        if (cancelled) return
+
+        // 5. 存入 session 数据（useSession 从这里恢复）
+        localStorage.setItem(
+          'storybook_session',
+          JSON.stringify({
+            story_id: storyId,
+            session_id: sessionRes.session_id,
+            client_session_token: clientToken,
+            session_index: (sessionRes as { session_index?: number }).session_index ?? 0,
+          }),
+        )
+
+        // 6. 跳转 Reader
+        navigate('/reader', { replace: true })
+      } catch (e) {
+        if (cancelled) return
+        const message =
+          e instanceof Error ? e.message : '加载失败'
+        setError(message)
+      }
     }
-  }, [book?.content])
 
-  return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ fontSize: 20, fontWeight: 600 }}>绘本阅读</div>
+    void init()
+    return () => { cancelled = true }
+  }, [bookId, navigate])
+
+  if (error) {
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ color: '#b91c1c', marginBottom: 12 }}>{error}</div>
         <button
           onClick={() => navigate('/noa/home')}
           style={{
@@ -73,44 +87,29 @@ export default function BookDetailPage() {
             cursor: 'pointer',
           }}
         >
-          返回
+          返回首页
         </button>
       </div>
+    )
+  }
 
-      {loading ? <div>加载中...</div> : null}
-      {error ? (
-        <div style={{ marginBottom: 12, color: '#b91c1c', fontSize: 12 }}>{error}</div>
-      ) : null}
-
-      {book ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 24 }}>
-          <div>
-            <img
-              src={book.preview}
-              alt={book.title}
-              style={{ width: '100%', borderRadius: 12, border: '1px solid #e5e7eb' }}
-            />
-            <div style={{ marginTop: 12, fontWeight: 600 }}>{book.title}</div>
-            <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>
-              {book.description}
-            </div>
-            <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>
-              {book.confirmed ? '已确认绘本' : '未确认绘本'}
-            </div>
-          </div>
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
-            {parsedContent?.pages?.length ? (
-              parsedContent.pages.map((page, index) => (
-                <div key={index} style={{ marginBottom: 12, fontSize: 14 }}>
-                  {page.text}
-                </div>
-              ))
-            ) : (
-              <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{book.content}</div>
-            )}
-          </div>
-        </div>
-      ) : null}
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            border: '3px solid #e5e7eb',
+            borderTopColor: '#111827',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+            margin: '0 auto 12px',
+          }}
+        />
+        <div style={{ fontSize: 14, color: '#6b7280' }}>正在准备阅读...</div>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }

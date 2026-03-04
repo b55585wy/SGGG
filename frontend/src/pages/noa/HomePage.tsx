@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { clearToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
+import { ClockCounterClockwise, Microphone, PaperPlaneTilt } from '@phosphor-icons/react'
 
 type HomeStatusResponse = {
   avatar: {
@@ -31,6 +32,26 @@ type FoodLogResponse = {
 
 type VoiceResponse = {
   text: string
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="min-h-[100dvh] bg-background">
+      <div className="mx-auto max-w-[1200px] px-6 py-8">
+        <div className="mb-8 flex items-center justify-between">
+          <div className="h-7 w-20 rounded-lg skeleton-shimmer" />
+          <div className="h-10 w-28 rounded-xl skeleton-shimmer" />
+        </div>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-[7fr_5fr]">
+          <div className="space-y-6">
+            <div className="h-80 rounded-[2rem] skeleton-shimmer" />
+            <div className="h-72 rounded-[2rem] skeleton-shimmer" />
+          </div>
+          <div className="h-[28rem] rounded-[2rem] skeleton-shimmer" />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function HomePage() {
@@ -180,293 +201,211 @@ export default function HomePage() {
   const regenerateReached = book ? book.regenerateCount >= 2 : false
 
   if (loading) {
-    return <div style={{ padding: 24 }}>加载中...</div>
+    return <LoadingSkeleton />
   }
 
   return (
-    <div style={{ padding: 24, width: '100%', boxSizing: 'border-box' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ fontSize: 20, fontWeight: 600 }}>主页面</div>
-        <button
-          onClick={() => navigate('/noa/books/history')}
-          style={{
-            padding: '8px 12px',
-            borderRadius: 8,
-            border: '1px solid #111827',
-            background: '#fff',
-            cursor: 'pointer',
-          }}
-        >
-          历史绘本
-        </button>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-          gap: 24,
-          alignItems: 'start',
-        }}
-      >
-        <div
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 16,
-            padding: 16,
-            background: '#fff',
-          }}
-        >
-          <div style={{ height: 90, display: 'flex', alignItems: 'center' }}>
-            {feedbackText ? (
-              <div
-                style={{
-                  background: '#fef3c7',
-                  borderRadius: 12,
-                  padding: '10px 14px',
-                  fontSize: 13,
-                  color: '#92400e',
-                  maxWidth: '100%',
-                }}
-              >
-                {feedbackText}
-              </div>
-            ) : (
-              <div style={{ color: '#9ca3af', fontSize: 12 }}>正反馈语展示区域</div>
-            )}
-          </div>
-
-          <div
-            style={{
-              position: 'relative',
-              width: '100%',
-              aspectRatio: '3 / 4',
-              borderRadius: 12,
-              overflow: 'hidden',
-              background: '#f8fafc',
-              border: '1px solid #e5e7eb',
-            }}
+    <div className="min-h-[100dvh] bg-background">
+      <div className="mx-auto max-w-[1200px] px-6 py-8">
+        {/* Header */}
+        <div className="mb-8 flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            主页面
+          </h1>
+          <button
+            onClick={() => navigate('/noa/books/history')}
+            className="inline-flex items-center gap-2 rounded-xl border border-border-light
+                       bg-surface px-4 py-2.5 text-sm font-medium text-foreground
+                       shadow-[0_1px_3px_rgba(0,0,0,0.04)]
+                       transition-all duration-200 hover:border-border hover:shadow-sm active:scale-[0.97]"
           >
-            {avatar?.baseImage ? (
-              <img
-                src={avatar.baseImage}
-                alt="base"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {avatar?.topImage ? (
-              <img
-                src={avatar.topImage}
-                alt="top"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {avatar?.bottomImage ? (
-              <img
-                src={avatar.bottomImage}
-                alt="bottom"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {avatar?.hairImage ? (
-              <img
-                src={avatar.hairImage}
-                alt="hair"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {avatar?.glassesImage ? (
-              <img
-                src={avatar.glassesImage}
-                alt="glasses"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-          </div>
-
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>进食情况录入</div>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>
-                请给本次尝试{status?.themeFood || '食物'}打分
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={10}
-                value={score}
-                onChange={(e) => {
-                  setScore(Number(e.target.value))
-                  setScoreTouched(true)
-                }}
-                style={{ width: '100%' }}
-              />
-              <div style={{ textAlign: 'right', fontSize: 12, color: '#6b7280' }}>
-                当前评分：{score}
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>
-                进食反馈
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <textarea
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  rows={3}
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    borderRadius: 8,
-                    border: '1px solid #d1d5db',
-                    resize: 'none',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={onTranscribe}
-                  disabled={voiceLoading}
-                  style={{
-                    padding: '8px 10px',
-                    borderRadius: 8,
-                    border: '1px solid #111827',
-                    background: voiceLoading ? '#6b7280' : '#fff',
-                    color: voiceLoading ? '#fff' : '#111827',
-                    cursor: voiceLoading ? 'not-allowed' : 'pointer',
-                    height: 42,
-                    alignSelf: 'flex-start',
-                  }}
-                >
-                  {voiceLoading ? '识别中' : '语音录入'}
-                </button>
-              </div>
-            </div>
-
-            {error ? (
-              <div style={{ marginBottom: 12, color: '#b91c1c', fontSize: 12 }}>
-                {error}
-              </div>
-            ) : null}
-
-            <button
-              onClick={onSend}
-              disabled={!canSend}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 10,
-                border: '1px solid #111827',
-                background: !canSend ? '#6b7280' : '#111827',
-                color: '#fff',
-                cursor: !canSend ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {sending ? '发送中...' : '发送'}
-            </button>
-          </div>
+            <ClockCounterClockwise size={18} weight="bold" />
+            历史绘本
+          </button>
         </div>
 
-        <div
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 16,
-            padding: 16,
-            background: '#fff',
-          }}
-        >
-          <div style={{ fontWeight: 600, marginBottom: 12 }}>绘本封面</div>
-          <button
-            onClick={() => book && navigate(`/noa/books/${book.bookID}`)}
-            style={{
-              width: '100%',
-              border: '1px solid #e5e7eb',
-              borderRadius: 16,
-              overflow: 'hidden',
-              padding: 0,
-              background: '#fff',
-              cursor: book ? 'pointer' : 'default',
-              textAlign: 'left',
-            }}
-          >
-            <div style={{ position: 'relative' }}>
-              {book?.preview ? (
-                <img
-                  src={book.preview}
-                  alt={book.title}
-                  style={{ width: '100%', height: 240, objectFit: 'cover' }}
-                />
-              ) : (
-                <div style={{ height: 240, background: '#f3f4f6' }} />
-              )}
-              {book?.confirmed ? (
-                <div
-                  style={{
-                    position: 'absolute',
-                    right: 12,
-                    bottom: 12,
-                    background: '#22c55e',
-                    color: '#fff',
-                    borderRadius: 999,
-                    padding: '4px 10px',
-                    fontSize: 12,
-                  }}
-                >
-                  已确认
-                </div>
-              ) : null}
-            </div>
-            <div style={{ padding: 12 }}>
-              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>
-                {book?.title || '绘本封面'}
-              </div>
-              <div style={{ fontSize: 12, color: '#6b7280' }}>
-                {book?.description || '暂无简介'}
-              </div>
-            </div>
-          </button>
+        {/* Feedback banner */}
+        {feedbackText ? (
+          <div className="animate-in mb-6 rounded-2xl border border-accent/20 bg-accent-light/60 px-5 py-4">
+            <p className="text-sm font-medium leading-relaxed text-accent-hover">
+              {feedbackText}
+            </p>
+          </div>
+        ) : null}
 
-          {!book?.confirmed ? (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ fontWeight: 600, marginBottom: 10 }}>确认绘本</div>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button
-                  onClick={onConfirmBook}
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    border: '1px solid #111827',
-                    background: '#111827',
-                    color: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  确认
-                </button>
-                <button
-                  onClick={() => navigate('/noa/books/create', { state: { fromRegenerate: true } })}
-                  disabled={regenerateReached}
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    border: '1px solid #111827',
-                    background: regenerateReached ? '#6b7280' : '#fff',
-                    color: regenerateReached ? '#fff' : '#111827',
-                    cursor: regenerateReached ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  我要重新生成
-                </button>
-              </div>
-              {regenerateReached ? (
-                <div style={{ marginTop: 8, fontSize: 12, color: '#b91c1c' }}>
-                  已达到重新生成上限，请确认当前绘本
-                </div>
+        {/* Main grid: avatar narrow left, food+book stacked right */}
+        <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[5fr_7fr]">
+          {/* Left: Avatar card — spans both rows on desktop */}
+          <div className="rounded-[2rem] border border-border-light bg-surface p-5
+                          shadow-[0_20px_40px_-15px_rgba(0,0,0,0.04)] md:row-span-2">
+            {!feedbackText ? (
+              <p className="mb-3 text-xs text-muted">正反馈语展示区域</p>
+            ) : null}
+            <div className="relative mx-auto aspect-[3/4] w-full overflow-hidden
+                            rounded-2xl border border-border-light bg-warm-100">
+              {avatar?.baseImage ? (
+                <img src={avatar.baseImage} alt="base"
+                     className="absolute inset-0 h-full w-full" />
+              ) : null}
+              {avatar?.topImage ? (
+                <img src={avatar.topImage} alt="top"
+                     className="absolute inset-0 h-full w-full" />
+              ) : null}
+              {avatar?.bottomImage ? (
+                <img src={avatar.bottomImage} alt="bottom"
+                     className="absolute inset-0 h-full w-full" />
+              ) : null}
+              {avatar?.hairImage ? (
+                <img src={avatar.hairImage} alt="hair"
+                     className="absolute inset-0 h-full w-full" />
+              ) : null}
+              {avatar?.glassesImage ? (
+                <img src={avatar.glassesImage} alt="glasses"
+                     className="absolute inset-0 h-full w-full" />
               ) : null}
             </div>
-          ) : null}
+          </div>
+
+          {/* Right top: Food log card */}
+          <div className="rounded-[2rem] border border-border-light bg-surface p-6
+                          shadow-[0_20px_40px_-15px_rgba(0,0,0,0.04)]">
+              <h2 className="mb-5 text-lg font-semibold tracking-tight text-foreground">
+                进食情况录入
+              </h2>
+
+              {/* Score slider */}
+              <div className="mb-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <label className="text-sm text-muted">
+                    请给本次尝试{status?.themeFood || '食物'}打分
+                  </label>
+                  <span className="text-sm font-semibold tabular-nums text-foreground">
+                    当前评分：{score}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  value={score}
+                  onChange={(e) => {
+                    setScore(Number(e.target.value))
+                    setScoreTouched(true)
+                  }}
+                  className="range-accent w-full"
+                />
+              </div>
+
+              {/* Feedback textarea */}
+              <div className="mb-5">
+                <label className="mb-2 block text-sm text-muted">进食反馈</label>
+                <div className="flex gap-2">
+                  <textarea
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    rows={3}
+                    className="form-input flex-1 resize-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={onTranscribe}
+                    disabled={voiceLoading}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center self-start
+                               rounded-xl border border-border-light bg-surface text-foreground
+                               transition-all duration-200 hover:border-accent hover:text-accent
+                               active:scale-[0.95] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Microphone size={20} weight={voiceLoading ? 'fill' : 'regular'} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Error */}
+              {error ? (
+                <p className="mb-4 text-sm text-error">{error}</p>
+              ) : null}
+
+              {/* Send button */}
+              <button
+                onClick={onSend}
+                disabled={!canSend}
+                className="inline-flex w-full items-center justify-center gap-2
+                           rounded-xl border border-foreground bg-foreground py-3
+                           text-sm font-semibold text-surface
+                           transition-all duration-200 hover:opacity-90 active:scale-[0.98]
+                           disabled:cursor-not-allowed disabled:border-muted disabled:bg-muted"
+              >
+                <PaperPlaneTilt size={18} weight="bold" />
+                {sending ? '发送中...' : '发送'}
+              </button>
+            </div>
+          </div>
+
+          {/* Right: Book card */}
+          <div className="overflow-hidden rounded-[2rem] border border-border-light bg-surface
+                          shadow-[0_20px_40px_-15px_rgba(0,0,0,0.04)]">
+            <button
+              onClick={() => book && navigate(`/noa/books/${book.bookID}`)}
+              className="w-full text-left transition-opacity duration-200 hover:opacity-80"
+              style={{ cursor: book ? 'pointer' : 'default' }}
+            >
+              <div className="relative">
+                {book?.preview ? (
+                  <img
+                    src={book.preview}
+                    alt={book.title}
+                    className="h-56 w-full object-cover"
+                  />
+                ) : (
+                  <div className="h-56 bg-warm-100" />
+                )}
+                {book?.confirmed ? (
+                  <span className="absolute bottom-3 right-3 inline-flex items-center gap-1
+                                   rounded-full bg-accent px-3 py-1 text-xs font-medium text-surface">
+                    已确认
+                  </span>
+                ) : null}
+              </div>
+              <div className="p-5">
+                <h3 className="font-semibold text-foreground">
+                  {book?.title || '绘本封面'}
+                </h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted">
+                  {book?.description || '暂无简介'}
+                </p>
+              </div>
+            </button>
+
+            {!book?.confirmed ? (
+              <div className="space-y-3 px-5 pb-5">
+                <div className="flex gap-3">
+                  <button
+                    onClick={onConfirmBook}
+                    className="flex-1 rounded-xl border border-foreground bg-foreground
+                               py-2.5 text-sm font-semibold text-surface
+                               transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+                  >
+                    确认
+                  </button>
+                  <button
+                    onClick={() => navigate('/noa/books/create', { state: { fromRegenerate: true } })}
+                    disabled={regenerateReached}
+                    className="flex-1 rounded-xl border border-border bg-surface
+                               py-2.5 text-sm font-semibold text-foreground
+                               transition-all duration-200 hover:border-foreground active:scale-[0.98]
+                               disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    我要重新生成
+                  </button>
+                </div>
+                {regenerateReached ? (
+                  <p className="text-xs text-error">
+                    已达到重新生成上限，请确认当前绘本
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

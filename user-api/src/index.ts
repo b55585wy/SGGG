@@ -45,50 +45,76 @@ function createBookPreviewImage(title: string) {
   return svgDataUri(svg);
 }
 
-function createBookPayload(params: {
-  nickname: string;
-  themeFood: string;
-  promptTitle?: string | null;
-  promptNote?: string | null;
-}) {
-  const title = params.promptTitle?.trim() || `${params.nickname}的美味冒险`;
-  const preview = createBookPreviewImage(title);
-  const extra = params.promptNote?.trim() ? ` ${params.promptNote.trim()}` : "";
-  const description = `今天我们尝试了${params.themeFood}，一起把勇气装进口袋。${extra}`;
-  const content = JSON.stringify({
-    title,
-    pages: [
-      { text: `${params.nickname}准备和${params.themeFood}交朋友。` },
-      { text: `勇敢尝试后，大家一起鼓掌。` },
-    ],
-  });
-  return { title, preview, description, content };
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+
+/** 分数映射：user-api 0-10 → FastAPI 1-5 */
+function mapScore(score: number): number {
+  if (score <= 2) return 1;
+  if (score <= 4) return 2;
+  if (score <= 6) return 3;
+  if (score <= 8) return 4;
+  return 5;
 }
 
 async function generateTempBookForUser(params: {
   userID: string;
   nickname: string;
+  gender: string;
   themeFood: string;
+  mealScore: number;
+  mealContent: string;
   regenerateCount: number;
-  promptTitle?: string | null;
-  promptNote?: string | null;
 }) {
-  const payload = createBookPayload({
-    nickname: params.nickname,
-    themeFood: params.themeFood,
-    promptTitle: params.promptTitle,
-    promptNote: params.promptNote,
+  const requestBody = {
+    child_profile: {
+      nickname: params.nickname,
+      age: 5,
+      gender: params.gender,
+    },
+    meal_context: {
+      target_food: params.themeFood,
+      meal_score: mapScore(params.mealScore),
+      meal_text: params.mealContent || "",
+    },
+    story_config: {
+      story_type: "interactive",
+      difficulty: "medium",
+      pages: 6,
+      interactive_density: "medium",
+      language: "zh-CN",
+    },
+  };
+
+  const response = await fetch(`${FASTAPI_URL}/api/v1/story/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(requestBody),
   });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`FastAPI story/generate failed (${response.status}): ${text}`);
+  }
+
+  const data = (await response.json()) as {
+    draft: {
+      story_id: string;
+      book_meta: { title: string; summary: string };
+      pages: unknown[];
+      ending: unknown;
+    };
+  };
+  const draft = data.draft;
+
   await saveTempBook({
     userID: params.userID,
-    bookID: crypto.randomUUID(),
-    title: payload.title,
-    preview: payload.preview,
-    description: payload.description,
-    content: payload.content,
+    bookID: draft.story_id,
+    title: draft.book_meta.title,
+    preview: createBookPreviewImage(draft.book_meta.title),
+    description: draft.book_meta.summary,
+    content: JSON.stringify(draft),
     regenerateCount: params.regenerateCount,
   });
-  return payload;
 }
 
 app.get("/api/health", (_req, res) => {
@@ -345,14 +371,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  const payload = await generateTempBookForUser({
-    userID: req.user.userID,
-    nickname: avatar.nickname,
-    themeFood: avatar.themeFood,
-    regenerateCount: 0,
-  });
-
-  const savedTemp = await getTempBook(req.user.userID);
+  // 没有绘本时，不再自动生成 — 等用户提交进食记录后触发
   res.json({
     avatar: {
       nickname: avatar.nickname,
@@ -364,14 +383,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     },
     feedbackText: latestState?.feedbackText || "",
     themeFood: avatar.themeFood,
-    book: {
-      bookID: savedTemp?.bookID || crypto.randomUUID(),
-      title: payload.title,
-      preview: payload.preview,
-      description: payload.description,
-      confirmed: false,
-      regenerateCount: 0,
-    },
+    book: null,
   });
 });
 
@@ -410,17 +422,25 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     voiceData,
   });
 
-  const feedbackText = "太棒了！你又进步了一点点。";
+  const feedbackText =
+    score >= 8
+      ? "哇，你今天表现太棒了！"
+      : score >= 5
+        ? "很好的尝试，继续加油！"
+        : "没关系，每一小步都是进步。";
   await insertAvatarState({ userID: req.user.userID, feedbackText });
 
   const avatar = await getUserAvatar(req.user.userID);
   if (avatar) {
-    void generateTempBookForUser({
+    generateTempBookForUser({
       userID: req.user.userID,
       nickname: avatar.nickname,
+      gender: avatar.gender,
       themeFood: avatar.themeFood,
+      mealScore: score,
+      mealContent: content,
       regenerateCount: 0,
-    });
+    }).catch((err) => console.error("[BOOK] 绘本生成失败:", err));
   }
 
   res.json({ ok: true, feedbackText });
@@ -476,24 +496,61 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     res.status(404).json({ message: "未找到虚拟形象" });
     return;
   }
-  const payload = await generateTempBookForUser({
-    userID: req.user.userID,
-    nickname: avatar.nickname,
-    themeFood: avatar.themeFood,
-    regenerateCount: tempBook.regenerateCount + 1,
-    promptTitle,
-    promptNote,
+
+  const storyType =
+    body && typeof body === "object" && typeof (body as { story_type?: unknown }).story_type === "string"
+      ? (body as { story_type: string }).story_type
+      : "interactive";
+
+  const regenBody = {
+    previous_story_id: tempBook.bookID,
+    target_food: avatar.themeFood,
+    story_type: storyType,
+    dissatisfaction_reason: promptNote || "用户要求重新生成",
+  };
+
+  const response = await fetch(`${FASTAPI_URL}/api/v1/story/regenerate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(regenBody),
   });
-  const updated = await getTempBook(req.user.userID);
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    console.error("[BOOK] 重新生成失败:", response.status, text);
+    res.status(502).json({ message: "绘本重新生成失败" });
+    return;
+  }
+
+  const data = (await response.json()) as {
+    draft: {
+      story_id: string;
+      book_meta: { title: string; summary: string };
+      pages: unknown[];
+      ending: unknown;
+    };
+  };
+  const draft = data.draft;
+
+  await saveTempBook({
+    userID: req.user.userID,
+    bookID: draft.story_id,
+    title: draft.book_meta.title,
+    preview: createBookPreviewImage(draft.book_meta.title),
+    description: draft.book_meta.summary,
+    content: JSON.stringify(draft),
+    regenerateCount: tempBook.regenerateCount + 1,
+  });
+
   res.json({
     ok: true,
     book: {
-      bookID: updated?.bookID || tempBook.bookID,
-      title: payload.title,
-      preview: payload.preview,
-      description: payload.description,
+      bookID: draft.story_id,
+      title: draft.book_meta.title,
+      preview: createBookPreviewImage(draft.book_meta.title),
+      description: draft.book_meta.summary,
       confirmed: false,
-      regenerateCount: updated?.regenerateCount ?? tempBook.regenerateCount + 1,
+      regenerateCount: tempBook.regenerateCount + 1,
     },
   });
 });

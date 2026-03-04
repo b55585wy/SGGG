@@ -5,9 +5,12 @@
     "dev": "npm-run-all --parallel dev:backend dev:user-api dev:frontend",
     "dev:backend": "cd backend && uvicorn main:app --reload --port 8000",
     "dev:user-api": "cd user-api && npm run dev",
-    "dev:frontend": "cd frontend && npm run dev"
+    "dev:frontend": "cd frontend && npm run dev",
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "npm-run-all": "^4.1.5"
   }
 }

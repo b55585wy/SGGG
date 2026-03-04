@@ -1,13 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
-import GeneratePage from './pages/Generate'
-import PreviewPage from './pages/Preview'
 import ReaderPage from './pages/Reader'
-import LoginPage from './pages/Login'
-import RegisterPage from './pages/Register'
-import ProtectedRoute from './components/ProtectedRoute'
 
 import NcLoginPage from './pages/noa/NcLoginPage'
 import AvatarPage from './pages/noa/AvatarPage'
@@ -16,27 +11,31 @@ import BookCreatePage from './pages/noa/BookCreatePage'
 import BookDetailPage from './pages/noa/BookDetailPage'
 import BookHistoryPage from './pages/noa/BookHistoryPage'
 import AdminUsersPage from './pages/noa/AdminUsersPage'
+import NcRequireAuth from './pages/noa/NcRequireAuth'
+import NcRouteTracker from './pages/noa/NcRouteTracker'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <main className="min-h-screen bg-[var(--color-background)]">
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/" element={<ProtectedRoute><GeneratePage /></ProtectedRoute>} />
-          <Route path="/preview" element={<ProtectedRoute><PreviewPage /></ProtectedRoute>} />
-          <Route path="/reader" element={<ProtectedRoute><ReaderPage /></ProtectedRoute>} />
+      <NcRouteTracker>
+        <main className="min-h-screen bg-[var(--color-background)]">
+          <Routes>
+            <Route path="/" element={<Navigate to="/noa/login" replace />} />
 
-          <Route path="/noa/login" element={<NcLoginPage />} />
-          <Route path="/noa/avatar" element={<AvatarPage />} />
-          <Route path="/noa/home" element={<NcHomePage />} />
-          <Route path="/noa/books/create" element={<BookCreatePage />} />
-          <Route path="/noa/books/history" element={<BookHistoryPage />} />
-          <Route path="/noa/books/:bookId" element={<BookDetailPage />} />
-          <Route path="/noa/admin/users" element={<AdminUsersPage />} />
-        </Routes>
-      </main>
+            <Route path="/noa/login" element={<NcLoginPage />} />
+            <Route path="/noa/admin/users" element={<AdminUsersPage />} />
+            <Route path="/noa/avatar" element={<NcRequireAuth><AvatarPage /></NcRequireAuth>} />
+            <Route path="/noa/home" element={<NcRequireAuth><NcHomePage /></NcRequireAuth>} />
+            <Route path="/noa/books/create" element={<NcRequireAuth><BookCreatePage /></NcRequireAuth>} />
+            <Route path="/noa/books/history" element={<NcRequireAuth><BookHistoryPage /></NcRequireAuth>} />
+            <Route path="/noa/books/:bookId" element={<NcRequireAuth><BookDetailPage /></NcRequireAuth>} />
+
+            <Route path="/reader" element={<NcRequireAuth><ReaderPage /></NcRequireAuth>} />
+
+            <Route path="*" element={<Navigate to="/noa/login" replace />} />
+          </Routes>
+        </main>
+      </NcRouteTracker>
     </BrowserRouter>
   </StrictMode>,
 )

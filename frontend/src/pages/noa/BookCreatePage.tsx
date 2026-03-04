@@ -20,6 +20,11 @@ export default function BookCreatePage() {
   const [error, setError] = useState('')
   const [title, setTitle] = useState('')
   const [note, setNote] = useState('')
+  const [storyType, setStoryType] = useState('interactive')
+  const [difficulty, setDifficulty] = useState('medium')
+  const [pages, setPages] = useState(6)
+  const [interactionDensity, setInteractionDensity] = useState('medium')
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [regenerateCount, setRegenerateCount] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
@@ -78,6 +83,10 @@ export default function BookCreatePage() {
       await postJson('/api/book/regenerate', {
         title: title.trim(),
         note: note.trim(),
+        story_type: storyType,
+        difficulty,
+        pages,
+        interaction_density: interactionDensity,
       })
       navigate('/noa/home', { replace: true })
     } catch (e) {
@@ -151,6 +160,77 @@ export default function BookCreatePage() {
             }}
           />
         </label>
+
+        <div style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#6b7280',
+              fontSize: 13,
+              cursor: 'pointer',
+              padding: 0,
+            }}
+          >
+            {showAdvanced ? '▼' : '▶'} 高级故事配置
+          </button>
+
+          {showAdvanced && (
+            <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <label style={{ display: 'block' }}>
+                <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>故事类型</div>
+                <select
+                  value={storyType}
+                  onChange={(e) => setStoryType(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8 }}
+                >
+                  <option value="interactive">互动冒险</option>
+                  <option value="adventure">探险故事</option>
+                  <option value="social">社交故事</option>
+                  <option value="sensory">感官体验</option>
+                </select>
+              </label>
+              <label style={{ display: 'block' }}>
+                <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>难度</div>
+                <select
+                  value={difficulty}
+                  onChange={(e) => setDifficulty(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8 }}
+                >
+                  <option value="easy">简单</option>
+                  <option value="medium">中等</option>
+                  <option value="hard">困难</option>
+                </select>
+              </label>
+              <label style={{ display: 'block' }}>
+                <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>页数: {pages}</div>
+                <input
+                  type="range"
+                  min={4}
+                  max={12}
+                  value={pages}
+                  onChange={(e) => setPages(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </label>
+              <label style={{ display: 'block' }}>
+                <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>交互密度</div>
+                <select
+                  value={interactionDensity}
+                  onChange={(e) => setInteractionDensity(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8 }}
+                >
+                  <option value="low">低</option>
+                  <option value="medium">中</option>
+                  <option value="high">高</option>
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
+
         <button
           onClick={onSubmit}
           disabled={!canSubmit}
