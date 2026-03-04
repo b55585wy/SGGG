@@ -24,6 +24,10 @@ OUTPUT JSON STRUCTURE (exact):
   "ending": {
     "positive_feedback": "warm, specific encouragement for the child",
     "next_micro_goal": "one small achievable next food behavior step"
+  },
+  "avatar_feedback": {
+    "feedbackText": "personalized 1-2 sentence feedback about THIS meal attempt, referencing the specific food and child's behavior (max 30 chars)",
+    "expression": "happy | encouraging | gentle | neutral (based on meal_score: >=7 happy, 5-6 encouraging, 3-4 gentle, 1-2 neutral)"
   }
 }
 
@@ -42,12 +46,21 @@ PAGE STRUCTURE (repeat for each page, page_id format: p01, p02, ...):
   "branch_choices": []
 }
 
+BRANCHING STORY STRUCTURE:
+The story MUST have at least 1-2 meaningful choice points that lead to DIFFERENT pages.
+- Main path pages: p01, p02, ... (linear sequence)
+- Branch pages: use page_id like "p03b", "p04b" for alternate paths
+- Each branch page has its own text, image_prompt, and interaction
+- Branch pages MUST eventually merge back to the main path (e.g., p03b → p05)
+- Total pages = requested main pages + 1-3 branch pages
+- Branches should offer meaningfully different story experiences (e.g., "和西兰花交朋友" vs "先观察西兰花")
+
 For "choice" interactions ONLY, branch_choices must contain exactly 2 items:
 [
-  {"choice_id": "c1", "label": "option text", "next_page_id": "p0X"},
-  {"choice_id": "c2", "label": "option text", "next_page_id": "p0X"}
+  {"choice_id": "c1", "label": "option text", "next_page_id": "p04"},
+  {"choice_id": "c2", "label": "option text", "next_page_id": "p03b"}
 ]
-(Both choices may point to the same next page.)
+The two choices MUST point to DIFFERENT pages to create real branching.
 For all other interaction types, branch_choices must be an empty array [].
 
 BEHAVIOR ANCHOR PROGRESSION RULES:

@@ -78,7 +78,6 @@ export default function ReaderPage() {
     track('page_view', { behavior_anchor: p.behavior_anchor }, p.page_id);
     trackedRef.current = true;
     enterRef.current = Date.now();
-    tts.stop();
     return () => { trackedRef.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageIdx, draft, session]);
@@ -92,6 +91,7 @@ export default function ReaderPage() {
 
   const goTo = useCallback((next: number) => {
     if (!draft) return;
+    tts.stop();
     const fromPage = draft.pages[pageIdx]?.page_no ?? pageIdx + 1;
     trackDwell();
     if (next < pageIdx) {
@@ -104,7 +104,7 @@ export default function ReaderPage() {
       return;
     }
     setPageIdx(next);
-  }, [draft, pageIdx, trackDwell, track, flush]);
+  }, [draft, pageIdx, trackDwell, track, flush, tts]);
 
   const onInteractionStart = useCallback((interactionType: string, eventKey: string) => {
     if (!draft) return;
@@ -118,10 +118,11 @@ export default function ReaderPage() {
 
   const onBranch = useCallback((choiceId: string, nextPageId: string) => {
     if (!draft) return;
+    tts.stop();
     track('branch_select', { choice_id: choiceId }, draft.pages[pageIdx].page_id);
     const idx = draft.pages.findIndex(p => p.page_id === nextPageId);
     if (idx >= 0) { trackDwell(); setPageIdx(idx); }
-  }, [draft, pageIdx, track, trackDwell]);
+  }, [draft, pageIdx, track, trackDwell, tts]);
 
   const onTTS = useCallback(() => {
     if (!draft) return;

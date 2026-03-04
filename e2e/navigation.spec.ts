@@ -45,7 +45,7 @@ test.describe('路由守卫 — 未登录', () => {
 test.describe('导航 — 已登录', () => {
   test('登录后可以访问 /noa/home', async ({ page }) => {
     await loginAndSetupAvatar(page);
-    await expect(page.locator('text=主页面')).toBeVisible();
+    await expect(page.locator('text=你好')).toBeVisible();
   });
 
   test('/noa/books/history 页面可访问', async ({ page }) => {

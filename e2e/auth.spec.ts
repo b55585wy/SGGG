@@ -14,7 +14,7 @@ test.describe('登录流程', () => {
   test('登录页面显示正确的表单', async ({ page }) => {
     await page.goto('/noa/login');
 
-    await expect(page.locator('h1')).toHaveText('登录');
+    await expect(page.locator('h1')).toHaveText('欢迎回来');
     await expect(page.locator('text=用户ID')).toBeVisible();
     await expect(page.locator('text=密码')).toBeVisible();
     await expect(page.locator('button[type="submit"]')).toHaveText('登录');

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { postJson } from '@/lib/ncApi'
 import { setToken } from '@/lib/auth'
+import { SignIn, BookOpen, Star } from '@phosphor-icons/react'
 
 type LoginResponse = {
   token: string
@@ -15,6 +16,7 @@ export default function NcLoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
   useEffect(() => {
     sessionStorage.removeItem('homeFeedbackText')
   }, [])
@@ -45,80 +47,111 @@ export default function NcLoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-      <form
-        onSubmit={onSubmit}
-        style={{
-          width: 360,
-          maxWidth: '90vw',
-          padding: 24,
-          border: '1px solid #e5e7eb',
-          borderRadius: 12,
-        }}
-      >
-        <h1 style={{ margin: 0, marginBottom: 16, fontSize: 20 }}>登录</h1>
+    <div className="grid min-h-[100dvh] grid-cols-1 md:grid-cols-[1fr_1fr]">
+      {/* Left: Branding panel */}
+      <div className="relative hidden overflow-hidden bg-accent md:flex md:flex-col md:items-center md:justify-center">
+        {/* Decorative shapes */}
+        <div className="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-white/10" />
+        <div className="absolute -bottom-16 -right-16 h-64 w-64 rounded-full bg-white/[0.07]" />
+        <div className="absolute right-12 top-16 h-32 w-32 rounded-[2rem] bg-white/[0.05] rotate-12" />
 
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>
-            用户ID
+        <div className="relative z-10 px-12 text-center">
+          <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-[1.5rem]
+                          bg-white/20 backdrop-blur-sm">
+            <BookOpen size={40} weight="duotone" className="text-white" />
           </div>
-          <input
-            value={userID}
-            onChange={(e) => setUserID(e.target.value)}
-            autoComplete="username"
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              border: '1px solid #d1d5db',
-              borderRadius: 8,
-            }}
-          />
-        </label>
+          <h2 className="mb-3 text-3xl font-semibold tracking-tight text-white">
+            食育绘本
+          </h2>
+          <p className="mx-auto max-w-[28ch] text-sm leading-relaxed text-white/70">
+            通过互动故事，让每个孩子爱上健康饮食
+          </p>
 
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>
-            密码
+          {/* Feature highlights */}
+          <div className="mt-10 space-y-4">
+            {[
+              '个性化虚拟形象',
+              '智能绘本生成',
+              '进食行为追踪',
+            ].map((text) => (
+              <div key={text} className="flex items-center justify-center gap-2.5">
+                <Star size={14} weight="fill" className="text-white/50" />
+                <span className="text-sm text-white/60">{text}</span>
+              </div>
+            ))}
           </div>
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type="password"
-            autoComplete="current-password"
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              border: '1px solid #d1d5db',
-              borderRadius: 8,
-            }}
-          />
-        </label>
-
-        {error ? (
-          <div style={{ marginBottom: 12, color: '#b91c1c', fontSize: 13 }}>
-            {error}
-          </div>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={loading || !userID || !password}
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            borderRadius: 8,
-            border: '1px solid #111827',
-            background: loading ? '#6b7280' : '#111827',
-            color: '#fff',
-            cursor: loading ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {loading ? '登录中...' : '登录'}
-        </button>
-
-        <div style={{ marginTop: 12, fontSize: 12, color: '#6b7280' }}>
-          默认测试账号：demo / demo123
         </div>
-      </form>
+      </div>
+
+      {/* Right: Login form */}
+      <div className="flex flex-col items-center justify-center bg-background px-6 py-12">
+        <div className="w-full max-w-[380px]">
+          {/* Mobile-only header */}
+          <div className="mb-10 flex items-center gap-3 md:hidden">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent">
+              <BookOpen size={22} weight="duotone" className="text-white" />
+            </div>
+            <span className="text-lg font-semibold tracking-tight text-foreground">
+              食育绘本
+            </span>
+          </div>
+
+          <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground">
+            欢迎回来
+          </h1>
+          <p className="mb-8 text-sm text-muted">
+            登录你的账号以继续
+          </p>
+
+          <form onSubmit={onSubmit} className="space-y-5">
+            <label className="block">
+              <div className="mb-1.5 text-xs font-medium text-muted">用户ID</div>
+              <input
+                value={userID}
+                onChange={(e) => setUserID(e.target.value)}
+                autoComplete="username"
+                placeholder="请输入用户ID"
+                className="form-input w-full"
+              />
+            </label>
+
+            <label className="block">
+              <div className="mb-1.5 text-xs font-medium text-muted">密码</div>
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                autoComplete="current-password"
+                placeholder="请输入密码"
+                className="form-input w-full"
+              />
+            </label>
+
+            {error ? (
+              <div className="rounded-xl border border-error/20 bg-error-light px-4 py-3 text-sm text-error">
+                {error}
+              </div>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={loading || !userID || !password}
+              className="inline-flex w-full items-center justify-center gap-2
+                         rounded-xl border border-foreground bg-foreground py-3
+                         text-sm font-semibold text-surface
+                         transition-all duration-200 hover:opacity-90 active:scale-[0.98]
+                         disabled:cursor-not-allowed disabled:border-muted disabled:bg-muted"
+            >
+              <SignIn size={18} weight="bold" />
+              {loading ? '登录中...' : '登录'}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-xs text-muted">
+            测试账号：demo / demo123
+          </p>
+        </div>
+      </div>
     </div>
   )
 }

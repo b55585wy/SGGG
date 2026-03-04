@@ -68,6 +68,77 @@ def init_db():
                 pass
 
 
+def get_backend_stats() -> dict:
+    """Aggregate stats from sessions, feedback, sus_responses for admin dashboard."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'ABORTED' THEN 1 ELSE 0 END) as aborted
+            FROM sessions
+        """).fetchone()
+        total = row["total"] or 0
+        sessions = {
+            "total": total,
+            "completed": row["completed"] or 0,
+            "aborted": row["aborted"] or 0,
+            "completedRate": round((row["completed"] or 0) / total * 100, 1) if total > 0 else 0,
+            "abortedRate": round((row["aborted"] or 0) / total * 100, 1) if total > 0 else 0,
+        }
+
+        try_levels = conn.execute("""
+            SELECT try_level, COUNT(*) as cnt
+            FROM feedback WHERE try_level IS NOT NULL
+            GROUP BY try_level
+        """).fetchall()
+        try_level_dist = {r["try_level"]: r["cnt"] for r in try_levels}
+
+        abort_reasons = conn.execute("""
+            SELECT abort_reason, COUNT(*) as cnt
+            FROM feedback WHERE abort_reason IS NOT NULL
+            GROUP BY abort_reason
+        """).fetchall()
+        abort_reason_dist = {r["abort_reason"]: r["cnt"] for r in abort_reasons}
+
+        sus_row = conn.execute("""
+            SELECT COUNT(*) as cnt, AVG(sus_score) as avg_score
+            FROM sus_responses
+        """).fetchone()
+        sus_dist = conn.execute("""
+            SELECT
+                SUM(CASE WHEN sus_score < 50 THEN 1 ELSE 0 END) as low,
+                SUM(CASE WHEN sus_score >= 50 AND sus_score < 70 THEN 1 ELSE 0 END) as mid,
+                SUM(CASE WHEN sus_score >= 70 THEN 1 ELSE 0 END) as high
+            FROM sus_responses
+        """).fetchone()
+        sus = {
+            "responseCount": sus_row["cnt"] or 0,
+            "avgScore": round(sus_row["avg_score"], 1) if sus_row["avg_score"] is not None else None,
+            "distribution": {
+                "low": sus_dist["low"] or 0,
+                "mid": sus_dist["mid"] or 0,
+                "high": sus_dist["high"] or 0,
+            },
+        }
+
+        feedback_count = conn.execute("SELECT COUNT(DISTINCT session_id) as cnt FROM feedback").fetchone()["cnt"] or 0
+        sus_count = sus_row["cnt"] or 0
+        completeness = {
+            "sessionsWithFeedback": feedback_count,
+            "sessionsWithFeedbackPct": round(feedback_count / total * 100, 1) if total > 0 else 0,
+            "sessionsWithSUS": sus_count,
+            "sessionsWithSUSPct": round(sus_count / total * 100, 1) if total > 0 else 0,
+        }
+
+        return {
+            "sessions": sessions,
+            "feedback": {"tryLevelDist": try_level_dist, "abortReasonDist": abort_reason_dist},
+            "sus": sus,
+            "completeness": completeness,
+        }
+
+
 @contextmanager
 def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)

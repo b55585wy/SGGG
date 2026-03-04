@@ -1,146 +1,48 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getJson, postJson } from '@/lib/ncApi'
-
-type Option = {
-  id: string
-  label: string
-  image: string
-}
-
-type OptionsResponse = {
-  hair: Option[]
-  glasses: Option[]
-  topColors: Option[]
-  bottomColors: Option[]
-}
-
-type BaseResponse = {
-  image: string
-}
-
-type ComponentResponse = {
-  image: string
-}
+import { postJson } from '@/lib/ncApi'
+import AvatarRenderer from '@/components/AvatarRenderer'
+import {
+  SKIN_COLORS,
+  HAIR_COLORS,
+  HAIR_STYLES_SHORT,
+  HAIR_STYLES_LONG,
+  EXPRESSIONS,
+  type AvatarBase,
+  type ExpressionKey,
+} from '@/lib/avatarConfig'
 
 export default function AvatarPage() {
   const navigate = useNavigate()
-  const [, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [baseImage, setBaseImage] = useState('')
-  const [options, setOptions] = useState<OptionsResponse | null>(null)
 
   const [nickname, setNickname] = useState('')
   const [gender, setGender] = useState<'male' | 'female' | ''>('')
 
-  const [hairId, setHairId] = useState('')
-  const [glassesId, setGlassesId] = useState('')
-  const [topId, setTopId] = useState('')
-  const [bottomId, setBottomId] = useState('')
-
-  const [hairImage, setHairImage] = useState('')
-  const [glassesImage, setGlassesImage] = useState('')
-  const [topImage, setTopImage] = useState('')
-  const [bottomImage, setBottomImage] = useState('')
+  const [skinColor, setSkinColor] = useState('f2d3b1')
+  const [hairStyle, setHairStyle] = useState('short01')
+  const [hairColor, setHairColor] = useState('0e0e0e')
+  const [previewExpr, setPreviewExpr] = useState<ExpressionKey>('happy')
 
   const canSubmit = useMemo(
     () => !!nickname.trim() && !!gender && !saving,
     [nickname, gender, saving],
   )
 
-  useEffect(() => {
-    async function load() {
-      setError('')
-      setLoading(true)
-      try {
-        const [base, opts] = await Promise.all([
-          getJson<BaseResponse>('/api/avatar/base'),
-          getJson<OptionsResponse>('/api/avatar/options'),
-        ])
-        setBaseImage(base.image)
-        setOptions(opts)
+  const hairOptions = gender === 'female' ? HAIR_STYLES_LONG : HAIR_STYLES_SHORT
 
-        const defaultHair = opts.hair[0]?.id || ''
-        const defaultGlasses =
-          opts.glasses.find((g) => g.id === 'none')?.id || opts.glasses[0]?.id || ''
-        const defaultTop = opts.topColors[0]?.id || ''
-        const defaultBottom = opts.bottomColors[0]?.id || ''
-
-        setHairId(defaultHair)
-        setGlassesId(defaultGlasses)
-        setTopId(defaultTop)
-        setBottomId(defaultBottom)
-
-        const [hairRes, glassesRes, topRes, bottomRes] = await Promise.all([
-          defaultHair ? fetchComponent('hair', defaultHair) : Promise.resolve(''),
-          defaultGlasses ? fetchComponent('glasses', defaultGlasses) : Promise.resolve(''),
-          defaultTop ? fetchComponent('top', defaultTop) : Promise.resolve(''),
-          defaultBottom ? fetchComponent('bottom', defaultBottom) : Promise.resolve(''),
-        ])
-        setHairImage(hairRes)
-        setGlassesImage(glassesRes)
-        setTopImage(topRes)
-        setBottomImage(bottomRes)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : '加载失败')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    load()
-  }, [])
-
-  async function fetchComponent(
-    type: 'hair' | 'glasses' | 'top' | 'bottom',
-    id: string,
-  ) {
-    const data = await getJson<ComponentResponse>(
-      `/api/avatar/component?type=${type}&id=${id}`,
-    )
-    return data.image
-  }
-
-  async function onSelectHair(id: string) {
-    setHairId(id)
-    try {
-      const image = await fetchComponent('hair', id)
-      setHairImage(image)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
+  // Reset hair when switching gender
+  const onGenderChange = (g: 'male' | 'female') => {
+    setGender(g)
+    if (g === 'female' && hairStyle.startsWith('short')) {
+      setHairStyle('long01')
+    } else if (g === 'male' && hairStyle.startsWith('long')) {
+      setHairStyle('short01')
     }
   }
 
-  async function onSelectGlasses(id: string) {
-    setGlassesId(id)
-    try {
-      const image = await fetchComponent('glasses', id)
-      setGlassesImage(image)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    }
-  }
-
-  async function onSelectTop(id: string) {
-    setTopId(id)
-    try {
-      const image = await fetchComponent('top', id)
-      setTopImage(image)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    }
-  }
-
-  async function onSelectBottom(id: string) {
-    setBottomId(id)
-    try {
-      const image = await fetchComponent('bottom', id)
-      setBottomImage(image)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    }
-  }
+  const avatarBase: AvatarBase = { skinColor, hair: hairStyle, hairColor }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -154,10 +56,9 @@ export default function AvatarPage() {
       await postJson('/api/avatar/save', {
         nickname: nickname.trim(),
         gender,
-        hairStyle: hairId,
-        glasses: glassesId,
-        topColor: topId,
-        bottomColor: bottomId,
+        skinColor,
+        hair: hairStyle,
+        hairColor,
       })
       navigate('/noa/home', { replace: true })
     } catch (e) {
@@ -175,264 +76,201 @@ export default function AvatarPage() {
   }
 
   return (
-    <div style={{ padding: 24, width: '100%', boxSizing: 'border-box' }}>
-      <div style={{ marginBottom: 16, textAlign: 'left' }}>
-        <div style={{ fontSize: 22, fontWeight: 600, marginBottom: 6 }}>
-          来一起创造你在故事世界的形象吧！
+    <div className="min-h-[100dvh] bg-background">
+      <div className="mx-auto max-w-[1200px] px-6 py-8">
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-foreground">
+            来一起创造你在故事世界的形象吧！
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            请先完成昵称与性别，再选择形象组件
+          </p>
         </div>
-        <div style={{ color: '#6b7280', fontSize: 13 }}>
-          请先完成昵称与性别，再选择形象组件
-        </div>
-      </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-          gap: 24,
-          alignItems: 'start',
-        }}
-      >
-        <div
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 16,
-            padding: 16,
-            background: '#fff',
-          }}
-        >
-          <div style={{ fontSize: 14, color: '#111827', marginBottom: 12 }}>
-            预览
+        <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[5fr_7fr]">
+          {/* Preview */}
+          <div className="rounded-[2rem] border border-border-light bg-surface p-5
+                          shadow-[0_20px_40px_-15px_rgba(0,0,0,0.04)] md:sticky md:top-8">
+            <div className="mb-3 text-sm font-medium text-muted">预览</div>
+            <div className="mx-auto w-full max-w-[280px] overflow-hidden rounded-2xl
+                            border border-border-light bg-warm-100 p-4">
+              <AvatarRenderer
+                base={avatarBase}
+                expression={previewExpr}
+                className="h-auto w-full"
+              />
+            </div>
+            {/* Expression preview buttons */}
+            <div className="mt-4">
+              <div className="mb-2 text-xs text-muted">表情预览</div>
+              <div className="flex gap-2">
+                {(Object.entries(EXPRESSIONS) as [ExpressionKey, typeof EXPRESSIONS[ExpressionKey]][]).map(
+                  ([key, val]) => (
+                    <button
+                      type="button"
+                      key={key}
+                      onClick={() => setPreviewExpr(key)}
+                      className={`flex-1 rounded-xl py-2 text-xs font-medium transition-all duration-200
+                        ${previewExpr === key
+                          ? 'border border-accent bg-accent-light text-accent'
+                          : 'border border-border-light bg-surface text-muted hover:border-border'
+                        }`}
+                    >
+                      {val.label}
+                    </button>
+                  ),
+                )}
+              </div>
+            </div>
           </div>
-          <div
-            style={{
-              position: 'relative',
-              width: '100%',
-              aspectRatio: '3 / 4',
-              borderRadius: 12,
-              overflow: 'hidden',
-              background: '#f8fafc',
-              border: '1px solid #e5e7eb',
-            }}
+
+          {/* Form */}
+          <form
+            onSubmit={onSubmit}
+            className="rounded-[2rem] border border-border-light bg-surface p-6
+                       shadow-[0_20px_40px_-15px_rgba(0,0,0,0.04)]"
           >
-            {baseImage ? (
-              <img
-                src={baseImage}
-                alt="base"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+            <div className="mb-5 text-base font-semibold text-foreground">基本信息</div>
+
+            <label className="mb-4 block">
+              <div className="mb-1.5 text-xs text-muted">昵称</div>
+              <input
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                className="form-input w-full"
               />
+            </label>
+
+            <div className="mb-5">
+              <div className="mb-1.5 text-xs text-muted">性别</div>
+              <div className="flex gap-3">
+                {[
+                  { value: 'male' as const, label: '男' },
+                  { value: 'female' as const, label: '女' },
+                ].map((item) => (
+                  <label
+                    key={item.value}
+                    onClick={() => onGenderChange(item.value)}
+                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border
+                      px-4 py-1.5 text-sm font-medium transition-all duration-200
+                      ${gender === item.value
+                        ? 'border-foreground bg-foreground text-surface'
+                        : 'border-border bg-surface text-foreground hover:border-foreground'
+                      }`}
+                  >
+                    <input
+                      type="radio"
+                      name="gender"
+                      value={item.value}
+                      checked={gender === item.value}
+                      onChange={() => onGenderChange(item.value)}
+                      className="hidden"
+                    />
+                    {item.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-5 text-base font-semibold text-foreground">形象选项</div>
+
+            {/* Skin color */}
+            <div className="mb-5">
+              <div className="mb-2 text-xs text-muted">肤色</div>
+              <div className="flex gap-2">
+                {SKIN_COLORS.map((s) => (
+                  <button
+                    type="button"
+                    key={s.id}
+                    onClick={() => setSkinColor(s.id)}
+                    className={`flex h-10 w-10 items-center justify-center rounded-full border-2
+                      transition-all duration-150
+                      ${skinColor === s.id ? 'border-accent shadow-sm scale-110' : 'border-transparent hover:border-border'}`}
+                    title={s.label}
+                  >
+                    <div
+                      className="h-7 w-7 rounded-full"
+                      style={{ backgroundColor: `#${s.id}` }}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Hair color */}
+            <div className="mb-5">
+              <div className="mb-2 text-xs text-muted">发色</div>
+              <div className="flex flex-wrap gap-2">
+                {HAIR_COLORS.map((c) => (
+                  <button
+                    type="button"
+                    key={c.id}
+                    onClick={() => setHairColor(c.id)}
+                    className={`flex h-10 w-10 items-center justify-center rounded-full border-2
+                      transition-all duration-150
+                      ${hairColor === c.id ? 'border-accent shadow-sm scale-110' : 'border-transparent hover:border-border'}`}
+                    title={c.label}
+                  >
+                    <div
+                      className="h-7 w-7 rounded-full"
+                      style={{ backgroundColor: `#${c.id}` }}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Hair style */}
+            <div className="mb-5">
+              <div className="mb-2 text-xs text-muted">
+                发型 {gender === 'female' ? '(长发)' : '(短发)'}
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {hairOptions.map((h) => (
+                  <button
+                    type="button"
+                    key={h.id}
+                    onClick={() => setHairStyle(h.id)}
+                    className={`overflow-hidden rounded-xl border-2 p-1.5 transition-all duration-150
+                      ${hairStyle === h.id
+                        ? 'border-accent bg-accent-light shadow-sm'
+                        : 'border-transparent hover:border-border'
+                      }`}
+                  >
+                    <div className="mx-auto w-12 h-12 rounded-lg bg-warm-100 overflow-hidden">
+                      <AvatarRenderer
+                        base={{ skinColor, hair: h.id, hairColor }}
+                        expression="happy"
+                        className="h-full w-full scale-[1.8] translate-y-[15%]"
+                      />
+                    </div>
+                    <div className="mt-1 truncate text-center text-[10px] text-muted">
+                      {h.label}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {error ? (
+              <div className="mb-4 rounded-xl border border-error/20 bg-error-light px-4 py-3 text-sm text-error">
+                {error}
+              </div>
             ) : null}
-            {topImage ? (
-              <img
-                src={topImage}
-                alt="top"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {bottomImage ? (
-              <img
-                src={bottomImage}
-                alt="bottom"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {hairImage ? (
-              <img
-                src={hairImage}
-                alt="hair"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {glassesImage ? (
-              <img
-                src={glassesImage}
-                alt="glasses"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-          </div>
+
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="inline-flex w-full items-center justify-center gap-2
+                         rounded-xl border border-foreground bg-foreground py-3
+                         text-sm font-semibold text-surface
+                         transition-all duration-200 hover:opacity-90 active:scale-[0.98]
+                         disabled:cursor-not-allowed disabled:border-muted disabled:bg-muted"
+            >
+              {saving ? '提交中...' : '提交并进入主页面'}
+            </button>
+          </form>
         </div>
-
-        <form
-          onSubmit={onSubmit}
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 16,
-            padding: 20,
-            background: '#fff',
-            textAlign: 'left',
-          }}
-        >
-          <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>基本信息</div>
-
-          <label style={{ display: 'block', marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>
-              昵称
-            </div>
-            <input
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: '1px solid #d1d5db',
-                borderRadius: 8,
-              }}
-            />
-          </label>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>性别</div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              {[
-                { value: 'male', label: '男' },
-                { value: 'female', label: '女' },
-              ].map((item) => (
-                <label
-                  key={item.value}
-                  onClick={() => setGender(item.value as 'male' | 'female')}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 10px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: 999,
-                    cursor: 'pointer',
-                    background: gender === item.value ? '#111827' : '#fff',
-                    color: gender === item.value ? '#fff' : '#111827',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="gender"
-                    value={item.value}
-                    checked={gender === item.value}
-                    onChange={() => setGender(item.value as 'male' | 'female')}
-                    style={{ display: 'none' }}
-                  />
-                  {item.label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>形象选项</div>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>发型</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              {(options?.hair || []).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => onSelectHair(item.id)}
-                  style={{
-                    border: hairId === item.id ? '2px solid #111827' : '1px solid #d1d5db',
-                    borderRadius: 12,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img src={item.image} alt={item.label} style={{ width: '100%', height: 64 }} />
-                  <div style={{ marginTop: 6, fontSize: 12 }}>{item.label}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>眼镜</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              {(options?.glasses || []).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => onSelectGlasses(item.id)}
-                  style={{
-                    border: glassesId === item.id ? '2px solid #111827' : '1px solid #d1d5db',
-                    borderRadius: 12,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img src={item.image} alt={item.label} style={{ width: '100%', height: 64 }} />
-                  <div style={{ marginTop: 6, fontSize: 12 }}>{item.label}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>上衣颜色</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              {(options?.topColors || []).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => onSelectTop(item.id)}
-                  style={{
-                    border: topId === item.id ? '2px solid #111827' : '1px solid #d1d5db',
-                    borderRadius: 12,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img src={item.image} alt={item.label} style={{ width: '100%', height: 64 }} />
-                  <div style={{ marginTop: 6, fontSize: 12 }}>{item.label}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>下装颜色</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              {(options?.bottomColors || []).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => onSelectBottom(item.id)}
-                  style={{
-                    border: bottomId === item.id ? '2px solid #111827' : '1px solid #d1d5db',
-                    borderRadius: 12,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img src={item.image} alt={item.label} style={{ width: '100%', height: 64 }} />
-                  <div style={{ marginTop: 6, fontSize: 12 }}>{item.label}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {error ? (
-            <div style={{ marginBottom: 12, color: '#b91c1c', fontSize: 13 }}>
-              {error}
-            </div>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              borderRadius: 10,
-              border: '1px solid #111827',
-              background: !canSubmit ? '#6b7280' : '#111827',
-              color: '#fff',
-              cursor: !canSubmit ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {saving ? '提交中...' : '提交并进入主页面'}
-          </button>
-        </form>
       </div>
     </div>
   )

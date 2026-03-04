@@ -17,6 +17,18 @@ user-api/data/db.sqlite
 user-api/dist/
 user-api/.env
 
+# backend
+backend/.env
+
+# test artifacts
+playwright-report/
+test-results/
+screenshots/
+
+# claude
+.claude/
+claude-scientific-skills/
+
 # root
 node_modules/
 noa_child.zip

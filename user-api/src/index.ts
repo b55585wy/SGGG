@@ -6,18 +6,16 @@ import { adminRequired, authRequired, type AuthenticatedRequest } from "./auth";
 import {
   addHistoryBook,
   findUserById,
-  getAvatarBase,
-  getAvatarComponent,
   getLatestAvatarState,
   getLatestHistoryBook,
   getTempBook,
   getTempBookById,
   getUserAvatar,
   getHistoryBookById,
+  getLastFoodScore,
   insertUser,
   insertAvatarState,
   insertFoodLog,
-  listAvatarOptions,
   listHistoryBooks,
   listUsers,
   saveTempBook,
@@ -25,6 +23,7 @@ import {
   clearTempBook,
   setFirstLoginFlag,
   deleteUser,
+  getAdminStats,
 } from "./db";
 import { signUserToken } from "./jwt";
 
@@ -102,9 +101,18 @@ async function generateTempBookForUser(params: {
       book_meta: { title: string; summary: string };
       pages: unknown[];
       ending: unknown;
+      avatar_feedback?: { feedbackText: string; expression: string };
     };
   };
   const draft = data.draft;
+
+  // Update avatar state with LLM-generated feedback if available
+  if (draft.avatar_feedback?.feedbackText) {
+    await insertAvatarState({
+      userID: params.userID,
+      feedbackText: draft.avatar_feedback.feedbackText,
+    });
+  }
 
   await saveTempBook({
     userID: params.userID,
@@ -173,6 +181,10 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
     typeof (body as { firstLogin?: unknown }).firstLogin === "boolean"
       ? (body as { firstLogin: boolean }).firstLogin
       : true;
+  const themeFood =
+    typeof (body as { themeFood?: unknown }).themeFood === "string"
+      ? (body as { themeFood: string }).themeFood.trim()
+      : "胡萝卜";
 
   if (!userID.trim() || !password) {
     res.status(400).json({ message: "参数错误" });
@@ -180,8 +192,8 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
   }
 
   try {
-    await insertUser({ userID, password, firstLogin });
-    res.status(201).json({ user: { userID }, firstLogin });
+    await insertUser({ userID, password, firstLogin, themeFood });
+    res.status(201).json({ user: { userID }, firstLogin, themeFood });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
     if (message.includes("UNIQUE constraint failed")) {
@@ -215,37 +227,14 @@ app.delete("/api/admin/users/:userID", adminRequired, async (req, res) => {
   }
 });
 
-app.get("/api/avatar/base", async (_req, res) => {
-  const image = await getAvatarBase();
-  if (!image) {
-    res.status(404).json({ message: "未找到形象底图" });
-    return;
+app.get("/api/admin/stats", adminRequired, async (_req, res) => {
+  try {
+    const stats = await getAdminStats();
+    res.json(stats);
+  } catch (e) {
+    console.error("[ADMIN] stats error:", e);
+    res.status(500).json({ message: "统计数据加载失败" });
   }
-  res.json({ image });
-});
-
-app.get("/api/avatar/options", async (_req, res) => {
-  const options = await listAvatarOptions();
-  res.json(options);
-});
-
-app.get("/api/avatar/component", async (req, res) => {
-  const type = typeof req.query.type === "string" ? req.query.type : "";
-  const id = typeof req.query.id === "string" ? req.query.id : "";
-  if (!type || !id) {
-    res.status(400).json({ message: "参数错误" });
-    return;
-  }
-  if (type !== "hair" && type !== "glasses" && type !== "top" && type !== "bottom") {
-    res.status(400).json({ message: "参数错误" });
-    return;
-  }
-  const image = await getAvatarComponent(type, id);
-  if (!image) {
-    res.status(404).json({ message: "未找到组件图片" });
-    return;
-  }
-  res.json({ image });
 });
 
 app.post("/api/avatar/save", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -271,31 +260,18 @@ app.post("/api/avatar/save", authRequired, async (req: AuthenticatedRequest, res
     return;
   }
 
-  const hairStyle =
-    typeof (body as { hairStyle?: unknown }).hairStyle === "string"
-      ? (body as { hairStyle: string }).hairStyle
-      : null;
-  const glasses =
-    typeof (body as { glasses?: unknown }).glasses === "string"
-      ? (body as { glasses: string }).glasses
-      : null;
-  const topColor =
-    typeof (body as { topColor?: unknown }).topColor === "string"
-      ? (body as { topColor: string }).topColor
-      : null;
-  const bottomColor =
-    typeof (body as { bottomColor?: unknown }).bottomColor === "string"
-      ? (body as { bottomColor: string }).bottomColor
-      : null;
+  const str = (key: string) =>
+    typeof (body as Record<string, unknown>)[key] === "string"
+      ? (body as Record<string, string>)[key]
+      : undefined;
 
   await saveUserAvatar({
     userID: req.user.userID,
     nickname,
     gender,
-    hairStyle,
-    glasses,
-    topColor,
-    bottomColor,
+    skinColor: str("skinColor"),
+    hair: str("hair"),
+    hairColor: str("hairColor"),
   });
   res.json({ ok: true });
 });
@@ -311,29 +287,27 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  const [baseImage, hairImage, glassesImage, topImage, bottomImage, latestState] =
-    await Promise.all([
-      getAvatarBase(),
-      avatar.hairStyle ? getAvatarComponent("hair", avatar.hairStyle) : Promise.resolve(null),
-      avatar.glasses ? getAvatarComponent("glasses", avatar.glasses) : Promise.resolve(null),
-      avatar.topColor ? getAvatarComponent("top", avatar.topColor) : Promise.resolve(null),
-      avatar.bottomColor ? getAvatarComponent("bottom", avatar.bottomColor) : Promise.resolve(null),
-      getLatestAvatarState(req.user.userID),
-    ]);
+  const latestState = await getLatestAvatarState(req.user.userID);
+  const lastScore = await getLastFoodScore(req.user.userID);
+
+  const avatarData = {
+    nickname: avatar.nickname,
+    skinColor: avatar.skinColor,
+    hair: avatar.hair,
+    hairColor: avatar.hairColor,
+  };
+
+  const base = {
+    avatar: avatarData,
+    feedbackText: latestState?.feedbackText || "",
+    themeFood: avatar.themeFood,
+    lastScore,
+  };
 
   const tempBook = await getTempBook(req.user.userID);
   if (tempBook) {
     res.json({
-      avatar: {
-        nickname: avatar.nickname,
-        baseImage,
-        hairImage: hairImage || "",
-        glassesImage: glassesImage || "",
-        topImage: topImage || "",
-        bottomImage: bottomImage || "",
-      },
-      feedbackText: latestState?.feedbackText || "",
-      themeFood: avatar.themeFood,
+      ...base,
       book: {
         bookID: tempBook.bookID,
         title: tempBook.title,
@@ -349,16 +323,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   const latestHistory = await getLatestHistoryBook(req.user.userID);
   if (latestHistory) {
     res.json({
-      avatar: {
-        nickname: avatar.nickname,
-        baseImage,
-        hairImage: hairImage || "",
-        glassesImage: glassesImage || "",
-        topImage: topImage || "",
-        bottomImage: bottomImage || "",
-      },
-      feedbackText: latestState?.feedbackText || "",
-      themeFood: avatar.themeFood,
+      ...base,
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
@@ -371,20 +336,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  // 没有绘本时，不再自动生成 — 等用户提交进食记录后触发
-  res.json({
-    avatar: {
-      nickname: avatar.nickname,
-      baseImage,
-      hairImage: hairImage || "",
-      glassesImage: glassesImage || "",
-      topImage: topImage || "",
-      bottomImage: bottomImage || "",
-    },
-    feedbackText: latestState?.feedbackText || "",
-    themeFood: avatar.themeFood,
-    book: null,
-  });
+  res.json({ ...base, book: null });
 });
 
 app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -422,12 +374,20 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     voiceData,
   });
 
+  // Immediate feedback (score-based); LLM feedback comes async via story generation
   const feedbackText =
-    score >= 8
-      ? "哇，你今天表现太棒了！"
-      : score >= 5
+    score >= 9
+      ? "哇，你今天表现太棒了！继续保持！"
+      : score >= 7
         ? "很好的尝试，继续加油！"
-        : "没关系，每一小步都是进步。";
+        : score >= 5
+          ? "不错的进步，慢慢来！"
+          : score >= 3
+            ? "没关系，每一小步都是进步。"
+            : "谢谢你的尝试，下次我们再试试看。";
+  const expression =
+    score >= 7 ? "happy" : score >= 5 ? "encouraging" : score >= 3 ? "gentle" : "neutral";
+
   await insertAvatarState({ userID: req.user.userID, feedbackText });
 
   const avatar = await getUserAvatar(req.user.userID);
@@ -443,7 +403,7 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     }).catch((err) => console.error("[BOOK] 绘本生成失败:", err));
   }
 
-  res.json({ ok: true, feedbackText });
+  res.json({ ok: true, feedbackText, expression, score });
 });
 
 app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -625,5 +585,5 @@ app.get("/api/auth/me", authRequired, (req: AuthenticatedRequest, res) => {
 
 const port = Number(process.env.PORT || 3001);
 app.listen(port, () => {
-  console.log(`API listening on http://localhost:${port}`);
+  console.log(`API listening on http://localhost:${port} (with admin stats)`);
 });
