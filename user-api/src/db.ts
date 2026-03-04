@@ -1,0 +1,908 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
+
+let sqlPromise: Promise<SqlJsStatic> | null = null;
+let dbPromise: Promise<Database> | null = null;
+
+function getDataDir() {
+  return path.join(process.cwd(), "data");
+}
+
+function getDbFilePath() {
+  return path.join(getDataDir(), "db.sqlite");
+}
+
+function getSql() {
+  if (!sqlPromise) {
+    sqlPromise = initSqlJs({
+      locateFile: (file: string) => {
+        const wasmPath = require.resolve("sql.js/dist/sql-wasm.wasm");
+        return path.join(path.dirname(wasmPath), file);
+      },
+    });
+  }
+  return sqlPromise;
+}
+
+function ensureSchema(db: Database) {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      user_id TEXT PRIMARY KEY,
+      password TEXT NOT NULL,
+      first_login INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS avatar_assets (
+      asset_type TEXT NOT NULL,
+      asset_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      image_data TEXT NOT NULL,
+      PRIMARY KEY (asset_type, asset_key)
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_avatars (
+      user_id TEXT PRIMARY KEY,
+      nickname TEXT NOT NULL,
+      gender TEXT NOT NULL,
+      hair_style TEXT,
+      glasses TEXT,
+      top_color TEXT,
+      bottom_color TEXT,
+      theme_food TEXT DEFAULT '胡萝卜',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_food_logs (
+      log_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      voice_data TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_avatar_states (
+      state_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expression TEXT,
+      body_posture TEXT,
+      feedback_text TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS temp_books (
+      user_id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      preview TEXT NOT NULL,
+      description TEXT NOT NULL,
+      content TEXT NOT NULL,
+      regenerate_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS history_books (
+      book_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      preview TEXT NOT NULL,
+      description TEXT NOT NULL,
+      content TEXT NOT NULL,
+      confirmed_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+}
+
+function ensureUserAvatarColumns(db: Database) {
+  const res = db.exec("PRAGMA table_info(user_avatars);");
+  const columns = new Set<string>();
+  const rows = res[0]?.values ?? [];
+  for (const row of rows) {
+    const name = row[1];
+    if (typeof name === "string") {
+      columns.add(name);
+    }
+  }
+  if (!columns.has("theme_food")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN theme_food TEXT DEFAULT '胡萝卜';");
+  }
+}
+
+function ensureSeedData(db: Database) {
+  const res = db.exec("SELECT COUNT(*) AS cnt FROM users;");
+  const cnt = (res[0]?.values?.[0]?.[0] as number | undefined) ?? 0;
+  if (cnt > 0) return;
+  db.run(
+    "INSERT INTO users (user_id, password, first_login) VALUES ($user_id, $password, $first_login);",
+    {
+      $user_id: "demo",
+      $password: "demo123",
+      $first_login: 1,
+    },
+  );
+}
+
+function svgDataUri(svg: string) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function ensureAvatarAssets(db: Database) {
+  const res = db.exec("SELECT COUNT(*) AS cnt FROM avatar_assets;");
+  const cnt = (res[0]?.values?.[0]?.[0] as number | undefined) ?? 0;
+  if (cnt > 0) return;
+
+  const baseSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" fill="none" stroke="#111827" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><rect width="300" height="420" rx="16" fill="#f8fafc" stroke="none"/><circle cx="150" cy="80" r="38"/><circle cx="135" cy="78" r="4" fill="#111827" stroke="none"/><circle cx="165" cy="78" r="4" fill="#111827" stroke="none"/><path d="M140 96 Q150 104 160 96"/><rect x="125" y="125" width="50" height="20" rx="10"/><path d="M150 145 L150 270"/><path d="M150 170 L90 200"/><path d="M150 170 L210 200"/><path d="M90 200 L70 240"/><path d="M210 200 L230 240"/><path d="M150 270 L120 360"/><path d="M150 270 L180 360"/><path d="M120 360 L110 400"/><path d="M180 360 L190 400"/></svg>`;
+
+  const hairSvgA = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><path d="M110 70 Q150 40 190 70 Q180 50 150 46 Q120 50 110 70" fill="#111827"/></svg>`;
+  const hairSvgB = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><path d="M108 72 Q120 40 150 42 Q180 40 192 72 Q175 58 150 60 Q125 58 108 72" fill="#1f2937"/></svg>`;
+  const hairSvgC = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><path d="M110 72 Q150 30 190 72 Q200 110 190 140 Q175 120 150 120 Q125 120 110 140 Q100 110 110 72" fill="#374151"/></svg>`;
+
+  const glassesNone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"></svg>`;
+  const glassesRound = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" fill="none" stroke="#111827" stroke-width="4"><circle cx="135" cy="80" r="14"/><circle cx="165" cy="80" r="14"/><path d="M149 80 L151 80"/></svg>`;
+  const glassesSquare = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" fill="none" stroke="#111827" stroke-width="4"><rect x="118" y="66" width="32" height="24" rx="4"/><rect x="150" y="66" width="32" height="24" rx="4"/><path d="M150 78 L150 78"/></svg>`;
+
+  const topColors = [
+    { key: "blue", label: "蓝色", color: "#60a5fa" },
+    { key: "green", label: "绿色", color: "#34d399" },
+    { key: "orange", label: "橙色", color: "#fb923c" },
+  ];
+  const bottomColors = [
+    { key: "black", label: "黑色", color: "#111827" },
+    { key: "gray", label: "灰色", color: "#9ca3af" },
+    { key: "yellow", label: "黄色", color: "#facc15" },
+  ];
+
+  const assets: Array<{ type: string; key: string; label: string; svg: string }> = [
+    { type: "base", key: "default", label: "默认底图", svg: baseSvg },
+    { type: "hair", key: "short", label: "短发", svg: hairSvgA },
+    { type: "hair", key: "round", label: "圆刘海", svg: hairSvgB },
+    { type: "hair", key: "long", label: "长发", svg: hairSvgC },
+    { type: "glasses", key: "none", label: "无眼镜", svg: glassesNone },
+    { type: "glasses", key: "round", label: "圆框", svg: glassesRound },
+    { type: "glasses", key: "square", label: "方框", svg: glassesSquare },
+  ];
+
+  for (const item of topColors) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><rect x="118" y="150" width="64" height="90" rx="18" fill="${item.color}"/><rect x="92" y="165" width="30" height="18" rx="9" fill="${item.color}"/><rect x="178" y="165" width="30" height="18" rx="9" fill="${item.color}"/></svg>`;
+    assets.push({ type: "top", key: item.key, label: item.label, svg });
+  }
+
+  for (const item of bottomColors) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><rect x="130" y="250" width="20" height="110" rx="8" fill="${item.color}"/><rect x="150" y="250" width="20" height="110" rx="8" fill="${item.color}"/></svg>`;
+    assets.push({ type: "bottom", key: item.key, label: item.label, svg });
+  }
+
+  const stmt = db.prepare(
+    "INSERT INTO avatar_assets (asset_type, asset_key, label, image_data) VALUES ($type, $key, $label, $image);",
+  );
+  try {
+    for (const asset of assets) {
+      stmt.run({
+        $type: asset.type,
+        $key: asset.key,
+        $label: asset.label,
+        $image: svgDataUri(asset.svg),
+      });
+    }
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function getDb(): Promise<Database> {
+  if (!dbPromise) {
+    dbPromise = (async () => {
+      const SQL = await getSql();
+      const dataDir = getDataDir();
+      const dbFilePath = getDbFilePath();
+
+      fs.mkdirSync(dataDir, { recursive: true });
+
+      const existing = fs.existsSync(dbFilePath)
+        ? fs.readFileSync(dbFilePath)
+        : null;
+
+      const db = existing
+        ? new SQL.Database(new Uint8Array(existing))
+        : new SQL.Database();
+
+      ensureSchema(db);
+      ensureUserAvatarColumns(db);
+      ensureSeedData(db);
+      ensureAvatarAssets(db);
+      await persistDb(db);
+
+      return db;
+    })();
+  }
+  return dbPromise;
+}
+
+export async function persistDb(db: Database) {
+  const dbFilePath = getDbFilePath();
+  const data = db.export();
+  fs.writeFileSync(dbFilePath, Buffer.from(data));
+}
+
+export type UserRow = {
+  user_id: string;
+  password: string;
+  first_login: number;
+};
+
+export async function findUserById(userID: string): Promise<UserRow | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT user_id, password, first_login FROM users WHERE user_id = $user_id LIMIT 1;",
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    return stmt.getAsObject() as unknown as UserRow;
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function setFirstLoginFlag(userID: string, firstLogin: boolean) {
+  const db = await getDb();
+  db.run("UPDATE users SET first_login = $first_login WHERE user_id = $user_id;", {
+    $user_id: userID,
+    $first_login: firstLogin ? 1 : 0,
+  });
+  await persistDb(db);
+}
+
+export async function insertUser(params: {
+  userID: string;
+  password: string;
+  firstLogin?: boolean;
+}) {
+  const db = await getDb();
+  db.run(
+    "INSERT INTO users (user_id, password, first_login) VALUES ($user_id, $password, $first_login);",
+    {
+      $user_id: params.userID,
+      $password: params.password,
+      $first_login: params.firstLogin === false ? 0 : 1,
+    },
+  );
+  await persistDb(db);
+}
+
+export async function listUsers(): Promise<Array<{ userID: string; firstLogin: boolean }>> {
+  const db = await getDb();
+  const stmt = db.prepare("SELECT user_id, first_login FROM users ORDER BY user_id ASC;");
+  try {
+    const users: Array<{ userID: string; firstLogin: boolean }> = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as { user_id: string; first_login: number };
+      users.push({ userID: row.user_id, firstLogin: row.first_login === 1 });
+    }
+    return users;
+  } finally {
+    stmt.free();
+  }
+}
+
+export type AvatarOption = {
+  id: string;
+  label: string;
+  image: string;
+};
+
+export async function getAvatarBase(): Promise<string | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT image_data FROM avatar_assets WHERE asset_type = 'base' AND asset_key = 'default' LIMIT 1;",
+  );
+  try {
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { image_data: string };
+    return row.image_data || null;
+  } finally {
+    stmt.free();
+  }
+}
+
+async function listOptionsByType(type: string): Promise<AvatarOption[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT asset_key, label, image_data FROM avatar_assets WHERE asset_type = $type ORDER BY asset_key ASC;",
+  );
+  try {
+    const options: AvatarOption[] = [];
+    stmt.bind({ $type: type });
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as {
+        asset_key: string;
+        label: string;
+        image_data: string;
+      };
+      options.push({ id: row.asset_key, label: row.label, image: row.image_data });
+    }
+    return options;
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function listAvatarOptions(): Promise<{
+  hair: AvatarOption[];
+  glasses: AvatarOption[];
+  topColors: AvatarOption[];
+  bottomColors: AvatarOption[];
+}> {
+  const [hair, glasses, topColors, bottomColors] = await Promise.all([
+    listOptionsByType("hair"),
+    listOptionsByType("glasses"),
+    listOptionsByType("top"),
+    listOptionsByType("bottom"),
+  ]);
+  return { hair, glasses, topColors, bottomColors };
+}
+
+export async function getAvatarComponent(
+  type: "hair" | "glasses" | "top" | "bottom",
+  id: string,
+): Promise<string | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT image_data FROM avatar_assets WHERE asset_type = $type AND asset_key = $key LIMIT 1;",
+  );
+  try {
+    stmt.bind({ $type: type, $key: id });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { image_data: string };
+    return row.image_data || null;
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function saveUserAvatar(params: {
+  userID: string;
+  nickname: string;
+  gender: string;
+  hairStyle?: string | null;
+  glasses?: string | null;
+  topColor?: string | null;
+  bottomColor?: string | null;
+}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    INSERT INTO user_avatars (
+      user_id,
+      nickname,
+      gender,
+      hair_style,
+      glasses,
+      top_color,
+      bottom_color,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $user_id,
+      $nickname,
+      $gender,
+      $hair_style,
+      $glasses,
+      $top_color,
+      $bottom_color,
+      $created_at,
+      $updated_at
+    )
+    ON CONFLICT(user_id) DO UPDATE SET
+      nickname = $nickname,
+      gender = $gender,
+      hair_style = $hair_style,
+      glasses = $glasses,
+      top_color = $top_color,
+      bottom_color = $bottom_color,
+      updated_at = $updated_at;
+    `,
+    {
+      $user_id: params.userID,
+      $nickname: params.nickname,
+      $gender: params.gender,
+      $hair_style: params.hairStyle ?? null,
+      $glasses: params.glasses ?? null,
+      $top_color: params.topColor ?? null,
+      $bottom_color: params.bottomColor ?? null,
+      $created_at: now,
+      $updated_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
+export type UserAvatar = {
+  userID: string;
+  nickname: string;
+  gender: string;
+  hairStyle: string | null;
+  glasses: string | null;
+  topColor: string | null;
+  bottomColor: string | null;
+  themeFood: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getUserAvatar(userID: string): Promise<UserAvatar | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT user_id, nickname, gender, hair_style, glasses, top_color, bottom_color, theme_food, created_at, updated_at
+    FROM user_avatars
+    WHERE user_id = $user_id
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as {
+      user_id: string;
+      nickname: string;
+      gender: string;
+      hair_style: string | null;
+      glasses: string | null;
+      top_color: string | null;
+      bottom_color: string | null;
+      theme_food: string | null;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      userID: row.user_id,
+      nickname: row.nickname,
+      gender: row.gender,
+      hairStyle: row.hair_style ?? null,
+      glasses: row.glasses ?? null,
+      topColor: row.top_color ?? null,
+      bottomColor: row.bottom_color ?? null,
+      themeFood: row.theme_food || "胡萝卜",
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function insertFoodLog(params: {
+  userID: string;
+  score: number;
+  content: string;
+  voiceData?: string | null;
+}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    INSERT INTO user_food_logs (log_id, user_id, score, content, voice_data, created_at)
+    VALUES ($log_id, $user_id, $score, $content, $voice_data, $created_at);
+    `,
+    {
+      $log_id: crypto.randomUUID(),
+      $user_id: params.userID,
+      $score: params.score,
+      $content: params.content,
+      $voice_data: params.voiceData ?? null,
+      $created_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
+export async function insertAvatarState(params: {
+  userID: string;
+  feedbackText?: string | null;
+  expression?: string | null;
+  bodyPosture?: string | null;
+}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    INSERT INTO user_avatar_states (state_id, user_id, expression, body_posture, feedback_text, created_at)
+    VALUES ($state_id, $user_id, $expression, $body_posture, $feedback_text, $created_at);
+    `,
+    {
+      $state_id: crypto.randomUUID(),
+      $user_id: params.userID,
+      $expression: params.expression ?? null,
+      $body_posture: params.bodyPosture ?? null,
+      $feedback_text: params.feedbackText ?? null,
+      $created_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
+export async function getLatestAvatarState(userID: string): Promise<{
+  feedbackText: string | null;
+} | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT feedback_text
+    FROM user_avatar_states
+    WHERE user_id = $user_id
+    ORDER BY created_at DESC
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { feedback_text: string | null };
+    return { feedbackText: row.feedback_text ?? null };
+  } finally {
+    stmt.free();
+  }
+}
+
+export type TempBook = {
+  userID: string;
+  bookID: string;
+  title: string;
+  preview: string;
+  description: string;
+  content: string;
+  regenerateCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type HistoryBook = {
+  bookID: string;
+  userID: string;
+  title: string;
+  preview: string;
+  description: string;
+  content: string;
+  confirmedAt: string;
+};
+
+export async function getTempBook(userID: string): Promise<TempBook | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT user_id, book_id, title, preview, description, content, regenerate_count, created_at, updated_at
+    FROM temp_books
+    WHERE user_id = $user_id
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as {
+      user_id: string;
+      book_id: string;
+      title: string;
+      preview: string;
+      description: string;
+      content: string;
+      regenerate_count: number;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      userID: row.user_id,
+      bookID: row.book_id,
+      title: row.title,
+      preview: row.preview,
+      description: row.description,
+      content: row.content,
+      regenerateCount: row.regenerate_count ?? 0,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function saveTempBook(params: {
+  userID: string;
+  bookID: string;
+  title: string;
+  preview: string;
+  description: string;
+  content: string;
+  regenerateCount: number;
+}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    INSERT INTO temp_books (
+      user_id,
+      book_id,
+      title,
+      preview,
+      description,
+      content,
+      regenerate_count,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $user_id,
+      $book_id,
+      $title,
+      $preview,
+      $description,
+      $content,
+      $regenerate_count,
+      $created_at,
+      $updated_at
+    )
+    ON CONFLICT(user_id) DO UPDATE SET
+      book_id = $book_id,
+      title = $title,
+      preview = $preview,
+      description = $description,
+      content = $content,
+      regenerate_count = $regenerate_count,
+      updated_at = $updated_at;
+    `,
+    {
+      $user_id: params.userID,
+      $book_id: params.bookID,
+      $title: params.title,
+      $preview: params.preview,
+      $description: params.description,
+      $content: params.content,
+      $regenerate_count: params.regenerateCount,
+      $created_at: now,
+      $updated_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
+export async function clearTempBook(userID: string) {
+  const db = await getDb();
+  db.run("DELETE FROM temp_books WHERE user_id = $user_id;", { $user_id: userID });
+  await persistDb(db);
+}
+
+export async function addHistoryBook(params: {
+  bookID: string;
+  userID: string;
+  title: string;
+  preview: string;
+  description: string;
+  content: string;
+}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    INSERT INTO history_books (book_id, user_id, title, preview, description, content, confirmed_at)
+    VALUES ($book_id, $user_id, $title, $preview, $description, $content, $confirmed_at);
+    `,
+    {
+      $book_id: params.bookID,
+      $user_id: params.userID,
+      $title: params.title,
+      $preview: params.preview,
+      $description: params.description,
+      $content: params.content,
+      $confirmed_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
+export async function listHistoryBooks(userID: string): Promise<HistoryBook[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT book_id, user_id, title, preview, description, content, confirmed_at
+    FROM history_books
+    WHERE user_id = $user_id
+    ORDER BY confirmed_at DESC;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    const items: HistoryBook[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as {
+        book_id: string;
+        user_id: string;
+        title: string;
+        preview: string;
+        description: string;
+        content: string;
+        confirmed_at: string;
+      };
+      items.push({
+        bookID: row.book_id,
+        userID: row.user_id,
+        title: row.title,
+        preview: row.preview,
+        description: row.description,
+        content: row.content,
+        confirmedAt: row.confirmed_at,
+      });
+    }
+    return items;
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function getLatestHistoryBook(userID: string): Promise<HistoryBook | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT book_id, user_id, title, preview, description, content, confirmed_at
+    FROM history_books
+    WHERE user_id = $user_id
+    ORDER BY confirmed_at DESC
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as {
+      book_id: string;
+      user_id: string;
+      title: string;
+      preview: string;
+      description: string;
+      content: string;
+      confirmed_at: string;
+    };
+    return {
+      bookID: row.book_id,
+      userID: row.user_id,
+      title: row.title,
+      preview: row.preview,
+      description: row.description,
+      content: row.content,
+      confirmedAt: row.confirmed_at,
+    };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function deleteUser(userID: string): Promise<boolean> {
+  const db = await getDb();
+  const existsStmt = db.prepare(
+    `
+    SELECT 1
+    FROM users
+    WHERE user_id = $user_id
+    LIMIT 1;
+    `,
+  );
+  try {
+    existsStmt.bind({ $user_id: userID });
+    if (!existsStmt.step()) {
+      return false;
+    }
+    db.run("BEGIN TRANSACTION");
+    db.run("DELETE FROM temp_books WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM history_books WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM user_avatar_states WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM user_food_logs WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM user_avatars WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM users WHERE user_id = $user_id", { $user_id: userID });
+    db.run("COMMIT");
+    await persistDb(db);
+    return true;
+  } catch (error) {
+    db.run("ROLLBACK");
+    throw error;
+  } finally {
+    existsStmt.free();
+  }
+}
+
+export async function getHistoryBookById(
+  userID: string,
+  bookID: string,
+): Promise<HistoryBook | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT book_id, user_id, title, preview, description, content, confirmed_at
+    FROM history_books
+    WHERE user_id = $user_id AND book_id = $book_id
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID, $book_id: bookID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as {
+      book_id: string;
+      user_id: string;
+      title: string;
+      preview: string;
+      description: string;
+      content: string;
+      confirmed_at: string;
+    };
+    return {
+      bookID: row.book_id,
+      userID: row.user_id,
+      title: row.title,
+      preview: row.preview,
+      description: row.description,
+      content: row.content,
+      confirmedAt: row.confirmed_at,
+    };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function getTempBookById(
+  userID: string,
+  bookID: string,
+): Promise<TempBook | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT user_id, book_id, title, preview, description, content, regenerate_count, created_at, updated_at
+    FROM temp_books
+    WHERE user_id = $user_id AND book_id = $book_id
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID, $book_id: bookID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as {
+      user_id: string;
+      book_id: string;
+      title: string;
+      preview: string;
+      description: string;
+      content: string;
+      regenerate_count: number;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      userID: row.user_id,
+      bookID: row.book_id,
+      title: row.title,
+      preview: row.preview,
+      description: row.description,
+      content: row.content,
+      regenerateCount: row.regenerate_count ?? 0,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  } finally {
+    stmt.free();
+  }
+}

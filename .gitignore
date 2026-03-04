@@ -3,7 +3,20 @@ backend/static/images/
 backend/storybook.db
 TASK_STATUS.md
 前端简单设计-1版.pdf
-taste-skill/.venv/
-taste-skill/node_modules/
 **/__pycache__/
 **/*.pyc
+
+# frontend
+frontend/.venv/
+frontend/node_modules/
+frontend/dist/
+
+# user-api
+user-api/node_modules/
+user-api/data/db.sqlite
+user-api/dist/
+user-api/.env
+
+# root
+node_modules/
+noa_child.zip
