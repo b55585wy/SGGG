@@ -9,7 +9,7 @@ function getJwtSecret() {
 }
 
 export function signUserToken(payload: JwtUserPayload) {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: "7d" });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: "90d" });
 }
 
 export function verifyUserToken(token: string): JwtUserPayload {

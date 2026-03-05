@@ -5,14 +5,29 @@ export type AuthenticatedRequest = Request & {
   user?: JwtUserPayload;
 };
 
+function extractToken(req: Request): string | null {
+  // 1. Authorization: Bearer <token>
+  const header = req.header("authorization") || "";
+  const [scheme, bearerToken] = header.split(" ");
+  if (scheme === "Bearer" && bearerToken) return bearerToken;
+
+  // 2. httpOnly cookie fallback (persists across localStorage clears on iOS Safari)
+  const cookieHeader = req.header("cookie") || "";
+  for (const part of cookieHeader.split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === "noa_token") return decodeURIComponent(v.join("="));
+  }
+
+  return null;
+}
+
 export function authRequired(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction,
 ) {
-  const header = req.header("authorization") || "";
-  const [scheme, token] = header.split(" ");
-  if (scheme !== "Bearer" || !token) {
+  const token = extractToken(req);
+  if (!token) {
     res.status(401).json({ message: "未登录" });
     return;
   }

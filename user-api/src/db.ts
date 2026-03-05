@@ -156,6 +156,18 @@ function ensureUserAvatarColumns(db: Database) {
     }
   }
 
+  // reading_sessions table migration — add session_type column
+  {
+    const rs = db.exec("PRAGMA table_info(reading_sessions);");
+    const rsCols = new Set<string>();
+    for (const row of rs[0]?.values ?? []) {
+      if (typeof row[1] === "string") rsCols.add(row[1]);
+    }
+    if (!rsCols.has("session_type")) {
+      db.run("ALTER TABLE reading_sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'experiment';");
+    }
+  }
+
   // user_avatars table migration
   const res = db.exec("PRAGMA table_info(user_avatars);");
   const columns = new Set<string>();
@@ -672,6 +684,56 @@ export async function getFoodLogHistory(
   }
 }
 
+export type HeatmapDayEntry = {
+  date: string;    // YYYY-MM-DD
+  avgScore: number;
+  count: number;
+};
+
+/**
+ * 获取用户指定天数内每日进食打卡的聚合数据，用于热力图展示
+ */
+export async function getFoodLogHeatmapData(
+  userID: string,
+  days: number = 35,
+): Promise<HeatmapDayEntry[]> {
+  const db = await getDb();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const stmt = db.prepare(
+    `SELECT
+       substr(created_at, 1, 10) as day,
+       AVG(score) as avg_score,
+       COUNT(*) as log_count
+     FROM user_food_logs
+     WHERE user_id = $user_id
+       AND substr(created_at, 1, 10) >= $cutoff
+     GROUP BY day
+     ORDER BY day ASC;`,
+  );
+  try {
+    stmt.bind({ $user_id: userID, $cutoff: cutoffStr });
+    const entries: HeatmapDayEntry[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as {
+        day: string;
+        avg_score: number;
+        log_count: number;
+      };
+      entries.push({
+        date: row.day,
+        avgScore: Math.round(row.avg_score * 10) / 10,
+        count: row.log_count,
+      });
+    }
+    return entries;
+  } finally {
+    stmt.free();
+  }
+}
+
 export type ReadingSummary = {
   totalSessions: number;
   lastCompletionRate: number | null; // 0-1
@@ -1003,6 +1065,7 @@ export async function insertReadingSession(params: {
   pagesRead: number;
   interactionCount: number;
   completed: boolean;
+  sessionType?: string;
   tryLevel?: string | null;
   abortReason?: string | null;
 }) {
@@ -1010,8 +1073,8 @@ export async function insertReadingSession(params: {
   const now = new Date().toISOString();
   db.run(
     `INSERT INTO reading_sessions
-      (id, user_id, book_id, started_at, ended_at, duration_ms, total_pages, pages_read, interaction_count, completed, try_level, abort_reason, created_at)
-     VALUES ($id, $user_id, $book_id, $started_at, $ended_at, $duration_ms, $total_pages, $pages_read, $interaction_count, $completed, $try_level, $abort_reason, $created_at);`,
+      (id, user_id, book_id, started_at, ended_at, duration_ms, total_pages, pages_read, interaction_count, completed, session_type, try_level, abort_reason, created_at)
+     VALUES ($id, $user_id, $book_id, $started_at, $ended_at, $duration_ms, $total_pages, $pages_read, $interaction_count, $completed, $session_type, $try_level, $abort_reason, $created_at);`,
     {
       $id: crypto.randomUUID(),
       $user_id: params.userID,
@@ -1023,6 +1086,7 @@ export async function insertReadingSession(params: {
       $pages_read: params.pagesRead,
       $interaction_count: params.interactionCount,
       $completed: params.completed ? 1 : 0,
+      $session_type: params.sessionType ?? "experiment",
       $try_level: params.tryLevel ?? null,
       $abort_reason: params.abortReason ?? null,
       $created_at: now,
@@ -1131,11 +1195,10 @@ export type AdminUserStats = {
     bookCount: number;
     confirmedAt: string | null;
     lastActive: string | null;
-    readingCount: number;
-    readingCompletedCount: number;
-    readingAbortedCount: number;
-    avgDurationMs: number | null;
-    avgCompletion: number | null;
+    previewCount: number;
+    reviewCount: number;
+    experimentCompletedCount: number;
+    experimentAbortedCount: number;
     positiveFeedbackCount: number;
   }>;
 };
@@ -1220,12 +1283,11 @@ export async function getAdminStats(): Promise<AdminUserStats> {
     LEFT JOIN (
       SELECT
         user_id,
-        COUNT(*) as reading_count,
-        SUM(completed) as completed_count,
-        SUM(1 - completed) as aborted_count,
-        AVG(duration_ms) as avg_duration_ms,
-        AVG(CAST(pages_read AS REAL) / NULLIF(total_pages, 0)) as avg_completion,
-        SUM(CASE WHEN try_level IS NOT NULL AND try_level != 'look' THEN 1 ELSE 0 END) as positive_feedback_count
+        SUM(CASE WHEN session_type = 'preview' THEN 1 ELSE 0 END) as preview_count,
+        SUM(CASE WHEN session_type = 'review' THEN 1 ELSE 0 END) as review_count,
+        SUM(CASE WHEN session_type = 'experiment' AND completed = 1 THEN 1 ELSE 0 END) as experiment_completed_count,
+        SUM(CASE WHEN session_type = 'experiment' AND completed = 0 THEN 1 ELSE 0 END) as experiment_aborted_count,
+        SUM(CASE WHEN session_type = 'experiment' AND try_level IS NOT NULL AND try_level != 'look' THEN 1 ELSE 0 END) as positive_feedback_count
       FROM reading_sessions
       GROUP BY user_id
     ) rs ON u.user_id = rs.user_id
@@ -1245,11 +1307,10 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       bookCount: (get("book_count") as number) ?? 0,
       confirmedAt: (get("last_confirmed_at") as string) ?? null,
       lastActive: (get("last_active") as string) ?? null,
-      readingCount: (get("reading_count") as number) ?? 0,
-      readingCompletedCount: (get("completed_count") as number) ?? 0,
-      readingAbortedCount: (get("aborted_count") as number) ?? 0,
-      avgDurationMs: get("avg_duration_ms") != null ? Math.round(get("avg_duration_ms") as number) : null,
-      avgCompletion: get("avg_completion") != null ? Math.round((get("avg_completion") as number) * 1000) / 1000 : null,
+      previewCount: (get("preview_count") as number) ?? 0,
+      reviewCount: (get("review_count") as number) ?? 0,
+      experimentCompletedCount: (get("experiment_completed_count") as number) ?? 0,
+      experimentAbortedCount: (get("experiment_aborted_count") as number) ?? 0,
       positiveFeedbackCount: (get("positive_feedback_count") as number) ?? 0,
     });
   }

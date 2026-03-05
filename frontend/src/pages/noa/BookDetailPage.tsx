@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { getJson } from '@/lib/ncApi'
 import { sessionStart } from '@/lib/api'
 
@@ -17,6 +17,8 @@ type BookDetailResponse = {
 export default function BookDetailPage() {
   const navigate = useNavigate()
   const { bookId } = useParams()
+  const [searchParams] = useSearchParams()
+  const isExperiment = searchParams.get('experiment') === '1'
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -41,11 +43,9 @@ export default function BookDetailPage() {
         localStorage.setItem('storybook_draft', JSON.stringify(draft))
         localStorage.setItem('storybook_book_id', bookId!)
 
-        if (data.book.confirmed) {
-          // 历史绘本：只读模式，不进入实验流程，清除任何残留 session
-          localStorage.removeItem('storybook_session')
-        } else {
-          // 4. 未确认绘本：创建阅读 session（正式实验流程）
+        if (isExperiment) {
+          // 正式实验：确认绘本后立即开始，创建 session
+          localStorage.setItem('storybook_source', 'experiment')
           const clientToken = crypto.randomUUID()
           const sessionRes = await sessionStart({
             story_id: storyId,
@@ -53,7 +53,6 @@ export default function BookDetailPage() {
           })
           if (cancelled) return
 
-          // 5. 存入 session 数据（useSession 从这里恢复）
           localStorage.setItem(
             'storybook_session',
             JSON.stringify({
@@ -63,9 +62,17 @@ export default function BookDetailPage() {
               session_index: (sessionRes as { session_index?: number }).session_index ?? 0,
             }),
           )
+        } else if (data.book.confirmed) {
+          // 历史绘本回顾：只读模式
+          localStorage.removeItem('storybook_session')
+          localStorage.setItem('storybook_source', 'review')
+        } else {
+          // 未确认绘本预览：查看但不计入正式实验
+          localStorage.removeItem('storybook_session')
+          localStorage.setItem('storybook_source', 'preview')
         }
 
-        // 6. 跳转 Reader
+        // 4. 跳转 Reader
         navigate('/reader', { replace: true })
       } catch (e) {
         if (cancelled) return
@@ -77,7 +84,7 @@ export default function BookDetailPage() {
 
     void init()
     return () => { cancelled = true }
-  }, [bookId, navigate])
+  }, [bookId, isExperiment, navigate])
 
   if (error) {
     return (

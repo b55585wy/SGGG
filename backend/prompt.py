@@ -41,7 +41,10 @@ PAGE STRUCTURE (repeat for each page, page_id format: p01, p02, ...):
   "interaction": {
     "type": "none | tap | choice | drag | mimic | record_voice",
     "instruction": "child-facing instruction text (empty string if type=none)",
-    "event_key": "unique_snake_case_key"
+    "event_key": "unique_snake_case_key",
+    "ext": {
+      "encouragement": "short warm praise (1-2 sentences) spoken aloud AFTER the child completes this interaction, referencing the story character or food; empty string if type=none"
+    }
   },
   "branch_choices": []
 }

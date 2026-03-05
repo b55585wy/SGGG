@@ -29,6 +29,7 @@ export async function postJson<TResponse>(
   const token = getToken()
   const res = await fetch(rewritePath(path), {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'content-type': 'application/json',
       ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -61,6 +62,7 @@ export async function getJson<TResponse>(
   const token = getToken()
   const res = await fetch(rewritePath(path), {
     method: 'GET',
+    credentials: 'include',
     headers: {
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),

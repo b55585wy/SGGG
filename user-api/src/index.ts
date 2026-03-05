@@ -16,6 +16,7 @@ import {
   getHistoryBookById,
   getLastFoodScore,
   getFoodLogHistory,
+  getFoodLogHeatmapData,
   getReadingSummary,
   insertUser,
   insertAvatarState,
@@ -211,11 +212,24 @@ app.post("/api/auth/login", async (req, res) => {
     await setFirstLoginFlag(user.user_id, false);
   }
 
+  // Set persistent httpOnly cookie — survives localStorage clears on iOS Safari
+  res.cookie("noa_token", token, {
+    httpOnly: true,
+    maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days
+    path: "/",
+    sameSite: "lax",
+  });
+
   res.json({
     token,
     user: { userID: user.user_id },
     firstLogin,
   });
+});
+
+app.post("/api/auth/logout", (_req, res) => {
+  res.clearCookie("noa_token", { path: "/" });
+  res.json({ ok: true });
 });
 
 app.post("/api/admin/users", adminRequired, async (req, res) => {
@@ -643,6 +657,17 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
   });
 });
 
+app.get("/api/food/heatmap", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!req.user) {
+    res.status(401).json({ message: "未登录" });
+    return;
+  }
+  const weeksParam = Number((req.query as { weeks?: string }).weeks ?? "5");
+  const weeks = Number.isFinite(weeksParam) && weeksParam > 0 && weeksParam <= 52 ? weeksParam : 5;
+  const days = await getFoodLogHeatmapData(req.user.userID, weeks * 7);
+  res.json({ days });
+});
+
 app.get("/api/books/history", authRequired, async (req: AuthenticatedRequest, res) => {
   if (!req.user) {
     res.status(401).json({ message: "未登录" });
@@ -750,6 +775,7 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     pagesRead?: unknown;
     interactionCount?: unknown;
     completed?: unknown;
+    sessionType?: unknown;
     tryLevel?: unknown;
     abortReason?: unknown;
   };
@@ -767,6 +793,7 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     pagesRead,
     interactionCount: typeof body.interactionCount === "number" ? body.interactionCount : 0,
     completed: body.completed === true,
+    sessionType: typeof body.sessionType === "string" ? body.sessionType : "experiment",
     tryLevel: typeof body.tryLevel === "string" ? body.tryLevel : null,
     abortReason: typeof body.abortReason === "string" ? body.abortReason : null,
   });
