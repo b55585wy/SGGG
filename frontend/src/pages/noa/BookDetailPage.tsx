@@ -40,24 +40,29 @@ export default function BookDetailPage() {
         // 3. 存入 localStorage（Reader 从这里读取）
         localStorage.setItem('storybook_draft', JSON.stringify(draft))
 
-        // 4. 调用 FastAPI 创建阅读 session
-        const clientToken = crypto.randomUUID()
-        const sessionRes = await sessionStart({
-          story_id: storyId,
-          client_session_token: clientToken,
-        })
-        if (cancelled) return
-
-        // 5. 存入 session 数据（useSession 从这里恢复）
-        localStorage.setItem(
-          'storybook_session',
-          JSON.stringify({
+        if (data.book.confirmed) {
+          // 历史绘本：只读模式，不进入实验流程，清除任何残留 session
+          localStorage.removeItem('storybook_session')
+        } else {
+          // 4. 未确认绘本：创建阅读 session（正式实验流程）
+          const clientToken = crypto.randomUUID()
+          const sessionRes = await sessionStart({
             story_id: storyId,
-            session_id: sessionRes.session_id,
             client_session_token: clientToken,
-            session_index: (sessionRes as { session_index?: number }).session_index ?? 0,
-          }),
-        )
+          })
+          if (cancelled) return
+
+          // 5. 存入 session 数据（useSession 从这里恢复）
+          localStorage.setItem(
+            'storybook_session',
+            JSON.stringify({
+              story_id: storyId,
+              session_id: sessionRes.session_id,
+              client_session_token: clientToken,
+              session_index: (sessionRes as { session_index?: number }).session_index ?? 0,
+            }),
+          )
+        }
 
         // 6. 跳转 Reader
         navigate('/reader', { replace: true })

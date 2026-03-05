@@ -38,6 +38,21 @@ export function FeedbackModal({ status, session_id, onDone }: Props) {
 
   const canSubmit = status === 'COMPLETED' ? tryLevel !== null : abortReason !== null;
 
+  // X button: for ABORTED sessions, auto-submit with current reason or 'other' so no session
+  // is left without a feedback record. For COMPLETED, just dismiss.
+  const handleClose = async () => {
+    if (status === 'ABORTED' && !submitting) {
+      try {
+        await feedbackSubmit({
+          session_id,
+          status: 'ABORTED',
+          abort_reason: abortReason ?? 'other',
+        });
+      } catch { /* ignore — best-effort submit */ }
+    }
+    onDone();
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -68,7 +83,7 @@ export function FeedbackModal({ status, session_id, onDone }: Props) {
 
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-xl font-semibold tracking-tight">{status === 'COMPLETED' ? '用餐怎么样？' : '为什么提前结束？'}</h2>
-            <button onClick={onDone} className="p-1 rounded-lg hover:bg-[var(--color-warm-100)] transition-colors">
+            <button onClick={handleClose} className="p-1 rounded-lg hover:bg-[var(--color-warm-100)] transition-colors">
               <X size={20} weight="bold" className="text-[var(--color-muted)]" />
             </button>
           </div>

@@ -14,25 +14,27 @@ test.describe('虚拟形象设置', () => {
   });
 
   test('页面显示正确的标题', async ({ page }) => {
-    await expect(page.locator('text=来一起创造你在故事世界的形象吧！')).toBeVisible();
-    await expect(page.locator('text=请先完成昵称与性别，再选择形象组件')).toBeVisible();
+    // New AvatarPage shows "创建形象" in the sticky header
+    await expect(page.locator('text=创建形象')).toBeVisible();
+    // Numbered sections for basic info and customization
+    await expect(page.locator('text=基本信息')).toBeVisible();
+    await expect(page.locator('text=形象定制')).toBeVisible();
   });
 
   test('输入昵称、选择性别后提交跳转到 /noa/home', async ({ page }) => {
-    // 等待页面加载完成（avatar options loaded）
+    // Wait for avatar options to load
     await expect(page.locator('text=基本信息')).toBeVisible();
 
-    // 输入昵称
-    const nicknameInput = page.locator('label').filter({ hasText: '昵称' }).locator('input');
-    await nicknameInput.fill('测试小朋友');
+    // Fill nickname — input has placeholder, is NOT wrapped by a <label>
+    await page.locator('input[placeholder="给自己起一个名字"]').fill('测试小朋友');
 
-    // 选择性别 - 点击"男"按钮
-    await page.locator('label').filter({ hasText: '男' }).first().click();
+    // Select gender — now rendered as <button> with text "男孩" / "女孩"
+    await page.locator('button').filter({ hasText: '男孩' }).first().click();
 
-    // 点击提交
+    // Submit
     await page.locator('button[type="submit"]').filter({ hasText: '提交并进入主页面' }).click();
 
-    // 应跳转到 /noa/home
+    // Should navigate to /noa/home
     await expect(page).toHaveURL(/\/noa\/home/, { timeout: 10_000 });
   });
 });

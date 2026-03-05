@@ -98,13 +98,20 @@ export default function ReaderPage() {
       track('page_back', { from_page: fromPage, to_page: next + 1 }, draft.pages[pageIdx].page_id);
     }
     if (next >= draft.pages.length) {
-      track('story_complete', { completion_rate: 1.0 }, draft.pages[draft.pages.length - 1].page_id);
-      flush();
-      setFeedback('COMPLETED');
+      if (session) {
+        track('story_complete', { completion_rate: 1.0 }, draft.pages[draft.pages.length - 1].page_id);
+        flush();
+        setFeedback('COMPLETED');
+      } else {
+        // Read-only mode — just go home
+        clearSession();
+        localStorage.removeItem('storybook_draft');
+        navigate('/noa/home');
+      }
       return;
     }
     setPageIdx(next);
-  }, [draft, pageIdx, trackDwell, track, flush, tts]);
+  }, [draft, pageIdx, session, trackDwell, track, flush, tts, clearSession, navigate]);
 
   const onInteractionStart = useCallback((interactionType: string, eventKey: string) => {
     if (!draft) return;
@@ -131,7 +138,16 @@ export default function ReaderPage() {
     else { tts.speak(p.text); track('read_aloud_play', { enabled: true, page_id: p.page_id }, p.page_id); }
   }, [draft, pageIdx, tts, track]);
 
-  const onExit = useCallback(() => { trackDwell(); flush(); setFeedback('ABORTED'); }, [trackDwell, flush]);
+  const onExit = useCallback(() => {
+    if (session) {
+      trackDwell(); flush(); setFeedback('ABORTED');
+    } else {
+      // Read-only mode (history book) — just go home
+      clearSession();
+      localStorage.removeItem('storybook_draft');
+      navigate('/noa/home');
+    }
+  }, [session, trackDwell, flush, clearSession, navigate]);
 
   const TOTAL_SESSIONS = 9;
 
@@ -152,7 +168,7 @@ export default function ReaderPage() {
     navigate('/noa/home');
   }, [clearSession, navigate]);
 
-  if (!draft || !session) return (
+  if (!draft) return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="w-8 h-8 border-2 border-[var(--color-accent)]/30 border-t-[var(--color-accent)] rounded-full animate-spin" />
     </div>

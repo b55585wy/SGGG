@@ -41,9 +41,9 @@ function svgDataUri(svg: string) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-function createBookPreviewImage(title: string) {
-  const safeTitle = title.slice(0, 10);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 480"><rect width="360" height="480" rx="18" fill="#f9fafb"/><rect x="24" y="24" width="312" height="72" rx="12" fill="#fff"/><text x="36" y="68" font-size="20" fill="#111827" font-family="Arial">${safeTitle}</text><rect x="24" y="120" width="312" height="240" rx="16" fill="#e5e7eb"/><rect x="24" y="376" width="312" height="56" rx="10" fill="#fff"/><text x="36" y="412" font-size="14" fill="#6b7280" font-family="Arial">绘本预览</text></svg>`;
+function createBookPreviewImage() {
+  // Abstract cover art: clean gradient shapes, no embedded text (title shown in UI)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 480"><rect width="360" height="480" fill="#d1fae5"/><circle cx="300" cy="70" r="120" fill="#a7f3d0" opacity="0.5"/><circle cx="40" cy="430" r="140" fill="#6ee7b7" opacity="0.3"/><rect x="55" y="130" width="250" height="220" rx="22" fill="white" opacity="0.55"/><circle cx="180" cy="195" r="38" fill="#059669" opacity="0.12"/><rect x="85" y="250" width="190" height="9" rx="4.5" fill="#059669" opacity="0.18"/><rect x="85" y="272" width="150" height="9" rx="4.5" fill="#059669" opacity="0.14"/><rect x="85" y="294" width="170" height="9" rx="4.5" fill="#059669" opacity="0.16"/><circle cx="180" cy="196" r="22" fill="#059669" opacity="0.1"/></svg>`;
   return svgDataUri(svg);
 }
 
@@ -121,7 +121,7 @@ async function generateTempBookForUser(params: {
     userID: params.userID,
     bookID: draft.story_id,
     title: draft.book_meta.title,
-    preview: createBookPreviewImage(draft.book_meta.title),
+    preview: createBookPreviewImage(),
     description: draft.book_meta.summary,
     content: JSON.stringify(draft),
     regenerateCount: params.regenerateCount,
@@ -487,6 +487,10 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     body && typeof body === "object" && typeof (body as { note?: unknown }).note === "string"
       ? (body as { note: string }).note
       : null;
+  const promptReason =
+    body && typeof body === "object" && typeof (body as { reason?: unknown }).reason === "string"
+      ? (body as { reason: string }).reason
+      : null;
   const tempBook = await getTempBook(req.user.userID);
   if (!tempBook) {
     res.status(404).json({ message: "未找到待确认绘本" });
@@ -507,11 +511,17 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
       ? (body as { story_type: string }).story_type
       : "interactive";
 
+  // Optional: temporary food override for this regeneration only
+  const targetFoodOverride =
+    body && typeof body === "object" && typeof (body as { target_food?: unknown }).target_food === "string"
+      ? (body as { target_food: string }).target_food.trim()
+      : null;
+
   const regenBody = {
     previous_story_id: tempBook.bookID,
-    target_food: avatar.themeFood,
+    target_food: targetFoodOverride || avatar.themeFood,
     story_type: storyType,
-    dissatisfaction_reason: promptNote || "用户要求重新生成",
+    dissatisfaction_reason: promptReason || promptNote || "用户要求重新生成",
   };
 
   const response = await fetch(`${FASTAPI_URL}/api/v1/story/regenerate`, {
@@ -541,7 +551,7 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     userID: req.user.userID,
     bookID: draft.story_id,
     title: draft.book_meta.title,
-    preview: createBookPreviewImage(draft.book_meta.title),
+    preview: createBookPreviewImage(),
     description: draft.book_meta.summary,
     content: JSON.stringify(draft),
     regenerateCount: tempBook.regenerateCount + 1,
@@ -552,7 +562,7 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     book: {
       bookID: draft.story_id,
       title: draft.book_meta.title,
-      preview: createBookPreviewImage(draft.book_meta.title),
+      preview: createBookPreviewImage(),
       description: draft.book_meta.summary,
       confirmed: false,
       regenerateCount: tempBook.regenerateCount + 1,

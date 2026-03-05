@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
+import { SpinnerGap } from '@phosphor-icons/react'
 import { getJson, postJson } from '@/lib/ncApi'
 
 type Option = {
@@ -15,17 +17,89 @@ type OptionsResponse = {
   bottomColors: Option[]
 }
 
-type BaseResponse = {
-  image: string
+type BaseResponse = { image: string }
+type ComponentResponse = { image: string }
+
+const spring = { type: 'spring' as const, stiffness: 100, damping: 20 }
+
+const containerVariants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.04 } },
+}
+const itemVariants = {
+  hidden: { opacity: 0, scale: 0.92 },
+  show: { opacity: 1, scale: 1, transition: spring },
 }
 
-type ComponentResponse = {
-  image: string
+function OptionGrid({
+  label,
+  options,
+  selectedId,
+  onSelect,
+}: {
+  label: string
+  options: Option[]
+  selectedId: string
+  onSelect: (id: string) => void
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium" style={{ color: 'var(--color-muted)' }}>
+        {label}
+      </p>
+      <motion.div
+        className="grid grid-cols-3 gap-2"
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+      >
+        {options.map((item) => (
+          <motion.button
+            key={item.id}
+            variants={itemVariants}
+            type="button"
+            onClick={() => onSelect(item.id)}
+            whileTap={{ scale: 0.95 }}
+            className="flex flex-col items-center gap-1.5 p-2 rounded-2xl border transition-colors"
+            style={
+              selectedId === item.id
+                ? {
+                    borderColor: 'var(--color-accent)',
+                    background: 'var(--color-accent-light)',
+                  }
+                : {
+                    borderColor: 'var(--color-border-light)',
+                    background: 'var(--color-surface)',
+                  }
+            }
+          >
+            <img
+              src={item.image}
+              alt={item.label}
+              className="w-full object-contain"
+              style={{ height: 56 }}
+            />
+            <span
+              className="text-xs font-medium leading-none"
+              style={{
+                color:
+                  selectedId === item.id
+                    ? 'var(--color-accent)'
+                    : 'var(--color-muted)',
+              }}
+            >
+              {item.label}
+            </span>
+          </motion.button>
+        ))}
+      </motion.div>
+    </div>
+  )
 }
 
 export default function AvatarPage() {
   const navigate = useNavigate()
-  const [, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [baseImage, setBaseImage] = useState('')
@@ -49,10 +123,19 @@ export default function AvatarPage() {
     [nickname, gender, saving],
   )
 
+  async function fetchComponent(
+    type: 'hair' | 'glasses' | 'top' | 'bottom',
+    id: string,
+  ) {
+    const data = await getJson<ComponentResponse>(
+      `/api/avatar/component?type=${type}&id=${id}`,
+    )
+    return data.image
+  }
+
   useEffect(() => {
     async function load() {
       setError('')
-      setLoading(true)
       try {
         const [base, opts] = await Promise.all([
           getJson<BaseResponse>('/api/avatar/base'),
@@ -88,67 +171,34 @@ export default function AvatarPage() {
         setLoading(false)
       }
     }
-
     load()
-  }, [])
-
-  async function fetchComponent(
-    type: 'hair' | 'glasses' | 'top' | 'bottom',
-    id: string,
-  ) {
-    const data = await getJson<ComponentResponse>(
-      `/api/avatar/component?type=${type}&id=${id}`,
-    )
-    return data.image
-  }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function onSelectHair(id: string) {
     setHairId(id)
-    try {
-      const image = await fetchComponent('hair', id)
-      setHairImage(image)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    }
+    try { setHairImage(await fetchComponent('hair', id)) }
+    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
   }
-
   async function onSelectGlasses(id: string) {
     setGlassesId(id)
-    try {
-      const image = await fetchComponent('glasses', id)
-      setGlassesImage(image)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    }
+    try { setGlassesImage(await fetchComponent('glasses', id)) }
+    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
   }
-
   async function onSelectTop(id: string) {
     setTopId(id)
-    try {
-      const image = await fetchComponent('top', id)
-      setTopImage(image)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    }
+    try { setTopImage(await fetchComponent('top', id)) }
+    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
   }
-
   async function onSelectBottom(id: string) {
     setBottomId(id)
-    try {
-      const image = await fetchComponent('bottom', id)
-      setBottomImage(image)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    }
+    try { setBottomImage(await fetchComponent('bottom', id)) }
+    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!nickname.trim() || !gender) {
-      setError('昵称和性别不能为空')
-      return
-    }
+    if (!nickname.trim() || !gender) { setError('昵称和性别不能为空'); return }
     setSaving(true)
     try {
       await postJson('/api/avatar/save', {
@@ -162,9 +212,7 @@ export default function AvatarPage() {
       navigate('/noa/home', { replace: true })
     } catch (e) {
       const message =
-        e &&
-        typeof e === 'object' &&
-        'message' in e &&
+        e && typeof e === 'object' && 'message' in e &&
         typeof (e as { message?: unknown }).message === 'string'
           ? (e as { message: string }).message
           : '提交失败'
@@ -175,265 +223,307 @@ export default function AvatarPage() {
   }
 
   return (
-    <div style={{ padding: 24, width: '100%', boxSizing: 'border-box' }}>
-      <div style={{ marginBottom: 16, textAlign: 'left' }}>
-        <div style={{ fontSize: 22, fontWeight: 600, marginBottom: 6 }}>
-          来一起创造你在故事世界的形象吧！
-        </div>
-        <div style={{ color: '#6b7280', fontSize: 13 }}>
-          请先完成昵称与性别，再选择形象组件
-        </div>
-      </div>
-
-      <div
+    <div className="min-h-[100dvh]" style={{ background: 'var(--color-background)' }}>
+      {/* ── Page header ── */}
+      <header
+        className="sticky top-0 z-10 px-5 h-12 flex items-center border-b"
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-          gap: 24,
-          alignItems: 'start',
+          background: 'rgba(250,250,249,0.85)',
+          backdropFilter: 'blur(12px)',
+          borderColor: 'var(--color-border-light)',
         }}
       >
-        <div
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 16,
-            padding: 16,
-            background: '#fff',
-          }}
+        <motion.div
+          initial={{ opacity: 0, x: -6 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={spring}
         >
-          <div style={{ fontSize: 14, color: '#111827', marginBottom: 12 }}>
-            预览
-          </div>
-          <div
-            style={{
-              position: 'relative',
-              width: '100%',
-              aspectRatio: '3 / 4',
-              borderRadius: 12,
-              overflow: 'hidden',
-              background: '#f8fafc',
-              border: '1px solid #e5e7eb',
-            }}
+          <span
+            className="text-sm font-semibold tracking-tight"
+            style={{ color: 'var(--color-foreground)' }}
           >
-            {baseImage ? (
-              <img
-                src={baseImage}
-                alt="base"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {topImage ? (
-              <img
-                src={topImage}
-                alt="top"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {bottomImage ? (
-              <img
-                src={bottomImage}
-                alt="bottom"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {hairImage ? (
-              <img
-                src={hairImage}
-                alt="hair"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            {glassesImage ? (
-              <img
-                src={glassesImage}
-                alt="glasses"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
+            创建形象
+          </span>
+        </motion.div>
+      </header>
+
+      {loading ? (
+        /* ── Skeleton ── */
+        <div className="px-5 pt-6 max-w-[600px] mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-6">
+            <div
+              className="rounded-3xl skeleton-shimmer"
+              style={{ aspectRatio: '3/4' }}
+            />
+            <div className="space-y-3">
+              {[1, 2, 3, 4].map((i) => (
+                <div
+                  key={i}
+                  className="h-10 rounded-xl skeleton-shimmer"
+                  style={{ width: i % 2 === 0 ? '70%' : '100%' }}
+                />
+              ))}
+            </div>
           </div>
         </div>
+      ) : (
+        <div className="px-5 pt-6 pb-10 max-w-[600px] mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-6 items-start">
 
-        <form
-          onSubmit={onSubmit}
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 16,
-            padding: 20,
-            background: '#fff',
-            textAlign: 'left',
-          }}
-        >
-          <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>基本信息</div>
-
-          <label style={{ display: 'block', marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>
-              昵称
-            </div>
-            <input
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: '1px solid #d1d5db',
-                borderRadius: 8,
-              }}
-            />
-          </label>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>性别</div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              {[
-                { value: 'male', label: '男' },
-                { value: 'female', label: '女' },
-              ].map((item) => (
-                <label
-                  key={item.value}
-                  onClick={() => setGender(item.value as 'male' | 'female')}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 10px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: 999,
-                    cursor: 'pointer',
-                    background: gender === item.value ? '#111827' : '#fff',
-                    color: gender === item.value ? '#fff' : '#111827',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="gender"
-                    value={item.value}
-                    checked={gender === item.value}
-                    onChange={() => setGender(item.value as 'male' | 'female')}
-                    style={{ display: 'none' }}
+            {/* ── Left: avatar preview (sticky on desktop) ── */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={spring}
+              className="md:sticky md:top-16"
+            >
+              <div
+                className="rounded-3xl border overflow-hidden"
+                style={{
+                  background: 'var(--color-warm-100)',
+                  borderColor: 'var(--color-border-light)',
+                  aspectRatio: '3/4',
+                  position: 'relative',
+                  boxShadow: '0 20px 40px -12px rgba(0,0,0,0.06)',
+                }}
+              >
+                {baseImage && (
+                  <img
+                    src={baseImage}
+                    alt="base"
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                   />
-                  {item.label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>形象选项</div>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>发型</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              {(options?.hair || []).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => onSelectHair(item.id)}
+                )}
+                {topImage && (
+                  <img
+                    src={topImage}
+                    alt="top"
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                )}
+                {bottomImage && (
+                  <img
+                    src={bottomImage}
+                    alt="bottom"
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                )}
+                {hairImage && (
+                  <img
+                    src={hairImage}
+                    alt="hair"
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                )}
+                {glassesImage && (
+                  <img
+                    src={glassesImage}
+                    alt="glasses"
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                )}
+                {/* Preview label */}
+                <div
+                  className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs font-medium px-3 py-1 rounded-full"
                   style={{
-                    border: hairId === item.id ? '2px solid #111827' : '1px solid #d1d5db',
-                    borderRadius: 12,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.7)',
+                    backdropFilter: 'blur(8px)',
+                    color: 'var(--color-muted)',
+                    border: '1px solid rgba(255,255,255,0.5)',
                   }}
                 >
-                  <img src={item.image} alt={item.label} style={{ width: '100%', height: 64 }} />
-                  <div style={{ marginTop: 6, fontSize: 12 }}>{item.label}</div>
-                </button>
-              ))}
-            </div>
-          </div>
+                  {nickname || '我的形象'}
+                </div>
+              </div>
+            </motion.div>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>眼镜</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              {(options?.glasses || []).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => onSelectGlasses(item.id)}
-                  style={{
-                    border: glassesId === item.id ? '2px solid #111827' : '1px solid #d1d5db',
-                    borderRadius: 12,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
+            {/* ── Right: form ── */}
+            <form onSubmit={onSubmit} className="space-y-7">
+
+              {/* Basic info */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...spring, delay: 0.06 }}
+                className="space-y-4"
+              >
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className="text-xs font-mono font-medium"
+                    style={{ color: 'var(--color-accent)' }}
+                  >
+                    01
+                  </span>
+                  <span
+                    className="text-sm font-semibold tracking-tight"
+                    style={{ color: 'var(--color-foreground)' }}
+                  >
+                    基本信息
+                  </span>
+                </div>
+                <div
+                  className="h-px"
+                  style={{ background: 'var(--color-border-light)' }}
+                />
+
+                <div className="space-y-1.5">
+                  <label
+                    className="block text-xs font-medium"
+                    style={{ color: 'var(--color-muted)' }}
+                  >
+                    昵称
+                  </label>
+                  <input
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value)}
+                    placeholder="给自己起一个名字"
+                    className="form-input"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <p
+                    className="text-xs font-medium"
+                    style={{ color: 'var(--color-muted)' }}
+                  >
+                    性别
+                  </p>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'male' as const, label: '男孩' },
+                      { value: 'female' as const, label: '女孩' },
+                    ].map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => setGender(item.value)}
+                        className="flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors active:scale-[0.97]"
+                        style={
+                          gender === item.value
+                            ? {
+                                borderColor: 'var(--color-accent)',
+                                background: 'var(--color-accent-light)',
+                                color: 'var(--color-accent)',
+                              }
+                            : {
+                                borderColor: 'var(--color-border)',
+                                background: 'var(--color-surface)',
+                                color: 'var(--color-foreground)',
+                              }
+                        }
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Hair */}
+              {options && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...spring, delay: 0.1 }}
+                  className="space-y-3"
                 >
-                  <img src={item.image} alt={item.label} style={{ width: '100%', height: 64 }} />
-                  <div style={{ marginTop: 6, fontSize: 12 }}>{item.label}</div>
-                </button>
-              ))}
-            </div>
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="text-xs font-mono font-medium"
+                      style={{ color: 'var(--color-accent)' }}
+                    >
+                      02
+                    </span>
+                    <span
+                      className="text-sm font-semibold tracking-tight"
+                      style={{ color: 'var(--color-foreground)' }}
+                    >
+                      形象定制
+                    </span>
+                  </div>
+                  <div
+                    className="h-px"
+                    style={{ background: 'var(--color-border-light)' }}
+                  />
+                  <div className="space-y-5">
+                    <OptionGrid
+                      label="发型"
+                      options={options.hair}
+                      selectedId={hairId}
+                      onSelect={onSelectHair}
+                    />
+                    <OptionGrid
+                      label="眼镜"
+                      options={options.glasses}
+                      selectedId={glassesId}
+                      onSelect={onSelectGlasses}
+                    />
+                    <OptionGrid
+                      label="上衣颜色"
+                      options={options.topColors}
+                      selectedId={topId}
+                      onSelect={onSelectTop}
+                    />
+                    <OptionGrid
+                      label="下装颜色"
+                      options={options.bottomColors}
+                      selectedId={bottomId}
+                      onSelect={onSelectBottom}
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Error */}
+              <AnimatePresence>
+                {error && (
+                  <motion.p
+                    key="error"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="text-sm px-4 py-3 rounded-xl"
+                    style={{
+                      color: 'var(--color-error)',
+                      background: 'var(--color-error-light)',
+                    }}
+                  >
+                    {error}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+
+              {/* Submit */}
+              <motion.button
+                type="submit"
+                disabled={!canSubmit}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...spring, delay: 0.18 }}
+                whileTap={canSubmit ? { scale: 0.98 } : undefined}
+                className="w-full py-4 rounded-2xl font-semibold text-sm text-white transition-all"
+                style={{
+                  background: canSubmit ? 'var(--color-accent)' : 'var(--color-muted)',
+                  cursor: canSubmit ? 'pointer' : 'not-allowed',
+                  boxShadow: canSubmit
+                    ? '0 8px 24px -4px rgba(5,150,105,0.3)'
+                    : 'none',
+                  border: 'none',
+                }}
+              >
+                {saving ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <SpinnerGap size={16} weight="bold" className="animate-spin" />
+                    提交中…
+                  </span>
+                ) : (
+                  '提交并进入主页面'
+                )}
+              </motion.button>
+            </form>
           </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>上衣颜色</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              {(options?.topColors || []).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => onSelectTop(item.id)}
-                  style={{
-                    border: topId === item.id ? '2px solid #111827' : '1px solid #d1d5db',
-                    borderRadius: 12,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img src={item.image} alt={item.label} style={{ width: '100%', height: 64 }} />
-                  <div style={{ marginTop: 6, fontSize: 12 }}>{item.label}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>下装颜色</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              {(options?.bottomColors || []).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => onSelectBottom(item.id)}
-                  style={{
-                    border: bottomId === item.id ? '2px solid #111827' : '1px solid #d1d5db',
-                    borderRadius: 12,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img src={item.image} alt={item.label} style={{ width: '100%', height: 64 }} />
-                  <div style={{ marginTop: 6, fontSize: 12 }}>{item.label}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {error ? (
-            <div style={{ marginBottom: 12, color: '#b91c1c', fontSize: 13 }}>
-              {error}
-            </div>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              borderRadius: 10,
-              border: '1px solid #111827',
-              background: !canSubmit ? '#6b7280' : '#111827',
-              color: '#fff',
-              cursor: !canSubmit ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {saving ? '提交中...' : '提交并进入主页面'}
-          </button>
-        </form>
-      </div>
+        </div>
+      )}
     </div>
   )
 }

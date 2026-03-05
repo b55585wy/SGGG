@@ -888,6 +888,7 @@ export type AdminUserStats = {
     foodLogCount: number;
     avgScore: number | null;
     bookCount: number;
+    confirmedAt: string | null;
     lastActive: string | null;
   }>;
 };
@@ -952,6 +953,7 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       COALESCE(fl.cnt, 0) as food_log_count,
       fl.avg_score,
       COALESCE(hb.cnt, 0) as book_count,
+      hb.last_confirmed_at,
       COALESCE(fl.last_at, ua.updated_at) as last_active
     FROM users u
     LEFT JOIN (
@@ -959,7 +961,7 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       FROM user_food_logs GROUP BY user_id
     ) fl ON u.user_id = fl.user_id
     LEFT JOIN (
-      SELECT user_id, COUNT(*) as cnt FROM history_books GROUP BY user_id
+      SELECT user_id, COUNT(*) as cnt, MAX(confirmed_at) as last_confirmed_at FROM history_books GROUP BY user_id
     ) hb ON u.user_id = hb.user_id
     LEFT JOIN user_avatars ua ON u.user_id = ua.user_id
     ORDER BY u.user_id;
@@ -976,6 +978,7 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       foodLogCount: (get("food_log_count") as number) ?? 0,
       avgScore: get("avg_score") != null ? Math.round((get("avg_score") as number) * 10) / 10 : null,
       bookCount: (get("book_count") as number) ?? 0,
+      confirmedAt: (get("last_confirmed_at") as string) ?? null,
       lastActive: (get("last_active") as string) ?? null,
     });
   }

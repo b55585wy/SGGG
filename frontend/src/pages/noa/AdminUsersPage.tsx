@@ -40,6 +40,7 @@ type UserApiStats = {
     foodLogCount: number
     avgScore: number | null
     bookCount: number
+    confirmedAt: string | null
     lastActive: string | null
   }>
 }
@@ -90,7 +91,14 @@ function relativeTime(iso: string | null): string {
   return `${days}天前`
 }
 
-type SortKey = 'userID' | 'themeFood' | 'foodLogCount' | 'avgScore' | 'bookCount' | 'lastActive'
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return '--'
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+type SortKey = 'userID' | 'themeFood' | 'foodLogCount' | 'avgScore' | 'bookCount' | 'confirmedAt' | 'lastActive'
 
 // ─── Sub-components ─────────────────────────────────────────
 
@@ -590,7 +598,8 @@ export default function AdminUsersPage() {
                     <ColHeader label="目标食物" sk="themeFood" />
                     <ColHeader label="进食次数" sk="foodLogCount" />
                     <ColHeader label="平均分" sk="avgScore" />
-                    <ColHeader label="绘本数" sk="bookCount" />
+                    <ColHeader label="有效实验" sk="confirmedAt" />
+                    <ColHeader label="确认时间" sk="confirmedAt" />
                     <ColHeader label="最近活跃" sk="lastActive" />
                     <th className="px-4 py-3 text-right text-[11px] font-medium text-muted">操作</th>
                   </tr>
@@ -598,7 +607,7 @@ export default function AdminUsersPage() {
                 <tbody>
                   {sortedUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-8 text-center text-sm text-muted">
+                      <td colSpan={8} className="px-5 py-8 text-center text-sm text-muted">
                         暂无数据
                       </td>
                     </tr>
@@ -617,8 +626,21 @@ export default function AdminUsersPage() {
                             <span className="text-muted">--</span>
                           )}
                         </td>
-                        <td className="px-4 py-2.5 text-sm tabular-nums text-foreground">{u.bookCount}</td>
-                        <td className="px-4 py-2.5 text-[11px] text-muted">{relativeTime(u.lastActive)}</td>
+                        <td className="px-4 py-2.5 text-sm tabular-nums">
+                          {u.bookCount > 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-accent-light px-2 py-0.5 text-xs font-medium text-accent">
+                              有效 ✓
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted">未确认</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-[11px] font-mono text-muted">
+                          {formatTimestamp(u.confirmedAt)}
+                        </td>
+                        <td className="px-4 py-2.5 text-[11px] text-muted" title={u.lastActive ?? undefined}>
+                          {relativeTime(u.lastActive)}
+                        </td>
                         <td className="px-4 py-2.5 text-right">
                           <button
                             onClick={() => removeUser(u.userID)}
