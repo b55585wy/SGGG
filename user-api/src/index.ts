@@ -203,12 +203,11 @@ app.post("/api/auth/login", async (req, res) => {
     return;
   }
 
-  const isDemoUser = user.user_id === "demo";
-  const firstLogin = isDemoUser ? true : user.first_login === 1;
   const token = signUserToken({ userID: user.user_id });
-  if (isDemoUser) {
-    await setFirstLoginFlag(user.user_id, true);
-  } else if (firstLogin) {
+  // firstLogin = true only when the user has not set up their avatar yet
+  const existingAvatar = await getUserAvatar(user.user_id);
+  const firstLogin = !existingAvatar;
+  if (!user.user_id.startsWith("demo") && user.first_login === 1 && existingAvatar) {
     await setFirstLoginFlag(user.user_id, false);
   }
 

@@ -23,7 +23,6 @@ import {
   Compass,
   UsersThree,
   Palette,
-  SpinnerGap,
   CaretDown,
   CaretUp,
 } from '@phosphor-icons/react'
@@ -380,6 +379,229 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   )
 }
 
+// ─── Food Log Modal ───────────────────────────────────────────────────────────
+
+type FoodLogModalProps = {
+  themeFood: string
+  onClose: () => void
+  onSuccess: (data: FoodLogResponse) => void
+}
+
+function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
+  const [score, setScore] = useState(0)
+  const [scoreTouched, setScoreTouched] = useState(false)
+  const [content, setContent] = useState('')
+  const [sending, setSending] = useState(false)
+  const [voiceLoading, setVoiceLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const canSend = useMemo(
+    () => !!content.trim() && scoreTouched && score > 0 && !sending,
+    [content, scoreTouched, score, sending],
+  )
+
+  const sliderPct = (score / 10) * 100
+  const thumbColor = score > 0 ? scoreColor(score) : undefined
+
+  async function onSend() {
+    setError('')
+    if (!scoreTouched || score <= 0) { setError('请先滑动评分条'); return }
+    if (!content.trim()) { setError('请输入进食记录'); return }
+    setSending(true)
+    try {
+      const data = await postJson<FoodLogResponse>('/api/food/log', { score, content: content.trim() })
+      onSuccess(data)
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e &&
+        typeof (e as { message?: unknown }).message === 'string'
+          ? (e as { message: string }).message : '提交失败'
+      setError(message)
+      setSending(false)
+    }
+  }
+
+  async function onTranscribe() {
+    setError('')
+    setVoiceLoading(true)
+    try {
+      const data = await postJson<VoiceResponse>('/api/voice/transcribe', {})
+      setContent(data.text)
+    } catch { /* ignore */ } finally {
+      setVoiceLoading(false)
+    }
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <motion.div
+        key="food-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        className="fixed inset-0 z-40"
+        style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(6px)' }}
+        onClick={onClose}
+      />
+
+      {/* Centered floating card */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
+        <motion.div
+          key="food-dialog"
+          initial={{ opacity: 0, scale: 0.93, y: -10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.93, y: -10 }}
+          transition={spring}
+          className="pointer-events-auto flex flex-col w-full"
+          style={{
+            maxWidth: 480,
+            maxHeight: '80dvh',
+            background: 'white',
+            borderRadius: '2rem',
+            boxShadow: '0 32px 80px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(231,229,228,0.6)',
+          }}
+        >
+          {/* Header */}
+          <div
+            className="shrink-0 flex items-center justify-between px-6 pt-5 pb-4 border-b"
+            style={{ borderColor: 'var(--color-border-light)' }}
+          >
+            <div className="flex items-center gap-2.5">
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: 'var(--color-accent-light)' }}
+              >
+                <span className="text-sm">🍽️</span>
+              </div>
+              <div>
+                <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                  进食情况录入
+                </h2>
+                {themeFood && (
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--color-muted)' }}>
+                    今日食物：{themeFood}
+                  </p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-full transition-all active:scale-[0.93]"
+              style={{ background: 'var(--color-warm-100)', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
+            >
+              <X size={15} weight="bold" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
+            {/* Score */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                  给本次尝试{themeFood ? `「${themeFood}」` : '食物'}打分
+                </label>
+                <div className="flex items-baseline gap-1">
+                  <span
+                    className="text-xl font-bold tabular-nums transition-colors"
+                    style={{ color: score > 0 ? scoreColor(score) : 'var(--color-muted)' }}
+                  >
+                    {score}
+                  </span>
+                  <span className="text-xs" style={{ color: 'var(--color-muted)' }}>/10</span>
+                </div>
+              </div>
+              <input
+                type="range" min={0} max={10} value={score}
+                onChange={(e) => { setScore(Number(e.target.value)); setScoreTouched(true) }}
+                className="range-accent w-full"
+                style={{
+                  background: score > 0
+                    ? `linear-gradient(to right, ${scoreColor(score)} 0%, ${scoreColor(score)} ${sliderPct}%, var(--color-warm-200) ${sliderPct}%, var(--color-warm-200) 100%)`
+                    : undefined,
+                  ['--range-thumb-color' as string]: thumbColor,
+                }}
+              />
+              {scoreTouched && score > 0 && (
+                <div className="mt-2 flex justify-center">
+                  <span
+                    className="rounded-full px-3 py-0.5 text-[10px] font-bold text-white"
+                    style={{ background: scoreColor(score) }}
+                  >
+                    {scoreLabel(score)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Text input */}
+            <div className="space-y-2">
+              <label className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                进食过程
+              </label>
+              <div className="flex gap-2">
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="描述一下进食过程..."
+                  className="form-input flex-1 resize-none"
+                  rows={4}
+                />
+                <button
+                  type="button"
+                  onClick={onTranscribe}
+                  disabled={voiceLoading}
+                  className="shrink-0 flex items-center justify-center self-stretch rounded-2xl border w-11 transition-all active:scale-[0.95] disabled:opacity-50"
+                  style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
+                >
+                  <Microphone size={20} weight={voiceLoading ? 'fill' : 'regular'} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="shrink-0 px-6 py-4 border-t space-y-3" style={{ borderColor: 'var(--color-border-light)' }}>
+            <AnimatePresence>
+              {error && (
+                <motion.p
+                  key="err"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="text-sm px-3 py-2 rounded-xl"
+                  style={{ color: 'var(--color-error)', background: 'var(--color-error-light)' }}
+                >
+                  {error}
+                </motion.p>
+              )}
+            </AnimatePresence>
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={!canSend}
+              className="w-full py-3.5 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+              style={{
+                background: canSend ? 'linear-gradient(135deg, #18181b, #3f3f46)' : 'var(--color-warm-100)',
+                color: canSend ? 'white' : 'var(--color-muted)',
+                cursor: canSend ? 'pointer' : 'not-allowed',
+                border: 'none',
+                boxShadow: canSend ? '0 8px 20px -4px rgba(0,0,0,0.3)' : 'none',
+              }}
+            >
+              <PaperPlaneTilt size={17} weight="bold" />
+              {sending ? '发送中...' : '提交记录 →'}
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </>
+  )
+}
+
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
@@ -396,16 +618,14 @@ function LoadingSkeleton() {
         <div className="h-5 w-44 rounded-full skeleton-shimmer" />
         <div className="flex gap-2">
           <div className="h-8 w-28 rounded-full skeleton-shimmer" />
+          <div className="h-8 w-28 rounded-full skeleton-shimmer" />
           <div className="h-8 w-8 rounded-full skeleton-shimmer" />
         </div>
       </div>
       {/* Content */}
       <div className="flex-1 min-h-0 flex gap-4 p-4 pt-3">
-        <div className="w-[36%] rounded-[2.5rem] skeleton-shimmer" />
-        <div className="flex-1 flex flex-col gap-4">
-          <div className="flex-[5] rounded-[2rem] skeleton-shimmer" />
-          <div className="flex-[6] rounded-[2rem] skeleton-shimmer" />
-        </div>
+        <div className="w-[34%] rounded-[2.5rem] skeleton-shimmer" />
+        <div className="flex-1 rounded-[2rem] skeleton-shimmer" />
       </div>
     </div>
   )
@@ -421,19 +641,9 @@ export default function HomePage() {
   const [feedbackText, setFeedbackText] = useState('')
   const [showRegenModal, setShowRegenModal] = useState(false)
   const [showAvatarModal, setShowAvatarModal] = useState(false)
-
-  const [score, setScore] = useState(0)
-  const [scoreTouched, setScoreTouched] = useState(false)
-  const [content, setContent] = useState('')
-  const [sending, setSending] = useState(false)
-  const [voiceLoading, setVoiceLoading] = useState(false)
+  const [showFoodModal, setShowFoodModal] = useState(false)
   const [bookGenerating, setBookGenerating] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const canSend = useMemo(
-    () => !!content.trim() && scoreTouched && score > 0 && !sending,
-    [content, scoreTouched, score, sending],
-  )
 
   const loadStatus = useCallback(async () => {
     setError('')
@@ -494,49 +704,6 @@ export default function HomePage() {
     if (storedFeedback) setFeedbackText(storedFeedback)
   }, [])
 
-  async function onSend() {
-    setError('')
-    if (!scoreTouched || score <= 0) { setError('请先滑动评分条'); return }
-    if (!content.trim()) { setError('请输入进食记录'); return }
-    setSending(true)
-    try {
-      const data = await postJson<FoodLogResponse>('/api/food/log', { score, content: content.trim() })
-      setFeedbackText(data.feedbackText)
-      sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-      setContent('')
-      setScore(0)
-      setScoreTouched(false)
-      // 立即清空本地绘本，确保 bookGenerating && !book 条件成立，显示生成动效
-      setStatus((prev) => (prev ? { ...prev, book: null } : null))
-      setBookGenerating(true)
-    } catch (e) {
-      const message =
-        e && typeof e === 'object' && 'message' in e &&
-        typeof (e as { message?: unknown }).message === 'string'
-          ? (e as { message: string }).message : '提交失败'
-      setError(message)
-    } finally {
-      setSending(false)
-    }
-  }
-
-  async function onTranscribe() {
-    setError('')
-    setVoiceLoading(true)
-    try {
-      const data = await postJson<VoiceResponse>('/api/voice/transcribe', {})
-      setContent(data.text)
-    } catch (e) {
-      const message =
-        e && typeof e === 'object' && 'message' in e &&
-        typeof (e as { message?: unknown }).message === 'string'
-          ? (e as { message: string }).message : '语音转写失败'
-      setError(message)
-    } finally {
-      setVoiceLoading(false)
-    }
-  }
-
   async function onConfirmBook() {
     setError('')
     try {
@@ -556,8 +723,6 @@ export default function HomePage() {
   const avatar = status?.avatar
   const book = status?.book
   const regenerateReached = book ? book.regenerateCount >= 2 : false
-  const sliderPct = (score / 10) * 100
-  const thumbColor = score > 0 ? scoreColor(score) : undefined
 
   if (loading) return <LoadingSkeleton />
 
@@ -608,6 +773,18 @@ export default function HomePage() {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowFoodModal(true)}
+            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
+            style={{
+              borderColor: 'var(--color-border-light)',
+              background: 'white',
+              color: 'var(--color-foreground)',
+            }}
+          >
+            <ForkKnife size={14} weight="bold" />
+            记录进食
+          </button>
           <button
             onClick={() => navigate('/noa/books/history')}
             className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
@@ -726,15 +903,15 @@ export default function HomePage() {
           </div>
         </motion.div>
 
-        {/* ── Right: 2 stacked rows ── */}
+        {/* ── Right: Book card ── */}
         <div className="flex-1 min-w-0 flex flex-col gap-4">
 
-          {/* ── Row 1 (top): Book card ── */}
+          {/* ── Book card ── */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...spring, delay: 0.06 }}
-            className="flex-[5] min-h-0 rounded-[2rem] overflow-hidden flex"
+            className="flex-1 min-h-0 rounded-[2rem] overflow-hidden flex"
             style={{
               background: 'white',
               boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
@@ -873,120 +1050,6 @@ export default function HomePage() {
               )}
             </div>
           </motion.div>
-
-          {/* ── Row 2 (bottom): Food log card ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...spring, delay: 0.12 }}
-            className="flex-[6] min-h-0 rounded-[2rem] p-5 flex flex-col"
-            style={{
-              background: 'white',
-              boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
-            }}
-          >
-            <div className="flex items-center gap-2.5 mb-4 shrink-0">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: 'var(--color-accent-light)' }}
-              >
-                <span className="text-sm">🍽️</span>
-              </div>
-              <h2 className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                进食情况录入
-              </h2>
-            </div>
-
-            {/* Score */}
-            <div className="shrink-0 mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs" style={{ color: 'var(--color-muted)' }}>
-                  给本次尝试{status?.themeFood ? `「${status.themeFood}」` : '食物'}打分
-                </label>
-                <div className="flex items-baseline gap-1">
-                  <span
-                    className="text-lg font-bold tabular-nums transition-colors"
-                    style={{ color: score > 0 ? scoreColor(score) : 'var(--color-muted)' }}
-                  >
-                    {score}
-                  </span>
-                  <span className="text-xs" style={{ color: 'var(--color-muted)' }}>/10</span>
-                </div>
-              </div>
-              <input
-                type="range" min={0} max={10} value={score}
-                onChange={(e) => { setScore(Number(e.target.value)); setScoreTouched(true) }}
-                className="range-accent w-full"
-                style={{
-                  background: score > 0
-                    ? `linear-gradient(to right, ${scoreColor(score)} 0%, ${scoreColor(score)} ${sliderPct}%, var(--color-warm-200) ${sliderPct}%, var(--color-warm-200) 100%)`
-                    : undefined,
-                  ['--range-thumb-color' as string]: thumbColor,
-                }}
-              />
-              {scoreTouched && score > 0 && (
-                <div className="mt-2 flex justify-center">
-                  <span
-                    className="rounded-full px-3 py-0.5 text-[10px] font-bold text-white"
-                    style={{ background: scoreColor(score) }}
-                  >
-                    {scoreLabel(score)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Text input */}
-            <div className="flex-1 min-h-0 flex gap-2.5 mb-4">
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="描述一下进食过程..."
-                className="form-input flex-1 resize-none"
-                style={{ minHeight: 0 }}
-              />
-              <button
-                type="button"
-                onClick={onTranscribe}
-                disabled={voiceLoading}
-                className="shrink-0 flex items-center justify-center self-stretch rounded-2xl border w-11 transition-all active:scale-[0.95] disabled:opacity-50"
-                style={{
-                  borderColor: 'var(--color-border-light)',
-                  background: '#fafaf9',
-                  color: 'var(--color-foreground)',
-                }}
-              >
-                <Microphone size={20} weight={voiceLoading ? 'fill' : 'regular'} />
-              </button>
-            </div>
-
-            {error && (
-              <div
-                className="shrink-0 mb-3 rounded-2xl border text-sm px-4 py-2.5"
-                style={{ borderColor: 'rgba(225,29,72,0.15)', background: 'var(--color-error-light)', color: 'var(--color-error)' }}
-              >
-                {error}
-              </div>
-            )}
-
-            <button
-              onClick={onSend}
-              disabled={!canSend}
-              className="shrink-0 w-full py-3.5 rounded-full text-sm font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-              style={{
-                background: canSend
-                  ? 'linear-gradient(135deg, #18181b, #3f3f46)'
-                  : 'var(--color-warm-100)',
-                color: canSend ? 'white' : 'var(--color-muted)',
-                cursor: canSend ? 'pointer' : 'not-allowed',
-                border: 'none',
-                boxShadow: canSend ? '0 8px 20px -4px rgba(0,0,0,0.3)' : 'none',
-              }}
-            >
-              <PaperPlaneTilt size={17} weight="bold" />
-              {sending ? '发送中...' : '发送'}
-            </button>
-          </motion.div>
         </div>
       </div>
 
@@ -1014,6 +1077,22 @@ export default function HomePage() {
             onSaved={() => {
               setShowAvatarModal(false)
               void refreshStatus()
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showFoodModal && (
+          <FoodLogModal
+            themeFood={status?.themeFood ?? ''}
+            onClose={() => setShowFoodModal(false)}
+            onSuccess={(data) => {
+              setShowFoodModal(false)
+              setFeedbackText(data.feedbackText)
+              sessionStorage.setItem('homeFeedbackText', data.feedbackText)
+              setStatus((prev) => (prev ? { ...prev, book: null } : null))
+              setBookGenerating(true)
             }}
           />
         )}
