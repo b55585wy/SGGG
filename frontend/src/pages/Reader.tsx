@@ -168,20 +168,6 @@ export default function ReaderPage() {
     }
   }, [draft, pageIdx, tts, track, speakPage]);
 
-  const onExit = useCallback(() => {
-    if (session) {
-      trackDwell(); flush(); setFeedback('ABORTED');
-    } else {
-      // Preview / review mode — log the visit and go home
-      void logReadingSession(null, pageIdx + 1, false);
-      clearSession();
-      localStorage.removeItem('storybook_draft');
-      localStorage.removeItem('storybook_book_id');
-      localStorage.removeItem('storybook_source');
-      navigate('/noa/home');
-    }
-  }, [session, trackDwell, flush, clearSession, navigate, logReadingSession, pageIdx]);
-
   const TOTAL_SESSIONS = 9;
 
   const logReadingSession = useCallback(async (
@@ -212,6 +198,20 @@ export default function ReaderPage() {
       });
     } catch { /* best-effort */ }
   }, [draft, session]);
+
+  const onExit = useCallback(() => {
+    if (session) {
+      trackDwell(); flush(); setFeedback('ABORTED');
+    } else {
+      // Preview / review mode — log the visit and go home
+      void logReadingSession(null, pageIdx + 1, false);
+      clearSession();
+      localStorage.removeItem('storybook_draft');
+      localStorage.removeItem('storybook_book_id');
+      localStorage.removeItem('storybook_source');
+      navigate('/noa/home');
+    }
+  }, [session, trackDwell, flush, clearSession, navigate, logReadingSession, pageIdx]);
 
   const onFeedbackDone = useCallback((data: FeedbackDoneData) => {
     setFeedback(null);

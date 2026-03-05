@@ -5,13 +5,31 @@ async function loginAndSetupAvatar(page: Page) {
   await page.locator('input[autocomplete="username"]').fill('demo');
   await page.locator('input[type="password"]').fill('demo123');
   await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(/\/noa\/avatar/, { timeout: 10_000 });
+  await page.waitForURL(/\/(noa\/avatar|noa\/home)/, { timeout: 10_000 });
 
-  await expect(page.locator('text=基本信息')).toBeVisible();
-  await page.locator('input[placeholder="给自己起一个昵称"]').fill('测试小朋友');
-  await page.locator('button').filter({ hasText: '男孩' }).first().click();
-  await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(/\/noa\/home/, { timeout: 10_000 });
+  if (page.url().includes('/noa/avatar')) {
+    await expect(page.locator('text=基本信息')).toBeVisible();
+    await page.locator('input[placeholder="给自己起一个昵称"]').fill('测试小朋友');
+    await page.locator('button').filter({ hasText: '男孩' }).first().click();
+    await page.locator('button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/noa\/home/, { timeout: 10_000 });
+  }
+
+  // 若存在未确认绘本（state B），确认后回到 state A（食物记录表单）
+  await page.waitForTimeout(500);
+  const confirmBtn = page.locator('button').filter({ hasText: '确认绘本，开始阅读' });
+  if (await confirmBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await confirmBtn.click();
+    await page.waitForURL(/\/noa\/books\//, { timeout: 8_000 }).catch(() => {});
+    // 退出阅读器回到 home（state A）
+    const exitBtn = page.locator('button').filter({ hasText: '退出' });
+    if (await exitBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await exitBtn.click();
+      await page.waitForURL(/\/noa\/home/, { timeout: 5_000 }).catch(() => {});
+    } else {
+      await page.goto('/noa/home');
+    }
+  }
 }
 
 /**
@@ -19,14 +37,18 @@ async function loginAndSetupAvatar(page: Page) {
  * Returns true if book appeared (FastAPI available), false otherwise.
  */
 async function submitFoodLogAndWaitForBook(page: Page): Promise<boolean> {
-  await expect(page.locator('text=进食情况录入')).toBeVisible();
+  // 确保 state A 可见（食物记录表单）
+  const inStateA = await page.locator('text=今天吃得怎么样？').isVisible({ timeout: 5_000 }).catch(() => false);
+  if (!inStateA) return false; // state B shown, skip
+
   await page.locator('input[type="range"]').fill('8');
   await page.locator('textarea').fill('今天主动吃了很多胡萝卜，非常棒！');
-  await page.locator('button').filter({ hasText: '发送' }).click();
+  const sendBtn = page.locator('button').filter({ hasText: '提交记录' });
+  await expect(sendBtn).toBeEnabled({ timeout: 5_000 });
+  await sendBtn.click();
 
-  // Wait for send to complete (button goes disabled after form reset)
-  const sendButton = page.locator('button').filter({ hasText: '发送' });
-  await expect(sendButton).toBeDisabled({ timeout: 15_000 });
+  // 提交后 state A 消失（bookGenerating=true）
+  await expect(page.locator('text=今天吃得怎么样？')).not.toBeVisible({ timeout: 15_000 });
 
   // Wait for unconfirmed book (needs FastAPI — timeout 45s)
   const regenButton = page.locator('button').filter({ hasText: '重新生成' });

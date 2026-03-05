@@ -232,8 +232,8 @@ test.describe('Reader — 互动层', () => {
     await page.locator('button').filter({ hasText: '下一页' }).click();
     await expect(page.locator('text=伸出手指，点一点西兰花吧！')).toBeVisible({ timeout: 5_000 });
 
-    // tap 按钮是唯一一个 rounded-full 按钮
-    const tapBtn = page.locator('button[class*="rounded-full"]');
+    // tap 按钮是大圆形按钮（w-20 h-20），有别于其他 rounded-full 的小按钮
+    const tapBtn = page.locator('button[class*="w-20"]');
     await tapBtn.click();
     await expect(tapBtn).toBeDisabled({ timeout: 3_000 });
   });

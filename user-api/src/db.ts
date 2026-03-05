@@ -1265,11 +1265,10 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       COALESCE(hb.cnt, 0) as book_count,
       hb.last_confirmed_at,
       COALESCE(fl.last_at, ua.updated_at) as last_active,
-      COALESCE(rs.reading_count, 0) as reading_count,
-      COALESCE(rs.completed_count, 0) as completed_count,
-      COALESCE(rs.aborted_count, 0) as aborted_count,
-      rs.avg_duration_ms,
-      rs.avg_completion,
+      COALESCE(rs.preview_count, 0) as preview_count,
+      COALESCE(rs.review_count, 0) as review_count,
+      COALESCE(rs.experiment_completed_count, 0) as experiment_completed_count,
+      COALESCE(rs.experiment_aborted_count, 0) as experiment_aborted_count,
       COALESCE(rs.positive_feedback_count, 0) as positive_feedback_count
     FROM users u
     LEFT JOIN (

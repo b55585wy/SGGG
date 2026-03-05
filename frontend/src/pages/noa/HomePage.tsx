@@ -379,6 +379,85 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   )
 }
 
+// ─── Food Log Modal ───────────────────────────────────────────────────────────
+
+type FoodLogModalProps = {
+  themeFood: string
+  onClose: () => void
+  onSuccess: (data: FoodLogResponse) => void
+}
+
+function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
+  return (
+    <>
+      {/* Backdrop */}
+      <motion.div
+        key="fl-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        className="fixed inset-0 z-40"
+        style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(6px)' }}
+        onClick={onClose}
+      />
+
+      {/* Centered floating card */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
+        <motion.div
+          key="fl-dialog"
+          initial={{ opacity: 0, scale: 0.93, y: -10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.93, y: -10 }}
+          transition={spring}
+          className="pointer-events-auto flex flex-col w-full overflow-hidden"
+          style={{
+            maxWidth: 480,
+            maxHeight: '82dvh',
+            background: 'white',
+            borderRadius: '2rem',
+            boxShadow: '0 32px 80px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(231,229,228,0.6)',
+          }}
+        >
+          {/* Header */}
+          <div
+            className="shrink-0 flex items-center justify-between px-6 pt-5 pb-4"
+            style={{ borderBottom: '1px solid var(--color-border-light)' }}
+          >
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div
+                  className="flex items-center justify-center shrink-0"
+                  style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--color-accent-light)' }}
+                >
+                  <ForkKnife size={10} weight="fill" style={{ color: 'var(--color-accent)' }} />
+                </div>
+                <span className="text-[10px] font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
+                  {themeFood ? `今日食物：${themeFood}` : '进食记录'}
+                </span>
+              </div>
+              <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                今天吃得怎么样？
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-full transition-all active:scale-[0.93]"
+              style={{ background: 'var(--color-warm-100)', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
+            >
+              <X size={15} weight="bold" />
+            </button>
+          </div>
+
+          {/* InlineFoodLog fills the rest */}
+          <InlineFoodLog themeFood={themeFood} onSuccess={onSuccess} />
+        </motion.div>
+      </div>
+    </>
+  )
+}
+
 // ─── Inline Food Log ──────────────────────────────────────────────────────────
 
 type InlineFoodLogProps = {
@@ -432,284 +511,94 @@ function InlineFoodLog({ themeFood, onSuccess }: InlineFoodLogProps) {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ ...spring, delay: 0.08 }}
-      className="flex-1 min-w-0 rounded-[1.75rem] flex flex-col gap-2.5 px-5 py-4"
-      style={{
-        background: 'white',
-        boxShadow: '0 4px 20px -6px rgba(0,0,0,0.07), 0 0 0 1px rgba(231,229,228,0.6)',
-      }}
-    >
-      {/* Header row */}
-      <div className="shrink-0 flex items-center justify-between">
-        <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-accent)' }}>
-          🍴 {themeFood ? `今日：${themeFood}` : '进食记录'}
+    <>
+      {/* Scrollable body */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-6" style={{ scrollbarWidth: 'none' }}>
+
+        {/* Score section */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>喜欢程度</label>
+            <div className="flex items-baseline gap-0.5">
+              <span
+                className="text-xl font-black tabular-nums leading-none transition-colors"
+                style={{ color: score > 0 ? scoreColor(score) : 'var(--color-muted)' }}
+              >
+                {score > 0 ? score : '–'}
+              </span>
+              <span className="text-xs ml-0.5" style={{ color: 'var(--color-muted)' }}>/10</span>
+              {scoreTouched && score > 0 && (
+                <span
+                  className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
+                  style={{ background: scoreColor(score) }}
+                >
+                  {scoreLabel(score)}
+                </span>
+              )}
+            </div>
+          </div>
+          <input
+            type="range" min={0} max={10} value={score}
+            onChange={(e) => { setScore(Number(e.target.value)); setScoreTouched(true) }}
+            className="range-accent w-full"
+            style={{
+              background: score > 0
+                ? `linear-gradient(to right, ${scoreColor(score)} 0%, ${scoreColor(score)} ${sliderPct}%, var(--color-warm-200) ${sliderPct}%, var(--color-warm-200) 100%)`
+                : undefined,
+              ['--range-thumb-color' as string]: thumbColor,
+            }}
+          />
         </div>
-        <div className="flex items-baseline gap-0.5">
-          <span
-            className="text-lg font-black tabular-nums leading-none transition-colors"
-            style={{ color: score > 0 ? scoreColor(score) : 'var(--color-muted)' }}
-          >
-            {score > 0 ? score : '–'}
-          </span>
-          <span className="text-[10px]" style={{ color: 'var(--color-muted)' }}>/10</span>
-          {scoreTouched && score > 0 && (
-            <span
-              className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white"
-              style={{ background: scoreColor(score) }}
+
+        {/* Text + voice */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>进食过程描述</label>
+          <div className="flex gap-2">
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="描述一下进食过程，比如吃了多少、有没有困难…"
+              className="form-input flex-1 resize-none text-sm"
+              rows={5}
+            />
+            <button
+              type="button"
+              onClick={onTranscribe}
+              disabled={voiceLoading}
+              className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
+              style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
             >
-              {scoreLabel(score)}
-            </span>
-          )}
+              <Microphone size={18} weight={voiceLoading ? 'fill' : 'regular'} />
+            </button>
+          </div>
         </div>
+
+        {/* Error */}
+        {error && (
+          <p className="text-sm" style={{ color: 'var(--color-error)' }}>{error}</p>
+        )}
       </div>
 
-      {/* Score slider */}
-      <div className="shrink-0">
-        <input
-          type="range" min={0} max={10} value={score}
-          onChange={(e) => { setScore(Number(e.target.value)); setScoreTouched(true) }}
-          className="range-accent w-full"
-          style={{
-            background: score > 0
-              ? `linear-gradient(to right, ${scoreColor(score)} 0%, ${scoreColor(score)} ${sliderPct}%, var(--color-warm-200) ${sliderPct}%, var(--color-warm-200) 100%)`
-              : undefined,
-            ['--range-thumb-color' as string]: thumbColor,
-          }}
-        />
-      </div>
-
-      {/* Text + voice */}
-      <div className="flex gap-2 flex-1 min-h-0" style={{ minHeight: 52 }}>
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="描述一下进食过程..."
-          className="form-input flex-1 resize-none text-xs"
-          style={{ height: '100%', minHeight: 52 }}
-        />
+      {/* Fixed footer */}
+      <div className="shrink-0 px-8 py-5" style={{ borderTop: '1px solid var(--color-border-light)' }}>
         <button
           type="button"
-          onClick={onTranscribe}
-          disabled={voiceLoading}
-          className="shrink-0 flex items-center justify-center rounded-2xl border w-10 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
-          style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
+          onClick={onSend}
+          disabled={!canSend}
+          className="w-full py-4 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+          style={{
+            background: canSend ? 'linear-gradient(135deg, #059669, #047857)' : 'var(--color-warm-100)',
+            color: canSend ? 'white' : 'var(--color-muted)',
+            cursor: canSend ? 'pointer' : 'not-allowed',
+            border: 'none',
+            boxShadow: canSend ? '0 8px 24px -4px rgba(5,150,105,0.38)' : 'none',
+          }}
         >
-          <Microphone size={17} weight={voiceLoading ? 'fill' : 'regular'} />
+          <PaperPlaneTilt size={15} weight="bold" />
+          {sending ? '提交中...' : '提交记录，生成绘本 →'}
         </button>
       </div>
-
-      {/* Error */}
-      {error && (
-        <p className="text-[10px] shrink-0" style={{ color: 'var(--color-error)' }}>{error}</p>
-      )}
-
-      {/* Submit */}
-      <button
-        type="button"
-        onClick={onSend}
-        disabled={!canSend}
-        className="shrink-0 w-full py-2.5 rounded-full font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
-        style={{
-          background: canSend ? 'linear-gradient(135deg, #18181b, #3f3f46)' : 'var(--color-warm-100)',
-          color: canSend ? 'white' : 'var(--color-muted)',
-          cursor: canSend ? 'pointer' : 'not-allowed',
-          border: 'none',
-          boxShadow: canSend ? '0 4px 14px -2px rgba(0,0,0,0.3)' : 'none',
-        }}
-      >
-        <PaperPlaneTilt size={13} weight="bold" />
-        {sending ? '发送中...' : '提交记录 →'}
-      </button>
-    </motion.div>
-  )
-}
-
-// ─── Food Heatmap ─────────────────────────────────────────────────────────────
-
-type HeatmapDayEntry = { date: string; avgScore: number; count: number }
-type HeatmapResponse = { days: HeatmapDayEntry[] }
-
-const HEATMAP_WEEKS = 5
-const DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
-
-type GridCell =
-  | { type: 'recorded'; date: string; avgScore: number; count: number }
-  | { type: 'empty'; date: string }
-  | { type: 'future' }
-
-function cellBg(cell: GridCell): string {
-  if (cell.type !== 'recorded') return 'transparent'
-  const c = cell.count
-  if (c >= 5) return '#059669'
-  if (c >= 4) return '#34d399'
-  if (c >= 3) return '#6ee7b7'
-  if (c >= 2) return '#a7f3d0'
-  return '#d1fae5'
-}
-
-function cellBorder(cell: GridCell): string {
-  if (cell.type === 'future') return '1.5px solid transparent'
-  if (cell.type === 'empty') return '1.5px dashed rgba(0,0,0,0.13)'
-  return 'none'
-}
-
-function cellTitle(cell: GridCell): string {
-  if (cell.type === 'future') return ''
-  if (cell.type === 'empty') return `${cell.date} · 未记录`
-  return `${cell.date} · ${cell.count} 次记录 · 平均 ${cell.avgScore}/10`
-}
-
-function FoodHeatmap() {
-  const [data, setData] = useState<HeatmapResponse | null>(null)
-
-  useEffect(() => {
-    getJson<HeatmapResponse>(`/api/food/heatmap?weeks=${HEATMAP_WEEKS}`)
-      .then(setData)
-      .catch(() => { /* silently ignore */ })
-  }, [])
-
-  // Build grid: rows = weeks (0 = oldest), cols = days of week (0 = Mon)
-  const grid: GridCell[][] = useMemo(() => {
-    const today = new Date()
-    today.setHours(12, 0, 0, 0)
-    // JS: 0=Sun,1=Mon..6=Sat → Mon-based: (day+6)%7 → Mon=0
-    const todayDow = (today.getDay() + 6) % 7
-    // Monday of oldest week (HEATMAP_WEEKS weeks ago)
-    const gridStart = new Date(today)
-    gridStart.setDate(gridStart.getDate() - todayDow - (HEATMAP_WEEKS - 1) * 7)
-
-    const byDate = new Map(data?.days.map((d) => [d.date, d]) ?? [])
-
-    return Array.from({ length: HEATMAP_WEEKS }, (_, w) =>
-      Array.from({ length: 7 }, (_, d): GridCell => {
-        const date = new Date(gridStart)
-        date.setDate(date.getDate() + w * 7 + d)
-        if (date > today) return { type: 'future' }
-        const dateStr = date.toISOString().slice(0, 10)
-        const entry = byDate.get(dateStr)
-        return entry
-          ? { type: 'recorded', date: dateStr, avgScore: entry.avgScore, count: entry.count }
-          : { type: 'empty', date: dateStr }
-      }),
-    )
-  }, [data])
-
-  // Streak: consecutive days ending today with at least one record
-  const streak = useMemo(() => {
-    if (!data?.days.length) return 0
-    const daySet = new Set(data.days.map((d) => d.date))
-    let count = 0
-    const d = new Date()
-    d.setHours(12, 0, 0, 0)
-    while (daySet.has(d.toISOString().slice(0, 10))) {
-      count++
-      d.setDate(d.getDate() - 1)
-    }
-    return count
-  }, [data])
-
-  const totalLogs = data?.days.reduce((s, d) => s + d.count, 0) ?? 0
-
-  const CELL = 16
-  const GAP = 4
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ ...spring, delay: 0.04 }}
-      className="shrink-0 rounded-[1.75rem] flex items-center gap-5 px-5 py-4"
-      style={{
-        background: 'white',
-        boxShadow: '0 4px 20px -6px rgba(0,0,0,0.07), 0 0 0 1px rgba(231,229,228,0.6)',
-      }}
-    >
-      {/* Left: label + streak */}
-      <div className="shrink-0 flex flex-col gap-1 min-w-[88px]">
-        <div
-          className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: 'var(--color-accent)' }}
-        >
-          🍽️ 进食打卡
-        </div>
-        <div className="flex items-baseline gap-1 mt-0.5">
-          <span
-            className="text-2xl font-black tabular-nums leading-none"
-            style={{ color: streak > 0 ? 'var(--color-accent)' : 'var(--color-muted)' }}
-          >
-            {streak}
-          </span>
-          <span className="text-[11px]" style={{ color: 'var(--color-muted)' }}>天连续</span>
-        </div>
-        <div className="text-[11px]" style={{ color: 'var(--color-muted)' }}>
-          共 {totalLogs} 次记录
-        </div>
-
-        {/* Legend */}
-        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-          {[
-            { color: '#d1fae5', label: '1次' },
-            { color: '#6ee7b7', label: '3次' },
-            { color: '#059669', label: '5次+' },
-          ].map(({ color, label }) => (
-            <div key={label} className="flex items-center gap-1">
-              <div
-                style={{
-                  width: 8, height: 8, borderRadius: 3,
-                  background: color, flexShrink: 0,
-                }}
-              />
-              <span className="text-[9px]" style={{ color: 'var(--color-muted)' }}>{label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Right: grid */}
-      <div className="flex flex-col" style={{ gap: GAP }}>
-        {/* Day-of-week labels */}
-        <div className="flex" style={{ gap: GAP }}>
-          {DAY_LABELS.map((label) => (
-            <div
-              key={label}
-              className="text-center font-medium"
-              style={{
-                width: CELL, fontSize: 9,
-                color: 'var(--color-muted)',
-                lineHeight: `${CELL}px`,
-              }}
-            >
-              {label}
-            </div>
-          ))}
-        </div>
-
-        {/* Week rows */}
-        {grid.map((week, wi) => (
-          <div key={wi} className="flex" style={{ gap: GAP }}>
-            {week.map((cell, di) => (
-              <div
-                key={di}
-                title={cellTitle(cell)}
-                style={{
-                  width: CELL,
-                  height: CELL,
-                  borderRadius: 4,
-                  background: cellBg(cell),
-                  border: cellBorder(cell),
-                  flexShrink: 0,
-                  transition: 'transform 0.1s',
-                  cursor: cell.type === 'recorded' ? 'default' : 'default',
-                }}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
-    </motion.div>
+    </>
   )
 }
 
@@ -752,6 +641,7 @@ export default function HomePage() {
   const [feedbackText, setFeedbackText] = useState('')
   const [showRegenModal, setShowRegenModal] = useState(false)
   const [showAvatarModal, setShowAvatarModal] = useState(false)
+  const [showFoodLogModal, setShowFoodLogModal] = useState(false)
   const [bookGenerating, setBookGenerating] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -889,6 +779,18 @@ export default function HomePage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
+            onClick={() => setShowFoodLogModal(true)}
+            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
+            style={{
+              borderColor: 'var(--color-accent)',
+              background: 'var(--color-accent-light)',
+              color: 'var(--color-accent)',
+            }}
+          >
+            <ForkKnife size={13} weight="bold" />
+            记录进食
+          </button>
+          <button
             onClick={() => navigate('/noa/books/history')}
             className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
             style={{
@@ -1006,169 +908,256 @@ export default function HomePage() {
           </div>
         </motion.div>
 
-        {/* ── Right: top strip + book card ── */}
-        <div className="flex-1 min-w-0 flex flex-col gap-4">
+        {/* ── Right: conditional two-state panel ── */}
+        <AnimatePresence mode="wait">
+          {book || bookGenerating ? (
 
-          {/* ── Top strip: heatmap + food log side by side ── */}
-          <div className="shrink-0 flex gap-4">
-            <FoodHeatmap />
-            <InlineFoodLog
-              themeFood={status?.themeFood ?? ''}
-              onSuccess={(data) => {
-                setFeedbackText(data.feedbackText)
-                sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-                setStatus((prev) => (prev ? { ...prev, book: null } : null))
-                setBookGenerating(true)
-              }}
-            />
-          </div>
-
-          {/* ── Book card ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...spring, delay: 0.06 }}
-            className="flex-1 min-h-0 rounded-[2rem] overflow-hidden flex"
-            style={{
-              background: 'white',
-              boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
-            }}
-          >
-            {/* Book cover thumbnail */}
-            <div
-              className="w-[38%] relative shrink-0 overflow-hidden"
+            /* ── State B: Book card ── */
+            <motion.div
+              key="state-b"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={spring}
+              className="flex-1 min-h-0 rounded-[2rem] overflow-hidden flex"
               style={{
-                background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
-                borderRight: '1px solid rgba(231,229,228,0.4)',
-                cursor: book ? 'pointer' : 'default',
+                background: 'white',
+                boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
               }}
-              onClick={() => book && navigate(`/noa/books/${book.bookID}`)}
             >
-              {bookGenerating && !book ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                  <div className="book-gen-shimmer absolute inset-0" />
-                  <div
-                    className="book-gen-breathe flex h-12 w-12 items-center justify-center rounded-2xl relative"
-                    style={{ background: 'rgba(255,255,255,0.9)', boxShadow: '0 4px 16px rgba(5,150,105,0.15)' }}
-                  >
-                    <BookOpenText size={24} weight="light" style={{ color: 'var(--color-accent)' }} />
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="book-gen-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-accent)', opacity: 0.7, animationDelay: '0ms' }} />
-                    <span className="book-gen-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-accent)', opacity: 0.7, animationDelay: '200ms' }} />
-                    <span className="book-gen-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-accent)', opacity: 0.7, animationDelay: '400ms' }} />
-                  </div>
-                </div>
-              ) : book?.preview ? (
-                <>
-                  <img
-                    src={book.preview}
-                    alt={book.title}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                  <div
-                    className="absolute inset-0 pointer-events-none"
-                    style={{ background: 'linear-gradient(to right, transparent 60%, rgba(255,255,255,0.12))' }}
-                  />
-                  {book.confirmed && (
-                    <span
-                      className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white"
-                      style={{ background: 'var(--color-accent)', boxShadow: '0 2px 8px rgba(5,150,105,0.4)' }}
-                    >
-                      <CheckCircle size={9} weight="fill" />
-                      已确认
-                    </span>
-                  )}
-                </>
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                  <div
-                    className="flex h-14 w-14 items-center justify-center rounded-2xl"
-                    style={{ background: 'rgba(255,255,255,0.7)', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}
-                  >
-                    <BookOpenText size={28} weight="light" style={{ color: 'var(--color-accent)', opacity: 0.7 }} />
-                  </div>
-                  <span className="text-[11px] font-medium text-center px-4" style={{ color: 'var(--color-muted)' }}>
-                    提交后生成
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Book info */}
-            <div className="flex-1 min-w-0 p-5 flex flex-col">
+              {/* Book cover thumbnail */}
               <div
-                className="text-[10px] font-bold uppercase tracking-widest mb-2 shrink-0"
-                style={{ color: 'var(--color-accent)' }}
-              >
-                📖 当前绘本
-              </div>
-
-              <button
+                className="w-[42%] relative shrink-0 overflow-hidden"
+                style={{
+                  background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+                  borderRight: '1px solid rgba(231,229,228,0.4)',
+                  cursor: book ? 'pointer' : 'default',
+                }}
                 onClick={() => book && navigate(`/noa/books/${book.bookID}`)}
-                className="flex-1 min-h-0 text-left"
-                style={{ background: 'none', border: 'none', cursor: book ? 'pointer' : 'default', padding: 0 }}
               >
                 {bookGenerating && !book ? (
-                  <div className="space-y-2">
-                    <div className="h-4 w-32 rounded skeleton-shimmer" />
-                    <div className="h-3 w-full rounded skeleton-shimmer" />
-                    <div className="h-3 w-2/3 rounded skeleton-shimmer" />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                    <div className="book-gen-shimmer absolute inset-0" />
+                    <div
+                      className="book-gen-breathe flex h-12 w-12 items-center justify-center rounded-2xl relative"
+                      style={{ background: 'rgba(255,255,255,0.9)', boxShadow: '0 4px 16px rgba(5,150,105,0.15)' }}
+                    >
+                      <BookOpenText size={24} weight="light" style={{ color: 'var(--color-accent)' }} />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="book-gen-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-accent)', opacity: 0.7, animationDelay: '0ms' }} />
+                      <span className="book-gen-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-accent)', opacity: 0.7, animationDelay: '200ms' }} />
+                      <span className="book-gen-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-accent)', opacity: 0.7, animationDelay: '400ms' }} />
+                    </div>
                   </div>
-                ) : (
+                ) : book?.preview ? (
                   <>
-                    <h3 className="text-sm font-bold mb-2 line-clamp-1" style={{ color: 'var(--color-foreground)' }}>
-                      {book?.title || '等待生成'}
-                    </h3>
-                    <p className="text-xs leading-relaxed line-clamp-4" style={{ color: 'var(--color-muted)' }}>
-                      {book?.description || '完成进食记录后，系统会为你生成专属绘本'}
-                    </p>
+                    <img
+                      src={book.preview}
+                      alt={book.title}
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <div
+                      className="absolute inset-0 pointer-events-none"
+                      style={{ background: 'linear-gradient(to right, transparent 60%, rgba(255,255,255,0.12))' }}
+                    />
+                    {book.confirmed && (
+                      <span
+                        className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white"
+                        style={{ background: 'var(--color-accent)', boxShadow: '0 2px 8px rgba(5,150,105,0.4)' }}
+                      >
+                        <CheckCircle size={9} weight="fill" />
+                        已确认
+                      </span>
+                    )}
                   </>
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                    <div
+                      className="flex h-14 w-14 items-center justify-center rounded-2xl"
+                      style={{ background: 'rgba(255,255,255,0.7)', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}
+                    >
+                      <BookOpenText size={28} weight="light" style={{ color: 'var(--color-accent)', opacity: 0.7 }} />
+                    </div>
+                    <span className="text-[11px] font-medium text-center px-4" style={{ color: 'var(--color-muted)' }}>
+                      提交后生成
+                    </span>
+                  </div>
                 )}
-              </button>
+              </div>
 
-              {/* Actions */}
-              {book && !book.confirmed && (
-                <div className="shrink-0 flex gap-2.5 mt-3">
-                  <button
-                    onClick={onConfirmBook}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-full py-2.5 text-xs font-bold text-white transition-all active:scale-[0.97]"
-                    style={{
-                      background: 'linear-gradient(135deg, #059669, #047857)',
-                      border: 'none',
-                      boxShadow: '0 4px 14px rgba(5,150,105,0.3)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <CheckCircle size={13} weight="bold" />
-                    确认绘本
-                  </button>
-                  <button
-                    onClick={() => setShowRegenModal(true)}
-                    disabled={regenerateReached}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-full py-2.5 text-xs font-bold border transition-all active:scale-[0.97]"
-                    style={{
-                      borderColor: 'var(--color-border)',
-                      background: 'white',
-                      color: 'var(--color-foreground)',
-                      cursor: regenerateReached ? 'not-allowed' : 'pointer',
-                      opacity: regenerateReached ? 0.4 : 1,
-                    }}
-                  >
-                    <ArrowsClockwise size={13} weight="bold" />
-                    重新生成
-                  </button>
+              {/* Book info */}
+              <div className="flex-1 min-w-0 flex flex-col">
+
+                {/* Fixed header */}
+                <div className="shrink-0 px-7 pt-7 pb-5" style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div
+                      className="flex items-center justify-center shrink-0"
+                      style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--color-accent-light)' }}
+                    >
+                      <BookOpenText size={11} weight="fill" style={{ color: 'var(--color-accent)' }} />
+                    </div>
+                    <span className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
+                      当前绘本
+                    </span>
+                  </div>
+                  {bookGenerating && !book ? (
+                    <div className="space-y-2 mt-1">
+                      <div className="h-5 w-36 rounded skeleton-shimmer" />
+                      <div className="h-3.5 w-full rounded skeleton-shimmer" />
+                    </div>
+                  ) : (
+                    <h2 className="text-xl font-black tracking-tight line-clamp-2 mt-1" style={{ color: 'var(--color-foreground)' }}>
+                      {book?.title || '绘本生成中…'}
+                    </h2>
+                  )}
                 </div>
-              )}
-              {regenerateReached && book && !book.confirmed && (
-                <p className="text-center text-[10px] mt-2 shrink-0" style={{ color: 'var(--color-error)' }}>
-                  已达到重新生成上限，请确认当前绘本
+
+                {/* Scrollable description */}
+                <div className="flex-1 min-h-0 overflow-y-auto px-7 py-5" style={{ scrollbarWidth: 'none' }}>
+                  {bookGenerating && !book ? (
+                    <div className="space-y-2">
+                      <div className="h-3 w-full rounded skeleton-shimmer" />
+                      <div className="h-3 w-5/6 rounded skeleton-shimmer" />
+                      <div className="h-3 w-4/6 rounded skeleton-shimmer" />
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--color-muted)' }}>
+                      {book?.description || '系统正在为你生成专属绘本，请稍候…'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Fixed action footer */}
+                <div className="shrink-0 px-7 pb-6 pt-4" style={{ borderTop: '1px solid var(--color-border-light)' }}>
+                  {book?.confirmed ? (
+                    <button
+                      onClick={() => navigate(`/noa/books/${book.bookID}?experiment=1`)}
+                      className="w-full py-4 rounded-full font-bold text-sm text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                      style={{
+                        background: 'linear-gradient(135deg, #059669, #047857)',
+                        border: 'none',
+                        boxShadow: '0 8px 24px -4px rgba(5,150,105,0.45)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <BookOpenText size={16} weight="bold" />
+                      开始阅读
+                    </button>
+                  ) : book && !book.confirmed ? (
+                    <div className="space-y-2.5">
+                      <button
+                        onClick={onConfirmBook}
+                        className="w-full py-4 rounded-full font-bold text-sm text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                        style={{
+                          background: 'linear-gradient(135deg, #059669, #047857)',
+                          border: 'none',
+                          boxShadow: '0 8px 24px -4px rgba(5,150,105,0.45)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <CheckCircle size={16} weight="bold" />
+                        确认绘本，开始阅读
+                      </button>
+                      <button
+                        onClick={() => setShowRegenModal(true)}
+                        disabled={regenerateReached}
+                        className="w-full py-3 rounded-full font-bold text-sm border flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
+                        style={{
+                          borderColor: 'var(--color-border-light)',
+                          background: 'white',
+                          color: regenerateReached ? 'var(--color-muted)' : 'var(--color-foreground)',
+                          cursor: regenerateReached ? 'not-allowed' : 'pointer',
+                          opacity: regenerateReached ? 0.4 : 1,
+                        }}
+                      >
+                        <ArrowsClockwise size={14} weight="bold" />
+                        重新生成 ({book.regenerateCount}/2)
+                      </button>
+                    </div>
+                  ) : (
+                    /* Generating state — disabled placeholder */
+                    <div
+                      className="w-full py-4 rounded-full font-bold text-sm flex items-center justify-center gap-2"
+                      style={{ background: 'var(--color-warm-100)', color: 'var(--color-muted)' }}
+                    >
+                      <BookOpenText size={16} weight="light" />
+                      绘本生成中…
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+
+          ) : (
+
+            /* ── State A: Food log ── */
+            <motion.div
+              key="state-a"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={spring}
+              className="flex-1 min-h-0 rounded-[2rem] overflow-hidden flex flex-col"
+              style={{
+                background: 'white',
+                boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
+              }}
+            >
+              {/* Header */}
+              <div className="shrink-0 px-8 pt-7 pb-5" style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div
+                    className="flex items-center justify-center shrink-0"
+                    style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--color-accent-light)' }}
+                  >
+                    <ForkKnife size={11} weight="fill" style={{ color: 'var(--color-accent)' }} />
+                  </div>
+                  <span className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
+                    {status?.themeFood ? `今日食物：${status.themeFood}` : '进食记录'}
+                  </span>
+                </div>
+                <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                  今天吃得怎么样？
+                </h2>
+                <p className="text-sm mt-1" style={{ color: 'var(--color-muted)' }}>
+                  完成记录，系统将为你生成专属绘本 📖
                 </p>
-              )}
-            </div>
-          </motion.div>
-        </div>
+              </div>
+
+              {/* Food log content */}
+              <InlineFoodLog
+                themeFood={status?.themeFood ?? ''}
+                onSuccess={(data) => {
+                  setFeedbackText(data.feedbackText)
+                  sessionStorage.setItem('homeFeedbackText', data.feedbackText)
+                  setStatus((prev) => (prev ? { ...prev, book: null } : null))
+                  setBookGenerating(true)
+                }}
+              />
+            </motion.div>
+
+          )}
+        </AnimatePresence>
       </div>
+
+      {/* ── Food Log Modal ── */}
+      <AnimatePresence>
+        {showFoodLogModal && (
+          <FoodLogModal
+            themeFood={status?.themeFood ?? ''}
+            onClose={() => setShowFoodLogModal(false)}
+            onSuccess={(data) => {
+              setShowFoodLogModal(false)
+              setFeedbackText(data.feedbackText)
+              sessionStorage.setItem('homeFeedbackText', data.feedbackText)
+              setStatus((prev) => (prev ? { ...prev, book: null } : null))
+              setBookGenerating(true)
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ── Regen Modal ── */}
       <AnimatePresence>
