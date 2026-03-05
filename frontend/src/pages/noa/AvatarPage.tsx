@@ -1,22 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { SpinnerGap } from '@phosphor-icons/react'
+import { SpinnerGap, Sparkle } from '@phosphor-icons/react'
 import { getJson, postJson } from '@/lib/ncApi'
 
-type Option = {
-  id: string
-  label: string
-  image: string
-}
-
+type Option = { id: string; label: string; image: string }
 type OptionsResponse = {
   hair: Option[]
   glasses: Option[]
   topColors: Option[]
   bottomColors: Option[]
 }
-
 type BaseResponse = { image: string }
 type ComponentResponse = { image: string }
 type CurrentAvatarResponse = {
@@ -28,24 +22,17 @@ type CurrentAvatarResponse = {
   bottomColor: string | null
 }
 
-const spring = { type: 'spring' as const, stiffness: 100, damping: 20 }
-
+const spring = { type: 'spring' as const, stiffness: 110, damping: 22 }
+const rowVariants = { hidden: {}, show: { transition: { staggerChildren: 0.04 } } }
 const itemVariants = {
   hidden: { opacity: 0, scale: 0.88 },
   show: { opacity: 1, scale: 1, transition: spring },
 }
-const rowVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.04 } },
-}
 
-// ─── Option row (horizontal scroll) ──────────────────────────────────────────
+// ─── Option row ───────────────────────────────────────────────────────────────
 
 function OptionRow({
-  label,
-  options,
-  selectedId,
-  onSelect,
+  label, options, selectedId, onSelect,
 }: {
   label: string
   options: Option[]
@@ -58,7 +45,7 @@ function OptionRow({
         {label}
       </p>
       <motion.div
-        className="flex gap-2.5 pb-1"
+        className="flex gap-2 pb-1"
         variants={rowVariants}
         initial="hidden"
         animate="show"
@@ -73,39 +60,47 @@ function OptionRow({
             whileTap={{ scale: 0.9 }}
             className="flex-shrink-0 flex flex-col items-center gap-1.5 rounded-[1.2rem] border transition-all"
             style={{
-              width: 68,
-              padding: '8px 6px 7px',
+              width: 64,
+              padding: '7px 5px 6px',
               ...(selectedId === item.id
-                ? {
-                    borderColor: 'var(--color-accent)',
-                    background: 'var(--color-accent-light)',
-                    boxShadow: '0 0 0 3px rgba(5,150,105,0.12)',
-                  }
-                : {
-                    borderColor: 'var(--color-border-light)',
-                    background: '#fafaf9',
-                  }),
+                ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', boxShadow: '0 0 0 3px rgba(5,150,105,0.12)' }
+                : { borderColor: 'var(--color-border-light)', background: '#fafaf9' }),
             }}
           >
-            <img
-              src={item.image}
-              alt={item.label}
-              style={{ width: 40, height: 40, objectFit: 'contain' }}
-            />
+            <img src={item.image} alt={item.label} style={{ width: 36, height: 36, objectFit: 'contain' }} />
             <span
               className="text-[10px] font-semibold leading-none"
-              style={{
-                color:
-                  selectedId === item.id
-                    ? 'var(--color-accent)'
-                    : 'var(--color-muted)',
-              }}
+              style={{ color: selectedId === item.id ? 'var(--color-accent)' : 'var(--color-muted)' }}
             >
               {item.label}
             </span>
           </motion.button>
         ))}
       </motion.div>
+    </div>
+  )
+}
+
+// ─── Loading skeleton ─────────────────────────────────────────────────────────
+
+function LoadingSkeleton() {
+  return (
+    <div
+      className="h-[100dvh] overflow-hidden flex items-center justify-center relative"
+      style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}
+    >
+      <div
+        className="flex overflow-hidden"
+        style={{ width: '90%', maxWidth: 900, height: '84dvh', borderRadius: '2.5rem' }}
+      >
+        <div className="w-[38%] skeleton-shimmer" />
+        <div className="flex-1 flex flex-col gap-4 p-7" style={{ background: 'white' }}>
+          <div className="h-14 w-48 rounded-2xl skeleton-shimmer" />
+          <div className="h-32 rounded-[1.5rem] skeleton-shimmer" />
+          <div className="flex-1 rounded-[1.5rem] skeleton-shimmer" />
+          <div className="h-12 rounded-full skeleton-shimmer" />
+        </div>
+      </div>
     </div>
   )
 }
@@ -122,7 +117,6 @@ export default function AvatarPage() {
 
   const [nickname, setNickname] = useState('')
   const [gender, setGender] = useState<'male' | 'female' | ''>('')
-
   const [hairId, setHairId] = useState('')
   const [glassesId, setGlassesId] = useState('')
   const [topId, setTopId] = useState('')
@@ -133,18 +127,10 @@ export default function AvatarPage() {
   const [topImage, setTopImage] = useState('')
   const [bottomImage, setBottomImage] = useState('')
 
-  const canSubmit = useMemo(
-    () => !!nickname.trim() && !!gender && !saving,
-    [nickname, gender, saving],
-  )
+  const canSubmit = useMemo(() => !!nickname.trim() && !!gender && !saving, [nickname, gender, saving])
 
-  async function fetchComponent(
-    type: 'hair' | 'glasses' | 'top' | 'bottom',
-    id: string,
-  ) {
-    const data = await getJson<ComponentResponse>(
-      `/api/avatar/component?type=${type}&id=${id}`,
-    )
+  async function fetchComponent(type: 'hair' | 'glasses' | 'top' | 'bottom', id: string) {
+    const data = await getJson<ComponentResponse>(`/api/avatar/component?type=${type}&id=${id}`)
     return data.image
   }
 
@@ -152,7 +138,6 @@ export default function AvatarPage() {
     async function load() {
       setError('')
       try {
-        // Try loading existing avatar selections (edit mode) + options + base in parallel
         const [base, opts, current] = await Promise.all([
           getJson<BaseResponse>('/api/avatar/base'),
           getJson<OptionsResponse>('/api/avatar/options'),
@@ -161,35 +146,28 @@ export default function AvatarPage() {
         setBaseImage(base.image)
         setOptions(opts)
 
-        // Pre-populate from existing avatar or use defaults
         const initHair = current?.hairStyle || opts.hair[0]?.id || ''
-        const initGlasses =
-          current?.glasses ||
-          opts.glasses.find((g) => g.id === 'none')?.id ||
-          opts.glasses[0]?.id ||
-          ''
+        const initGlasses = current?.glasses || opts.glasses.find((g) => g.id === 'none')?.id || opts.glasses[0]?.id || ''
         const initTop = current?.topColor || opts.topColors[0]?.id || ''
         const initBottom = current?.bottomColor || opts.bottomColors[0]?.id || ''
 
         if (current?.nickname) setNickname(current.nickname)
-        if (current?.gender === 'male' || current?.gender === 'female') {
-          setGender(current.gender)
-        }
+        if (current?.gender === 'male' || current?.gender === 'female') setGender(current.gender)
         setHairId(initHair)
         setGlassesId(initGlasses)
         setTopId(initTop)
         setBottomId(initBottom)
 
-        const [hairRes, glassesRes, topRes, bottomRes] = await Promise.all([
+        const [h, g, t, b] = await Promise.all([
           initHair ? fetchComponent('hair', initHair) : Promise.resolve(''),
           initGlasses ? fetchComponent('glasses', initGlasses) : Promise.resolve(''),
           initTop ? fetchComponent('top', initTop) : Promise.resolve(''),
           initBottom ? fetchComponent('bottom', initBottom) : Promise.resolve(''),
         ])
-        setHairImage(hairRes)
-        setGlassesImage(glassesRes)
-        setTopImage(topRes)
-        setBottomImage(bottomRes)
+        setHairImage(h)
+        setGlassesImage(g)
+        setTopImage(t)
+        setBottomImage(b)
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
       } finally {
@@ -202,22 +180,22 @@ export default function AvatarPage() {
   async function onSelectHair(id: string) {
     setHairId(id)
     try { setHairImage(await fetchComponent('hair', id)) }
-    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+    catch { /* ignore */ }
   }
   async function onSelectGlasses(id: string) {
     setGlassesId(id)
     try { setGlassesImage(await fetchComponent('glasses', id)) }
-    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+    catch { /* ignore */ }
   }
   async function onSelectTop(id: string) {
     setTopId(id)
     try { setTopImage(await fetchComponent('top', id)) }
-    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+    catch { /* ignore */ }
   }
   async function onSelectBottom(id: string) {
     setBottomId(id)
     try { setBottomImage(await fetchComponent('bottom', id)) }
-    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+    catch { /* ignore */ }
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -239,24 +217,25 @@ export default function AvatarPage() {
       const message =
         e && typeof e === 'object' && 'message' in e &&
         typeof (e as { message?: unknown }).message === 'string'
-          ? (e as { message: string }).message
-          : '提交失败'
+          ? (e as { message: string }).message : '提交失败'
       setError(message)
     } finally {
       setSaving(false)
     }
   }
 
+  if (loading) return <LoadingSkeleton />
+
   return (
     <div
-      className="h-[100dvh] overflow-hidden flex flex-col relative"
+      className="h-[100dvh] overflow-hidden flex items-center justify-center relative"
       style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}
     >
-      {/* ── Decorative background blobs ── */}
+      {/* Decorative blobs */}
       <div
         className="absolute pointer-events-none"
         style={{
-          top: -80, right: -80, width: 400, height: 400,
+          top: -120, right: -80, width: 500, height: 500,
           borderRadius: '50%',
           background: 'radial-gradient(circle, rgba(5,150,105,0.07) 0%, transparent 70%)',
         }}
@@ -264,142 +243,116 @@ export default function AvatarPage() {
       <div
         className="absolute pointer-events-none"
         style={{
-          bottom: -100, left: '30%', width: 500, height: 500,
+          bottom: -140, left: '15%', width: 600, height: 600,
           borderRadius: '50%',
           background: 'radial-gradient(circle, rgba(5,150,105,0.04) 0%, transparent 70%)',
         }}
       />
 
-      {/* ── Header ── */}
-      <header
-        className="relative z-10 shrink-0 h-14 flex items-center px-6 gap-3"
+      {/* Main card */}
+      <motion.form
+        onSubmit={onSubmit}
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={spring}
+        className="relative flex overflow-hidden"
         style={{
-          background: 'rgba(236,253,245,0.85)',
-          backdropFilter: 'blur(16px)',
-          borderBottom: '1px solid rgba(5,150,105,0.1)',
+          width: '90%',
+          maxWidth: 900,
+          height: '84dvh',
+          borderRadius: '2.5rem',
+          boxShadow: '0 40px 100px -20px rgba(0,0,0,0.13), 0 0 0 1px rgba(231,229,228,0.5)',
         }}
       >
+        {/* ── Left: Avatar preview ── */}
         <div
-          className="flex items-center justify-center w-7 h-7 rounded-full shrink-0"
-          style={{ background: 'var(--color-accent)' }}
+          className="w-[38%] relative flex flex-col shrink-0 overflow-hidden"
+          style={{ background: 'linear-gradient(160deg, #ecfdf5 0%, #f0fdf4 40%, #ffffff 90%)' }}
         >
-          <span className="text-white text-xs">✦</span>
-        </div>
-        <span className="font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-          创建你的专属形象
-        </span>
-      </header>
-
-      {loading ? (
-        /* ── Skeleton ── */
-        <div className="flex-1 min-h-0 flex gap-4 p-4 pt-3">
-          <div className="w-[36%] rounded-[2.5rem] skeleton-shimmer" />
-          <div className="flex-1 flex flex-col gap-3">
-            <div className="h-36 rounded-[2rem] skeleton-shimmer" />
-            <div className="flex-1 rounded-[2rem] skeleton-shimmer" />
-            <div className="h-14 rounded-full skeleton-shimmer" />
+          {/* Decoration dots */}
+          <div className="absolute top-5 right-6 flex gap-1.5 pointer-events-none z-10">
+            {[0.7, 0.45, 0.25].map((o, i) => (
+              <div key={i} className="w-2 h-2 rounded-full" style={{ background: `rgba(5,150,105,${o})` }} />
+            ))}
           </div>
-        </div>
-      ) : (
-        <form
-          onSubmit={onSubmit}
-          className="relative z-10 flex-1 min-h-0 flex gap-4 p-4 pt-3"
-        >
-          {/* ── Left: Avatar preview card ── */}
-          <motion.div
-            initial={{ opacity: 0, x: -16 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={spring}
-            className="w-[36%] relative overflow-hidden rounded-[2.5rem] flex flex-col"
-            style={{
-              background: 'white',
-              boxShadow: '0 24px 56px -12px rgba(0,0,0,0.09), 0 0 0 1px rgba(5,150,105,0.08)',
-            }}
-          >
-            {/* Soft gradient inside */}
+
+          {/* Preview badge */}
+          <div className="absolute top-5 left-5 z-10">
             <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background: 'linear-gradient(160deg, #ecfdf5 0%, #f0fdf4 35%, #ffffff 75%)',
-              }}
+              className="flex items-center gap-1.5 rounded-full px-3 py-1.5"
+              style={{ background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(8px)', border: '1px solid rgba(5,150,105,0.12)' }}
+            >
+              <Sparkle size={10} weight="fill" style={{ color: 'var(--color-accent)' }} />
+              <span className="text-[10px] font-bold" style={{ color: 'var(--color-accent)' }}>预览</span>
+            </div>
+          </div>
+
+          {/* Avatar layers */}
+          <div className="relative flex-1 min-h-0">
+            {baseImage && <img src={baseImage} alt="base" className="absolute inset-0 w-full h-full object-cover" />}
+            {topImage && <img src={topImage} alt="top" className="absolute inset-0 w-full h-full object-cover" />}
+            {bottomImage && <img src={bottomImage} alt="bottom" className="absolute inset-0 w-full h-full object-cover" />}
+            {hairImage && <img src={hairImage} alt="hair" className="absolute inset-0 w-full h-full object-cover" />}
+            {glassesImage && <img src={glassesImage} alt="glasses" className="absolute inset-0 w-full h-full object-cover" />}
+            <div
+              className="absolute bottom-0 inset-x-0 h-32 pointer-events-none"
+              style={{ background: 'linear-gradient(to top, #f0fdf4, transparent)' }}
             />
+          </div>
 
-            {/* Floating dots decoration */}
-            <div className="absolute top-5 right-6 flex gap-1.5 pointer-events-none">
-              {[0.8, 0.5, 0.3].map((o, i) => (
-                <div
-                  key={i}
-                  className="w-2 h-2 rounded-full"
-                  style={{ background: `rgba(5,150,105,${o})` }}
-                />
-              ))}
-            </div>
-
-            {/* Avatar layers */}
-            <div className="relative flex-1 min-h-0">
-              {baseImage && (
-                <img src={baseImage} alt="base" className="absolute inset-0 w-full h-full object-cover" />
-              )}
-              {topImage && (
-                <img src={topImage} alt="top" className="absolute inset-0 w-full h-full object-cover" />
-              )}
-              {bottomImage && (
-                <img src={bottomImage} alt="bottom" className="absolute inset-0 w-full h-full object-cover" />
-              )}
-              {hairImage && (
-                <img src={hairImage} alt="hair" className="absolute inset-0 w-full h-full object-cover" />
-              )}
-              {glassesImage && (
-                <img src={glassesImage} alt="glasses" className="absolute inset-0 w-full h-full object-cover" />
-              )}
-              {/* Bottom fade overlay */}
-              <div
-                className="absolute bottom-0 inset-x-0 h-28 pointer-events-none"
-                style={{ background: 'linear-gradient(to top, white, transparent)' }}
-              />
-            </div>
-
-            {/* Nickname bubble */}
-            <div className="relative z-10 shrink-0 px-5 pb-5 text-center">
-              <div
-                className="inline-block rounded-full px-6 py-2.5 text-sm font-bold transition-all"
-                style={{
-                  background: nickname ? 'var(--color-accent-light)' : 'rgba(231,229,228,0.5)',
-                  color: nickname ? 'var(--color-accent)' : 'var(--color-muted)',
-                  boxShadow: nickname ? '0 4px 16px rgba(5,150,105,0.18)' : 'none',
-                }}
-              >
-                {nickname || '我的形象'}
-              </div>
-            </div>
-          </motion.div>
-
-          {/* ── Right: Form ── */}
-          <motion.div
-            initial={{ opacity: 0, x: 16 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ ...spring, delay: 0.06 }}
-            className="flex-1 min-w-0 flex flex-col gap-3 overflow-y-auto"
-            style={{ scrollbarWidth: 'none' }}
-          >
-            {/* Basic info card */}
+          {/* Nickname pill */}
+          <div className="relative z-10 shrink-0 px-5 pb-6 text-center">
             <div
-              className="shrink-0 rounded-[2rem] p-5 space-y-4"
+              className="inline-block rounded-full px-6 py-2.5 text-sm font-bold transition-all"
               style={{
-                background: 'white',
-                boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
+                background: nickname ? 'var(--color-accent-light)' : 'rgba(231,229,228,0.5)',
+                color: nickname ? 'var(--color-accent)' : 'var(--color-muted)',
+                boxShadow: nickname ? '0 4px 16px rgba(5,150,105,0.18)' : 'none',
               }}
             >
-              <div className="flex items-center gap-2.5">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                  style={{ background: 'var(--color-accent-light)' }}
-                >
-                  <span className="text-sm">👤</span>
-                </div>
-                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                  基本信息
-                </span>
+              {nickname || '我的形象'}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Right: Form ── */}
+        <div className="flex-1 flex flex-col overflow-hidden" style={{ background: 'white' }}>
+
+          {/* Fixed header */}
+          <div className="shrink-0 px-8 pt-7 pb-5" style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+            <div className="flex items-center gap-2 mb-2">
+              <div
+                className="flex items-center justify-center shrink-0"
+                style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--color-accent-light)' }}
+              >
+                <Sparkle size={12} weight="fill" style={{ color: 'var(--color-accent)' }} />
+              </div>
+              <span className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
+                形象设置
+              </span>
+            </div>
+            <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+              创建你的专属形象
+            </h2>
+            <p className="text-sm mt-1" style={{ color: 'var(--color-muted)' }}>
+              起个昵称、选择外观，开始你的食育之旅
+            </p>
+          </div>
+
+          {/* Scrollable body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-8 py-5 space-y-4" style={{ scrollbarWidth: 'none' }}>
+
+            {/* Basic info */}
+            <div
+              className="rounded-[1.8rem] p-5 space-y-4"
+              style={{
+                background: '#fafaf9',
+                border: '1px solid var(--color-border-light)',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm">👤</span>
+                <span className="text-xs font-bold tracking-wide" style={{ color: 'var(--color-muted)' }}>基本信息</span>
               </div>
 
               <input
@@ -421,16 +374,8 @@ export default function AvatarPage() {
                     className="flex-1 py-2.5 rounded-2xl text-sm font-semibold border transition-all active:scale-[0.97]"
                     style={
                       gender === item.value
-                        ? {
-                            borderColor: 'var(--color-accent)',
-                            background: 'var(--color-accent-light)',
-                            color: 'var(--color-accent)',
-                          }
-                        : {
-                            borderColor: 'var(--color-border-light)',
-                            background: '#fafaf9',
-                            color: 'var(--color-foreground)',
-                          }
+                        ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' }
+                        : { borderColor: 'var(--color-border-light)', background: 'white', color: 'var(--color-foreground)' }
                     }
                   >
                     {item.emoji} {item.label}
@@ -439,51 +384,23 @@ export default function AvatarPage() {
               </div>
             </div>
 
-            {/* Style options card */}
+            {/* Style options */}
             {options && (
               <div
-                className="shrink-0 rounded-[2rem] p-5 space-y-4"
+                className="rounded-[1.8rem] p-5 space-y-4"
                 style={{
-                  background: 'white',
-                  boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
+                  background: '#fafaf9',
+                  border: '1px solid var(--color-border-light)',
                 }}
               >
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                    style={{ background: 'var(--color-accent-light)' }}
-                  >
-                    <span className="text-sm">🎨</span>
-                  </div>
-                  <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                    形象定制
-                  </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">🎨</span>
+                  <span className="text-xs font-bold tracking-wide" style={{ color: 'var(--color-muted)' }}>形象定制</span>
                 </div>
-
-                <OptionRow
-                  label="发型"
-                  options={options.hair}
-                  selectedId={hairId}
-                  onSelect={onSelectHair}
-                />
-                <OptionRow
-                  label="眼镜"
-                  options={options.glasses}
-                  selectedId={glassesId}
-                  onSelect={onSelectGlasses}
-                />
-                <OptionRow
-                  label="上衣颜色"
-                  options={options.topColors}
-                  selectedId={topId}
-                  onSelect={onSelectTop}
-                />
-                <OptionRow
-                  label="下装颜色"
-                  options={options.bottomColors}
-                  selectedId={bottomId}
-                  onSelect={onSelectBottom}
-                />
+                <OptionRow label="发型" options={options.hair} selectedId={hairId} onSelect={onSelectHair} />
+                <OptionRow label="眼镜" options={options.glasses} selectedId={glassesId} onSelect={onSelectGlasses} />
+                <OptionRow label="上衣颜色" options={options.topColors} selectedId={topId} onSelect={onSelectTop} />
+                <OptionRow label="下装颜色" options={options.bottomColors} selectedId={bottomId} onSelect={onSelectBottom} />
               </div>
             )}
 
@@ -491,53 +408,43 @@ export default function AvatarPage() {
             <AnimatePresence>
               {error && (
                 <motion.div
-                  key="error"
+                  key="err"
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="shrink-0 text-sm px-4 py-3 rounded-2xl"
-                  style={{
-                    color: 'var(--color-error)',
-                    background: 'var(--color-error-light)',
-                  }}
+                  className="text-sm px-4 py-3 rounded-2xl"
+                  style={{ color: 'var(--color-error)', background: 'var(--color-error-light)' }}
                 >
                   {error}
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
 
-            {/* Submit */}
-            <motion.button
+          {/* Fixed footer: submit */}
+          <div className="shrink-0 px-8 py-5" style={{ borderTop: '1px solid var(--color-border-light)' }}>
+            <button
               type="submit"
               disabled={!canSubmit}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ ...spring, delay: 0.14 }}
-              whileTap={canSubmit ? { scale: 0.97 } : undefined}
-              className="shrink-0 w-full py-4 rounded-full font-bold text-sm text-white transition-all"
+              className="w-full py-3.5 rounded-full font-bold text-sm text-white transition-all active:scale-[0.98]"
               style={{
-                background: canSubmit
-                  ? 'linear-gradient(135deg, #059669, #047857)'
-                  : 'var(--color-muted)',
+                background: canSubmit ? 'linear-gradient(135deg, #059669, #047857)' : 'var(--color-warm-200)',
+                color: canSubmit ? 'white' : 'var(--color-muted)',
                 cursor: canSubmit ? 'pointer' : 'not-allowed',
-                boxShadow: canSubmit
-                  ? '0 10px 28px -4px rgba(5,150,105,0.42)'
-                  : 'none',
                 border: 'none',
+                boxShadow: canSubmit ? '0 8px 24px -4px rgba(5,150,105,0.38)' : 'none',
               }}
             >
               {saving ? (
                 <span className="flex items-center justify-center gap-2">
-                  <SpinnerGap size={16} weight="bold" className="animate-spin" />
+                  <SpinnerGap size={15} weight="bold" className="animate-spin" />
                   保存中…
                 </span>
-              ) : (
-                '保存并返回 →'
-              )}
-            </motion.button>
-          </motion.div>
-        </form>
-      )}
+              ) : '保存并进入 →'}
+            </button>
+          </div>
+        </div>
+      </motion.form>
     </div>
   )
 }
