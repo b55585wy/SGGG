@@ -42,11 +42,10 @@ type UserApiStats = {
     bookCount: number
     confirmedAt: string | null
     lastActive: string | null
-    readingCount: number
-    readingCompletedCount: number
-    readingAbortedCount: number
-    avgDurationMs: number | null
-    avgCompletion: number | null
+    previewCount: number
+    reviewCount: number
+    experimentCompletedCount: number
+    experimentAbortedCount: number
     positiveFeedbackCount: number
   }>
 }
@@ -104,7 +103,7 @@ function formatTimestamp(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-type SortKey = 'userID' | 'themeFood' | 'foodLogCount' | 'avgScore' | 'bookCount' | 'confirmedAt' | 'lastActive' | 'readingCompletedCount' | 'readingAbortedCount'
+type SortKey = 'userID' | 'themeFood' | 'foodLogCount' | 'avgScore' | 'bookCount' | 'confirmedAt' | 'lastActive' | 'previewCount' | 'reviewCount' | 'experimentCompletedCount' | 'experimentAbortedCount'
 
 // ─── Sub-components ─────────────────────────────────────────
 
@@ -604,8 +603,10 @@ export default function AdminUsersPage() {
                     <ColHeader label="目标食物" sk="themeFood" />
                     <ColHeader label="进食次数" sk="foodLogCount" />
                     <ColHeader label="平均分" sk="avgScore" />
-                    <ColHeader label="有效阅读" sk="readingCompletedCount" />
-                    <ColHeader label="无效阅读" sk="readingAbortedCount" />
+                    <ColHeader label="预览" sk="previewCount" />
+                    <ColHeader label="回顾" sk="reviewCount" />
+                    <ColHeader label="实验完成" sk="experimentCompletedCount" />
+                    <ColHeader label="实验中断" sk="experimentAbortedCount" />
                     <ColHeader label="正反馈" sk="confirmedAt" />
                     <ColHeader label="确认时间" sk="confirmedAt" />
                     <ColHeader label="最近活跃" sk="lastActive" />
@@ -615,7 +616,7 @@ export default function AdminUsersPage() {
                 <tbody>
                   {sortedUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-5 py-8 text-center text-sm text-muted">
+                      <td colSpan={12} className="px-5 py-8 text-center text-sm text-muted">
                         暂无数据
                       </td>
                     </tr>
@@ -635,18 +636,24 @@ export default function AdminUsersPage() {
                           )}
                         </td>
                         <td className="px-4 py-2.5 text-sm tabular-nums">
-                          {u.readingCompletedCount > 0 ? (
+                          <span className="text-xs text-muted">{u.previewCount || 0}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-sm tabular-nums">
+                          <span className="text-xs text-muted">{u.reviewCount || 0}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-sm tabular-nums">
+                          {u.experimentCompletedCount > 0 ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-accent-light px-2 py-0.5 text-xs font-semibold text-accent">
-                              {u.readingCompletedCount}
+                              {u.experimentCompletedCount}
                             </span>
                           ) : (
                             <span className="text-xs text-muted">0</span>
                           )}
                         </td>
                         <td className="px-4 py-2.5 text-sm tabular-nums">
-                          {u.readingAbortedCount > 0 ? (
+                          {u.experimentAbortedCount > 0 ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-error/10 px-2 py-0.5 text-xs font-semibold text-error">
-                              {u.readingAbortedCount}
+                              {u.experimentAbortedCount}
                             </span>
                           ) : (
                             <span className="text-xs text-muted">0</span>

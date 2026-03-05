@@ -379,15 +379,14 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   )
 }
 
-// ─── Food Log Modal ───────────────────────────────────────────────────────────
+// ─── Inline Food Log ──────────────────────────────────────────────────────────
 
-type FoodLogModalProps = {
+type InlineFoodLogProps = {
   themeFood: string
-  onClose: () => void
   onSuccess: (data: FoodLogResponse) => void
 }
 
-function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
+function InlineFoodLog({ themeFood, onSuccess }: InlineFoodLogProps) {
   const [score, setScore] = useState(0)
   const [scoreTouched, setScoreTouched] = useState(false)
   const [content, setContent] = useState('')
@@ -399,7 +398,6 @@ function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
     () => !!content.trim() && scoreTouched && score > 0 && !sending,
     [content, scoreTouched, score, sending],
   )
-
   const sliderPct = (score / 10) * 100
   const thumbColor = score > 0 ? scoreColor(score) : undefined
 
@@ -410,6 +408,7 @@ function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
     setSending(true)
     try {
       const data = await postJson<FoodLogResponse>('/api/food/log', { score, content: content.trim() })
+      setScore(0); setScoreTouched(false); setContent('')
       onSuccess(data)
     } catch (e) {
       const message =
@@ -433,176 +432,288 @@ function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
   }
 
   return (
-    <>
-      {/* Backdrop */}
-      <motion.div
-        key="food-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(6px)' }}
-        onClick={onClose}
-      />
-
-      {/* Centered floating card */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
-        <motion.div
-          key="food-dialog"
-          initial={{ opacity: 0, scale: 0.93, y: -10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.93, y: -10 }}
-          transition={spring}
-          className="pointer-events-auto flex flex-col w-full"
-          style={{
-            maxWidth: 480,
-            maxHeight: '80dvh',
-            background: 'white',
-            borderRadius: '2rem',
-            boxShadow: '0 32px 80px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(231,229,228,0.6)',
-          }}
-        >
-          {/* Header */}
-          <div
-            className="shrink-0 flex items-center justify-between px-6 pt-5 pb-4 border-b"
-            style={{ borderColor: 'var(--color-border-light)' }}
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...spring, delay: 0.08 }}
+      className="flex-1 min-w-0 rounded-[1.75rem] flex flex-col gap-2.5 px-5 py-4"
+      style={{
+        background: 'white',
+        boxShadow: '0 4px 20px -6px rgba(0,0,0,0.07), 0 0 0 1px rgba(231,229,228,0.6)',
+      }}
+    >
+      {/* Header row */}
+      <div className="shrink-0 flex items-center justify-between">
+        <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-accent)' }}>
+          🍴 {themeFood ? `今日：${themeFood}` : '进食记录'}
+        </div>
+        <div className="flex items-baseline gap-0.5">
+          <span
+            className="text-lg font-black tabular-nums leading-none transition-colors"
+            style={{ color: score > 0 ? scoreColor(score) : 'var(--color-muted)' }}
           >
-            <div className="flex items-center gap-2.5">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: 'var(--color-accent-light)' }}
-              >
-                <span className="text-sm">🍽️</span>
-              </div>
-              <div>
-                <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                  进食情况录入
-                </h2>
-                {themeFood && (
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--color-muted)' }}>
-                    今日食物：{themeFood}
-                  </p>
-                )}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full transition-all active:scale-[0.93]"
-              style={{ background: 'var(--color-warm-100)', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
+            {score > 0 ? score : '–'}
+          </span>
+          <span className="text-[10px]" style={{ color: 'var(--color-muted)' }}>/10</span>
+          {scoreTouched && score > 0 && (
+            <span
+              className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white"
+              style={{ background: scoreColor(score) }}
             >
-              <X size={15} weight="bold" />
-            </button>
-          </div>
-
-          {/* Body */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-            {/* Score */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                  给本次尝试{themeFood ? `「${themeFood}」` : '食物'}打分
-                </label>
-                <div className="flex items-baseline gap-1">
-                  <span
-                    className="text-xl font-bold tabular-nums transition-colors"
-                    style={{ color: score > 0 ? scoreColor(score) : 'var(--color-muted)' }}
-                  >
-                    {score}
-                  </span>
-                  <span className="text-xs" style={{ color: 'var(--color-muted)' }}>/10</span>
-                </div>
-              </div>
-              <input
-                type="range" min={0} max={10} value={score}
-                onChange={(e) => { setScore(Number(e.target.value)); setScoreTouched(true) }}
-                className="range-accent w-full"
-                style={{
-                  background: score > 0
-                    ? `linear-gradient(to right, ${scoreColor(score)} 0%, ${scoreColor(score)} ${sliderPct}%, var(--color-warm-200) ${sliderPct}%, var(--color-warm-200) 100%)`
-                    : undefined,
-                  ['--range-thumb-color' as string]: thumbColor,
-                }}
-              />
-              {scoreTouched && score > 0 && (
-                <div className="mt-2 flex justify-center">
-                  <span
-                    className="rounded-full px-3 py-0.5 text-[10px] font-bold text-white"
-                    style={{ background: scoreColor(score) }}
-                  >
-                    {scoreLabel(score)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Text input */}
-            <div className="space-y-2">
-              <label className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                进食过程
-              </label>
-              <div className="flex gap-2">
-                <textarea
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  placeholder="描述一下进食过程..."
-                  className="form-input flex-1 resize-none"
-                  rows={4}
-                />
-                <button
-                  type="button"
-                  onClick={onTranscribe}
-                  disabled={voiceLoading}
-                  className="shrink-0 flex items-center justify-center self-stretch rounded-2xl border w-11 transition-all active:scale-[0.95] disabled:opacity-50"
-                  style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
-                >
-                  <Microphone size={20} weight={voiceLoading ? 'fill' : 'regular'} />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="shrink-0 px-6 py-4 border-t space-y-3" style={{ borderColor: 'var(--color-border-light)' }}>
-            <AnimatePresence>
-              {error && (
-                <motion.p
-                  key="err"
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="text-sm px-3 py-2 rounded-xl"
-                  style={{ color: 'var(--color-error)', background: 'var(--color-error-light)' }}
-                >
-                  {error}
-                </motion.p>
-              )}
-            </AnimatePresence>
-            <button
-              type="button"
-              onClick={onSend}
-              disabled={!canSend}
-              className="w-full py-3.5 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-              style={{
-                background: canSend ? 'linear-gradient(135deg, #18181b, #3f3f46)' : 'var(--color-warm-100)',
-                color: canSend ? 'white' : 'var(--color-muted)',
-                cursor: canSend ? 'pointer' : 'not-allowed',
-                border: 'none',
-                boxShadow: canSend ? '0 8px 20px -4px rgba(0,0,0,0.3)' : 'none',
-              }}
-            >
-              <PaperPlaneTilt size={17} weight="bold" />
-              {sending ? '发送中...' : '提交记录 →'}
-            </button>
-          </div>
-        </motion.div>
+              {scoreLabel(score)}
+            </span>
+          )}
+        </div>
       </div>
-    </>
+
+      {/* Score slider */}
+      <div className="shrink-0">
+        <input
+          type="range" min={0} max={10} value={score}
+          onChange={(e) => { setScore(Number(e.target.value)); setScoreTouched(true) }}
+          className="range-accent w-full"
+          style={{
+            background: score > 0
+              ? `linear-gradient(to right, ${scoreColor(score)} 0%, ${scoreColor(score)} ${sliderPct}%, var(--color-warm-200) ${sliderPct}%, var(--color-warm-200) 100%)`
+              : undefined,
+            ['--range-thumb-color' as string]: thumbColor,
+          }}
+        />
+      </div>
+
+      {/* Text + voice */}
+      <div className="flex gap-2 flex-1 min-h-0" style={{ minHeight: 52 }}>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="描述一下进食过程..."
+          className="form-input flex-1 resize-none text-xs"
+          style={{ height: '100%', minHeight: 52 }}
+        />
+        <button
+          type="button"
+          onClick={onTranscribe}
+          disabled={voiceLoading}
+          className="shrink-0 flex items-center justify-center rounded-2xl border w-10 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
+          style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
+        >
+          <Microphone size={17} weight={voiceLoading ? 'fill' : 'regular'} />
+        </button>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <p className="text-[10px] shrink-0" style={{ color: 'var(--color-error)' }}>{error}</p>
+      )}
+
+      {/* Submit */}
+      <button
+        type="button"
+        onClick={onSend}
+        disabled={!canSend}
+        className="shrink-0 w-full py-2.5 rounded-full font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
+        style={{
+          background: canSend ? 'linear-gradient(135deg, #18181b, #3f3f46)' : 'var(--color-warm-100)',
+          color: canSend ? 'white' : 'var(--color-muted)',
+          cursor: canSend ? 'pointer' : 'not-allowed',
+          border: 'none',
+          boxShadow: canSend ? '0 4px 14px -2px rgba(0,0,0,0.3)' : 'none',
+        }}
+      >
+        <PaperPlaneTilt size={13} weight="bold" />
+        {sending ? '发送中...' : '提交记录 →'}
+      </button>
+    </motion.div>
   )
 }
 
-// ─── Skeleton ────────────────────────────────────────────────────────────────
+// ─── Food Heatmap ─────────────────────────────────────────────────────────────
+
+type HeatmapDayEntry = { date: string; avgScore: number; count: number }
+type HeatmapResponse = { days: HeatmapDayEntry[] }
+
+const HEATMAP_WEEKS = 5
+const DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
+
+type GridCell =
+  | { type: 'recorded'; date: string; avgScore: number; count: number }
+  | { type: 'empty'; date: string }
+  | { type: 'future' }
+
+function cellBg(cell: GridCell): string {
+  if (cell.type !== 'recorded') return 'transparent'
+  const c = cell.count
+  if (c >= 5) return '#059669'
+  if (c >= 4) return '#34d399'
+  if (c >= 3) return '#6ee7b7'
+  if (c >= 2) return '#a7f3d0'
+  return '#d1fae5'
+}
+
+function cellBorder(cell: GridCell): string {
+  if (cell.type === 'future') return '1.5px solid transparent'
+  if (cell.type === 'empty') return '1.5px dashed rgba(0,0,0,0.13)'
+  return 'none'
+}
+
+function cellTitle(cell: GridCell): string {
+  if (cell.type === 'future') return ''
+  if (cell.type === 'empty') return `${cell.date} · 未记录`
+  return `${cell.date} · ${cell.count} 次记录 · 平均 ${cell.avgScore}/10`
+}
+
+function FoodHeatmap() {
+  const [data, setData] = useState<HeatmapResponse | null>(null)
+
+  useEffect(() => {
+    getJson<HeatmapResponse>(`/api/food/heatmap?weeks=${HEATMAP_WEEKS}`)
+      .then(setData)
+      .catch(() => { /* silently ignore */ })
+  }, [])
+
+  // Build grid: rows = weeks (0 = oldest), cols = days of week (0 = Mon)
+  const grid: GridCell[][] = useMemo(() => {
+    const today = new Date()
+    today.setHours(12, 0, 0, 0)
+    // JS: 0=Sun,1=Mon..6=Sat → Mon-based: (day+6)%7 → Mon=0
+    const todayDow = (today.getDay() + 6) % 7
+    // Monday of oldest week (HEATMAP_WEEKS weeks ago)
+    const gridStart = new Date(today)
+    gridStart.setDate(gridStart.getDate() - todayDow - (HEATMAP_WEEKS - 1) * 7)
+
+    const byDate = new Map(data?.days.map((d) => [d.date, d]) ?? [])
+
+    return Array.from({ length: HEATMAP_WEEKS }, (_, w) =>
+      Array.from({ length: 7 }, (_, d): GridCell => {
+        const date = new Date(gridStart)
+        date.setDate(date.getDate() + w * 7 + d)
+        if (date > today) return { type: 'future' }
+        const dateStr = date.toISOString().slice(0, 10)
+        const entry = byDate.get(dateStr)
+        return entry
+          ? { type: 'recorded', date: dateStr, avgScore: entry.avgScore, count: entry.count }
+          : { type: 'empty', date: dateStr }
+      }),
+    )
+  }, [data])
+
+  // Streak: consecutive days ending today with at least one record
+  const streak = useMemo(() => {
+    if (!data?.days.length) return 0
+    const daySet = new Set(data.days.map((d) => d.date))
+    let count = 0
+    const d = new Date()
+    d.setHours(12, 0, 0, 0)
+    while (daySet.has(d.toISOString().slice(0, 10))) {
+      count++
+      d.setDate(d.getDate() - 1)
+    }
+    return count
+  }, [data])
+
+  const totalLogs = data?.days.reduce((s, d) => s + d.count, 0) ?? 0
+
+  const CELL = 16
+  const GAP = 4
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...spring, delay: 0.04 }}
+      className="shrink-0 rounded-[1.75rem] flex items-center gap-5 px-5 py-4"
+      style={{
+        background: 'white',
+        boxShadow: '0 4px 20px -6px rgba(0,0,0,0.07), 0 0 0 1px rgba(231,229,228,0.6)',
+      }}
+    >
+      {/* Left: label + streak */}
+      <div className="shrink-0 flex flex-col gap-1 min-w-[88px]">
+        <div
+          className="text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: 'var(--color-accent)' }}
+        >
+          🍽️ 进食打卡
+        </div>
+        <div className="flex items-baseline gap-1 mt-0.5">
+          <span
+            className="text-2xl font-black tabular-nums leading-none"
+            style={{ color: streak > 0 ? 'var(--color-accent)' : 'var(--color-muted)' }}
+          >
+            {streak}
+          </span>
+          <span className="text-[11px]" style={{ color: 'var(--color-muted)' }}>天连续</span>
+        </div>
+        <div className="text-[11px]" style={{ color: 'var(--color-muted)' }}>
+          共 {totalLogs} 次记录
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          {[
+            { color: '#d1fae5', label: '1次' },
+            { color: '#6ee7b7', label: '3次' },
+            { color: '#059669', label: '5次+' },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1">
+              <div
+                style={{
+                  width: 8, height: 8, borderRadius: 3,
+                  background: color, flexShrink: 0,
+                }}
+              />
+              <span className="text-[9px]" style={{ color: 'var(--color-muted)' }}>{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Right: grid */}
+      <div className="flex flex-col" style={{ gap: GAP }}>
+        {/* Day-of-week labels */}
+        <div className="flex" style={{ gap: GAP }}>
+          {DAY_LABELS.map((label) => (
+            <div
+              key={label}
+              className="text-center font-medium"
+              style={{
+                width: CELL, fontSize: 9,
+                color: 'var(--color-muted)',
+                lineHeight: `${CELL}px`,
+              }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+
+        {/* Week rows */}
+        {grid.map((week, wi) => (
+          <div key={wi} className="flex" style={{ gap: GAP }}>
+            {week.map((cell, di) => (
+              <div
+                key={di}
+                title={cellTitle(cell)}
+                style={{
+                  width: CELL,
+                  height: CELL,
+                  borderRadius: 4,
+                  background: cellBg(cell),
+                  border: cellBorder(cell),
+                  flexShrink: 0,
+                  transition: 'transform 0.1s',
+                  cursor: cell.type === 'recorded' ? 'default' : 'default',
+                }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
   return (
@@ -641,7 +752,6 @@ export default function HomePage() {
   const [feedbackText, setFeedbackText] = useState('')
   const [showRegenModal, setShowRegenModal] = useState(false)
   const [showAvatarModal, setShowAvatarModal] = useState(false)
-  const [showFoodModal, setShowFoodModal] = useState(false)
   const [bookGenerating, setBookGenerating] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -708,7 +818,8 @@ export default function HomePage() {
     setError('')
     try {
       await postJson('/api/book/confirm', {})
-      await loadStatus()
+      // 确认后立即开始正式实验
+      navigate(`/noa/books/${book!.bookID}?experiment=1`)
     } catch (e) {
       const message =
         e && typeof e === 'object' && 'message' in e &&
@@ -718,7 +829,11 @@ export default function HomePage() {
     }
   }
 
-  function onLogout() { clearToken(); navigate('/noa/login', { replace: true }) }
+  async function onLogout() {
+    await postJson('/api/auth/logout', {}).catch(() => {})
+    clearToken()
+    navigate('/noa/login', { replace: true })
+  }
 
   const avatar = status?.avatar
   const book = status?.book
@@ -773,18 +888,6 @@ export default function HomePage() {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => setShowFoodModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
-            style={{
-              borderColor: 'var(--color-border-light)',
-              background: 'white',
-              color: 'var(--color-foreground)',
-            }}
-          >
-            <ForkKnife size={14} weight="bold" />
-            记录进食
-          </button>
           <button
             onClick={() => navigate('/noa/books/history')}
             className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
@@ -903,8 +1006,22 @@ export default function HomePage() {
           </div>
         </motion.div>
 
-        {/* ── Right: Book card ── */}
+        {/* ── Right: top strip + book card ── */}
         <div className="flex-1 min-w-0 flex flex-col gap-4">
+
+          {/* ── Top strip: heatmap + food log side by side ── */}
+          <div className="shrink-0 flex gap-4">
+            <FoodHeatmap />
+            <InlineFoodLog
+              themeFood={status?.themeFood ?? ''}
+              onSuccess={(data) => {
+                setFeedbackText(data.feedbackText)
+                sessionStorage.setItem('homeFeedbackText', data.feedbackText)
+                setStatus((prev) => (prev ? { ...prev, book: null } : null))
+                setBookGenerating(true)
+              }}
+            />
+          </div>
 
           {/* ── Book card ── */}
           <motion.div
@@ -1082,21 +1199,6 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {showFoodModal && (
-          <FoodLogModal
-            themeFood={status?.themeFood ?? ''}
-            onClose={() => setShowFoodModal(false)}
-            onSuccess={(data) => {
-              setShowFoodModal(false)
-              setFeedbackText(data.feedbackText)
-              sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-              setStatus((prev) => (prev ? { ...prev, book: null } : null))
-              setBookGenerating(true)
-            }}
-          />
-        )}
-      </AnimatePresence>
     </div>
   )
 }

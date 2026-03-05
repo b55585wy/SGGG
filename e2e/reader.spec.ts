@@ -62,25 +62,35 @@ const TEST_DRAFT = {
 
 // ─── 工具函数 ─────────────────────────────────────────────────
 
-async function loginAndSetupAvatar(page: Page) {
+/**
+ * 登录 demo 用户，兼容 firstLogin=true（需要 avatar 设置）
+ * 和 firstLogin=false（直接到 home）两种数据库状态。
+ */
+async function login(page: Page) {
   await page.goto('/noa/login');
   await page.locator('input[autocomplete="username"]').fill('demo');
   await page.locator('input[type="password"]').fill('demo123');
   await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(/\/noa\/avatar/, { timeout: 10_000 });
 
-  await expect(page.locator('text=基本信息')).toBeVisible();
-  await page.locator('input[placeholder="给自己起一个名字"]').fill('测试小朋友');
-  await page.locator('button').filter({ hasText: '男孩' }).first().click();
-  await page.locator('button[type="submit"]').filter({ hasText: '提交并进入主页面' }).click();
-  await expect(page).toHaveURL(/\/noa\/home/, { timeout: 10_000 });
+  // 等待跳转到 avatar 或 home（两种情况都合法）
+  await page.waitForURL(/\/(noa\/avatar|noa\/home)/, { timeout: 10_000 });
+
+  if (page.url().includes('/noa/avatar')) {
+    // 首次登录：需要完成 avatar 设置
+    await expect(page.locator('text=基本信息')).toBeVisible();
+    await page.locator('input[placeholder="给自己起一个昵称"]').fill('测试小朋友');
+    await page.locator('button').filter({ hasText: '男孩' }).first().click();
+    await page.locator('button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/noa\/home/, { timeout: 10_000 });
+  }
+  // 已到 home — 无需额外操作
 }
 
-/** 登录后注入 draft 并直接打开 Reader（只读模式，无 session） */
+/** 登录后注入 draft 并打开 Reader（只读模式，无 session） */
 async function openReader(page: Page) {
-  await loginAndSetupAvatar(page);
+  await login(page);
 
-  // Mock TTS API：避免测试环境因无后端而产生网络错误
+  // Mock TTS API：避免测试环境因无 DASHSCOPE_API_KEY 产生网络错误
   await page.route('**/api/v1/tts', (route) =>
     route.fulfill({ status: 503, body: '' }),
   );
@@ -91,11 +101,10 @@ async function openReader(page: Page) {
   }, TEST_DRAFT);
 
   await page.goto('/reader');
-  // 等待第一页文字渲染
   await expect(page.locator('text=从前有一只小兔子')).toBeVisible({ timeout: 8_000 });
 }
 
-// ─── Reader 基础功能 ──────────────────────────────────────────
+// ─── Reader 基础显示与导航 ────────────────────────────────────
 
 test.describe('Reader — 基础显示与导航', () => {
   test.beforeEach(async ({ page }) => {
@@ -152,7 +161,7 @@ test.describe('Reader — 基础显示与导航', () => {
   });
 });
 
-// ─── TTS 自动朗读开关 ─────────────────────────────────────────
+// ─── TTS 自动朗读 ─────────────────────────────────────────────
 
 test.describe('Reader — TTS 自动朗读', () => {
   test.beforeEach(async ({ page }) => {
@@ -177,15 +186,13 @@ test.describe('Reader — TTS 自动朗读', () => {
   });
 
   test('自动朗读开启后翻页，按钮保持"朗读中"状态', async ({ page }) => {
-    // 开启自动朗读
     await page.locator('button').filter({ hasText: '朗读' }).click();
     await expect(page.locator('button').filter({ hasText: '朗读中' })).toBeVisible();
 
-    // 翻到第二页
     await page.locator('button').filter({ hasText: '下一页' }).click();
     await expect(page.locator('text=小兔子看到了一颗大西兰花')).toBeVisible({ timeout: 5_000 });
 
-    // 朗读按钮应仍为激活状态
+    // 翻页后按钮应仍为激活状态（autoReadEnabled 持久）
     await expect(page.locator('button').filter({ hasText: '朗读中' })).toBeVisible();
   });
 
@@ -193,15 +200,12 @@ test.describe('Reader — TTS 自动朗读', () => {
     // 开启再关闭
     await page.locator('button').filter({ hasText: '朗读' }).click();
     await page.locator('button').filter({ hasText: '朗读中' }).click();
-    await expect(page.locator('button').filter({ hasText: '朗读' })).toBeVisible();
 
-    // 翻到第二页
     await page.locator('button').filter({ hasText: '下一页' }).click();
     await expect(page.locator('text=小兔子看到了一颗大西兰花')).toBeVisible({ timeout: 5_000 });
 
-    // 朗读按钮应仍为关闭状态
-    await expect(page.locator('button').filter({ hasText: '朗读' })).toBeVisible();
     await expect(page.locator('button').filter({ hasText: '朗读中' })).not.toBeVisible();
+    await expect(page.locator('button').filter({ hasText: '朗读' })).toBeVisible();
   });
 });
 
@@ -212,36 +216,26 @@ test.describe('Reader — 互动层', () => {
     await openReader(page);
   });
 
-  test('第一页（无互动）不显示互动区域', async ({ page }) => {
-    // 第一页 interaction.type === 'none'，互动层不渲染
-    await expect(page.locator('text=伸出手指')).not.toBeVisible();
-    await expect(page.locator('text=学一学小兔子')).not.toBeVisible();
+  test('第一页（无互动）不显示互动指令文字', async ({ page }) => {
+    await expect(page.locator('text=伸出手指，点一点西兰花吧！')).not.toBeVisible();
+    await expect(page.locator('text=学一学小兔子，张大嘴巴！')).not.toBeVisible();
   });
 
-  test('第二页显示 tap 互动：提示语和点击按钮', async ({ page }) => {
+  test('第二页显示 tap 互动提示语', async ({ page }) => {
     await page.locator('button').filter({ hasText: '下一页' }).click();
     await expect(page.locator('text=小兔子看到了一颗大西兰花')).toBeVisible({ timeout: 5_000 });
 
-    // 互动提示语显示
     await expect(page.locator('text=伸出手指，点一点西兰花吧！')).toBeVisible();
   });
 
-  test('点击 tap 互动按钮后变为完成状态', async ({ page }) => {
+  test('点击 tap 圆形按钮后变为禁用（完成状态）', async ({ page }) => {
     await page.locator('button').filter({ hasText: '下一页' }).click();
     await expect(page.locator('text=伸出手指，点一点西兰花吧！')).toBeVisible({ timeout: 5_000 });
 
-    // 点击圆形 tap 按钮（包含 HandTap 图标的 button）
-    const tapButton = page.locator('button').filter({ has: page.locator('[data-phosphor-icon="HandTap"]') });
-    if (await tapButton.isVisible()) {
-      await tapButton.click();
-      // 点击后应出现完成图标
-      await expect(page.locator('[data-phosphor-icon="CheckCircle"]')).toBeVisible({ timeout: 3_000 });
-    } else {
-      // 通过动画圆形按钮定位
-      const circleBtn = page.locator('button.rounded-full').first();
-      await circleBtn.click();
-      await expect(circleBtn).toBeDisabled({ timeout: 3_000 });
-    }
+    // tap 按钮是唯一一个 rounded-full 按钮
+    const tapBtn = page.locator('button[class*="rounded-full"]');
+    await tapBtn.click();
+    await expect(tapBtn).toBeDisabled({ timeout: 3_000 });
   });
 
   test('第三页显示 mimic 互动：提示语和"我做到了"按钮', async ({ page }) => {
@@ -250,7 +244,6 @@ test.describe('Reader — 互动层', () => {
     await page.locator('button').filter({ hasText: '下一页' }).click();
     await expect(page.locator('text=小兔子鼓起勇气')).toBeVisible({ timeout: 5_000 });
 
-    // mimic 互动提示语和按钮
     await expect(page.locator('text=学一学小兔子，张大嘴巴！')).toBeVisible();
     await expect(page.locator('button').filter({ hasText: '我做到了' })).toBeVisible();
   });

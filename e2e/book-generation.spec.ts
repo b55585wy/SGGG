@@ -9,13 +9,15 @@ async function loginAndSetupAvatar(page: Page) {
   await page.locator('input[autocomplete="username"]').fill('demo');
   await page.locator('input[type="password"]').fill('demo123');
   await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(/\/noa\/avatar/, { timeout: 10_000 });
+  await page.waitForURL(/\/(noa\/avatar|noa\/home)/, { timeout: 10_000 });
 
-  await expect(page.locator('text=基本信息')).toBeVisible();
-  await page.locator('input[placeholder="给自己起一个昵称"]').fill('测试小朋友');
-  await page.locator('button').filter({ hasText: '男孩' }).first().click();
-  await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(/\/noa\/home/, { timeout: 10_000 });
+  if (page.url().includes('/noa/avatar')) {
+    await expect(page.locator('text=基本信息')).toBeVisible();
+    await page.locator('input[placeholder="给自己起一个昵称"]').fill('测试小朋友');
+    await page.locator('button').filter({ hasText: '男孩' }).first().click();
+    await page.locator('button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/noa\/home/, { timeout: 10_000 });
+  }
 }
 
 /**
@@ -23,10 +25,14 @@ async function loginAndSetupAvatar(page: Page) {
  */
 async function submitFoodLog(page: Page, score: string, text: string) {
   await expect(page.locator('text=进食情况录入')).toBeVisible();
-  await page.locator('input[type="range"]').fill(score);
+  const slider = page.locator('input[type="range"]').first();
+  await slider.fill(score);
   await page.locator('textarea').fill(text);
-  await page.locator('button').filter({ hasText: '发送' }).click();
-  await expect(page.locator('button').filter({ hasText: '发送' })).toBeDisabled({ timeout: 15_000 });
+  // Wait for React to process the onChange events and enable the button before clicking
+  const sendBtn = page.locator('button').filter({ hasText: '发送' });
+  await expect(sendBtn).toBeEnabled({ timeout: 5_000 });
+  await sendBtn.click();
+  await expect(sendBtn).toBeDisabled({ timeout: 15_000 });
 }
 
 /**
@@ -112,13 +118,8 @@ test.describe('再次提交进食记录 — 第二次生成动效（需要 FastA
     const firstBook = await waitForUnconfirmedBook(page);
     if (!firstBook) return;
 
-    // 第二次提交
-    await page.locator('input[type="range"]').fill('8');
-    await page.locator('textarea').fill('第二次尝试，进步很大！');
-    await page.locator('button').filter({ hasText: '发送' }).click();
-
-    // 提交请求完成后（发送中...消失），book 应立即被清空
-    await expect(page.locator('button').filter({ hasText: '发送' })).toBeDisabled({ timeout: 15_000 });
+    // 第二次提交（使用 submitFoodLog 等待表单区域可见再填写）
+    await submitFoodLog(page, '8', '第二次尝试，进步很大！');
 
     // 旧书的"确认绘本"和"重新生成"应消失（book 已清空进入 generating 状态）
     await expect(page.locator('button').filter({ hasText: '确认绘本' })).not.toBeVisible({ timeout: 3_000 });

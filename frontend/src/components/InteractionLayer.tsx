@@ -233,11 +233,8 @@ export function InteractionLayer({
     setCompleted(false);
     if (interaction.type !== 'none') {
       onInteractionStart?.(interaction.type, interaction.event_key);
-      // 自动朗读模式下由 Reader 通过 onEnd 串联，无需在此重复触发
-      if (!autoRead && speak && interaction.instruction) {
-        const timer = setTimeout(() => speak(interaction.instruction), 600);
-        return () => clearTimeout(timer);
-      }
+      // 互动提示语只在 autoRead 开启时由 Reader.speakPage 的 onEnd 链式触发
+      // autoRead 关闭时不自动播放任何声音
     }
   }, [interaction.event_key]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -245,7 +242,12 @@ export function InteractionLayer({
     if (completed) return;
     setCompleted(true);
     onInteractionComplete(interaction.event_key, Date.now() - mountTimeRef.current);
-  }, [completed, interaction.event_key, onInteractionComplete]);
+    // 完成互动后播放 AI 生成的专属鼓励语
+    const encouragement = interaction.ext?.encouragement as string | undefined;
+    if (speak && encouragement) {
+      speak(encouragement);
+    }
+  }, [completed, interaction.event_key, interaction.ext, onInteractionComplete, speak]);
 
   if (interaction.type === 'none') return null;
 
@@ -282,7 +284,11 @@ export function InteractionLayer({
           <motion.button key={c.choice_id}
             initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
             transition={{ ...spring, delay: i * 0.1 }}
-            onClick={() => { handleComplete(); onBranchSelect(c.choice_id, c.next_page_id); }}
+            onClick={() => {
+              handleComplete(); // 会播放 ext.encouragement
+              // 延迟翻页，让鼓励语有时间开始播放
+              setTimeout(() => onBranchSelect(c.choice_id, c.next_page_id), 800);
+            }}
             className="w-full py-3 px-4 rounded-xl bg-[var(--color-warm-100)] hover:bg-[var(--color-warm-200)] text-[var(--color-foreground)] font-medium transition-colors active:scale-[0.98] border border-[var(--color-border-light)]">
             {c.label}
           </motion.button>
