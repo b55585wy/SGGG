@@ -6,6 +6,7 @@
 
 - **Route**：`/noa/login`
 - **功能**：用户输入账号密码登录，登录成功后根据 `firstLogin` 跳转到 `/noa/avatar` 或 `/noa/home`。
+- **布局**：两栏式。左侧装饰面板展示 `<h1>食育绘本</h1>` 及背景插图；右侧登录面板含 `欢迎回来` 提示语、`<h2>登录你的账号</h2>` 标题及表单。表单字段标签为"用户 ID"（含空格）。
 - **关键实现**：`frontend/src/pages/noa/NcLoginPage.tsx`
 
 **API**
@@ -92,16 +93,24 @@
 
 - **Route**：`/noa/home`
 - **功能**：
-  - 顶部 header：昵称问候、今日挑战食物、退出登录、历史绘本入口
-  - 左侧：虚拟形象（图层叠加渲染）+ 正反馈话框 + 进食情况录入（评分滑动条 + 文本/语音输入）
-  - 右侧：绘本封面预览 + 确认/重新生成入口
+  - **顶部 header**（始终可见）：昵称问候、今日主题食物徽章、"记录进食"按钮（打开 FoodLogModal 底部弹层）、"历史绘本"入口、退出登录
+  - **左侧面板**：虚拟形象合成渲染 + 可选正反馈文字气泡
+  - **右侧面板**：两种互斥状态
+    - **State A**（`book === null && !bookGenerating`）：内嵌进食记录表单，含"今天吃得怎么样？"标题、评分滑动条（0–10）、文本输入区域、"提交记录，生成绘本 →"按钮
+    - **State B**（`book !== null || bookGenerating`）：绘本卡片，含三种子状态：
+      - 生成中（`bookGenerating=true && !book`）：封面区域显示 `.book-gen-shimmer` 动画 + 标题/描述区显示 `.skeleton-shimmer` 占位；底部显示"绘本生成中…"占位文字
+      - 未确认绘本（`book && !book.confirmed`）：封面预览 + "确认绘本，开始阅读"按钮 + "重新生成 (N/2)"按钮
+      - 已确认绘本（`book.confirmed`）：封面预览 + "开始阅读"按钮（跳转 `/noa/books/:bookId?experiment=1`）
+  - Header 中的"记录进食"按钮在 State B 下仍可用，打开 FoodLogModal 提交新进食记录
+  - "重新生成"按钮打开 RegenModal 底部弹层（在主页面内完成，不再跳转至 `/noa/books/create`）
+  - 进食记录提交或重新生成成功后：`book` → null，`bookGenerating` → true，进入生成中 shimmer 状态；轮询（每 3 秒）`GET /api/home/status` 等待新的**未确认**绘本（若返回已确认的历史书则忽略，继续等待）
 - **关键实现**：`frontend/src/pages/noa/HomePage.tsx`
 
 **API**
 
 - `GET /api/home/status`
   - **Headers**：`Authorization: Bearer <token>`
-  - **Response 200**
+  - **Response 200（有未确认绘本）**
     ```json
     {
       "avatar": {
@@ -124,16 +133,33 @@
       }
     }
     ```
+  - **Response 200（已确认历史书 / 无绘本）**
+    ```json
+    {
+      "avatar": { "...": "..." },
+      "feedbackText": "...",
+      "themeFood": "胡萝卜",
+      "book": {
+        "bookID": "uuid",
+        "title": "小宇的美味冒险",
+        "preview": "data:image/svg+xml;utf8,...",
+        "description": "...",
+        "confirmed": true,
+        "regenerateCount": 0
+      }
+    }
+    ```
+    > `book` 字段可为 `null`（用户尚未提交进食记录）。`confirmed: true` 表示历史确认书，生成轮询期间前端会忽略此值，继续等待新的未确认绘本。
 
 - `POST /api/food/log`
   - **Headers**：`Authorization: Bearer <token>`
   - **Request**
     ```json
-    { "score": 8, "content": "今天吃得不错", "voiceData": null }
+    { "score": 8, "content": "今天吃得不错" }
     ```
   - **Response 200**
     ```json
-    { "ok": true, "feedbackText": "太棒了！你又进步了一点点。" }
+    { "ok": true, "feedbackText": "太棒了！你又进步了一点点。", "expression": "happy", "score": 8 }
     ```
 
 - `POST /api/voice/transcribe`
@@ -174,11 +200,11 @@
 
 ---
 
-## 绘本重新生成页
+## 绘本重新生成页（已废弃）
 
 - **Route**：`/noa/books/create`
-- **功能**：仅从主页面"我要重新生成"进入，填写标题建议与补充要求后提交重新生成。
-- **关键实现**：`frontend/src/pages/noa/BookCreatePage.tsx`
+- **状态**：**已废弃**。重新生成功能已移至主页面的 RegenModal 底部弹层，此路由不再使用。
+- **关键实现**：`frontend/src/pages/noa/BookCreatePage.tsx`（保留但不再入口可达）
 
 **API**：`POST /api/book/regenerate`（同上）
 
@@ -210,10 +236,18 @@
 
 ---
 
-## 绘本阅读页
+## 绘本阅读桥接页
 
 - **Route**：`/noa/books/:bookId`
-- **功能**：展示绘本封面、简介与内容。
+- **功能**：桥接/跳转页，不直接展示绘本内容。流程：
+  1. 从 user-api 获取绘本详情（`GET /api/books/:bookId`）
+  2. 解析 `content` 字段中的故事 draft JSON，提取 `story_id`
+  3. 将 draft 存入 `localStorage`（键：`storybook_draft`、`storybook_book_id`）
+  4. 根据查询参数决定模式：
+     - `?experiment=1`：正式实验模式，调用 `POST /api/v1/session/start` 创建 telemetry session 并存入 `localStorage`，`storybook_source` = `'experiment'`
+     - 无参数且绘本已确认：历史回顾只读模式，`storybook_source` = `'review'`
+     - 无参数且绘本未确认：预览模式，`storybook_source` = `'preview'`
+  5. 跳转至 `/reader`
 - **关键实现**：`frontend/src/pages/noa/BookDetailPage.tsx`
 
 **API**
@@ -232,6 +266,25 @@
       }
     }
     ```
+
+---
+
+## 故事阅读器
+
+- **Route**：`/reader`
+- **功能**：完整的交互式阅读体验，数据从 `localStorage`（`storybook_draft`、`storybook_session`）读取。
+  - **布局**：左图片面板（宽度约 58%）+ 右文字与导航面板（约 42%）
+  - **Header**：
+    - "退出"按钮（有 session 时弹出 FeedbackModal；无 session 时直接返回主页）
+    - 进度条 + 页码计数器
+    - TTS "朗读"开关（使用 zhimiao 语音；自动朗读故事文字，朗读完毕后续读互动提示）
+  - **导航**：
+    - "上一页" / "下一页"
+    - 最后一页时显示"完成 ✓"按钮
+  - **互动层**（InteractionLayer 组件）：支持 tap（圆形按钮，class `w-20 h-20`）、mimic、branch 交互类型
+  - **图片轮询**：若 draft 中存在尚未生成图片的页面，每 3 秒轮询一次（最多 10 次），更新后刷新显示
+  - **完成流程**（最后一页点击"完成"）：弹出 FeedbackModal → 若存在最终 session → 弹出 SUSModal → 返回主页
+- **关键实现**：`frontend/src/pages/Reader.tsx`
 
 ---
 
@@ -281,7 +334,12 @@
           "foodLogCount": 3,
           "avgScore": 7.2,
           "bookCount": 1,
-          "lastActive": "2026-03-05T10:00:00.000Z"
+          "lastActive": "2026-03-05T10:00:00.000Z",
+          "preview_count": 2,
+          "review_count": 1,
+          "experiment_completed_count": 3,
+          "experiment_aborted_count": 1,
+          "positive_feedback_count": 2
         }
       ]
     }

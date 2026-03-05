@@ -687,11 +687,19 @@ export default function HomePage() {
   useEffect(() => {
     if (!bookGenerating) return
     pollRef.current = setInterval(async () => {
-      const data = await refreshStatus()
-      if (data?.book) setBookGenerating(false)
+      try {
+        const data = await getJson<HomeStatusResponse>('/api/home/status')
+        // 只有当服务端返回新的未确认绘本时才更新 status 并停止生成中状态；
+        // 若返回的是已确认历史书（confirmed=true），忽略并继续等待，
+        // 防止旧书覆盖当前 book=null 的生成中 UI
+        if (data?.book && !data.book.confirmed) {
+          setStatus(data)
+          setBookGenerating(false)
+        }
+      } catch { /* ignore */ }
     }, 3000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [bookGenerating, refreshStatus])
+  }, [bookGenerating])
 
   useEffect(() => {
     const lastPath = sessionStorage.getItem('lastPath')

@@ -70,14 +70,14 @@ cd frontend && npm run dev
 
 | 路由 | 页面 | 登录要求 |
 |------|------|----------|
-| `/noa/login` | 登录页 | 否 |
+| `/noa/login` | 登录页（两栏：左侧"食育绘本"装饰，右侧登录表单） | 否 |
 | `/noa/avatar` | 虚拟形象创建页 | 是 |
-| `/noa/home` | 主页面（进食录入 + 绘本） | 是 |
-| `/noa/books/create` | 绘本重新生成表单 | 是 |
+| `/noa/home` | 主页面（State A：内嵌进食录入表单；State B：绘本卡片 + "记录进食"Modal 入口） | 是 |
+| `/noa/books/create` | 绘本重新生成表单（已废弃，功能已移至主页面 RegenModal） | 是 |
 | `/noa/books/history` | 历史绘本列表 | 是 |
-| `/noa/books/:bookId` | 绘本阅读页 | 是 |
+| `/noa/books/:bookId` | 绘本桥接页（解析 draft、可选创建 session，跳转至 `/reader`） | 是 |
 | `/noa/admin/users` | 管理员后台（统计 + 用户管理） | `x-admin-key` |
-| `/reader` | 故事阅读器（backend 故事） | 是 |
+| `/reader` | 故事阅读器（交互式阅读、TTS、互动层、反馈与 SUS 问卷） | 是 |
 
 ## API Endpoints
 
