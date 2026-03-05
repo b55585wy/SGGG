@@ -52,12 +52,11 @@ def story_get(story_id: str):
 
 @router.post("/generate")
 def story_generate(req: GenerateRequest):
+    child_profile = req.child_profile.model_dump()
+    meal_context = req.meal_context.model_dump()
+    story_config = req.story_config.model_dump()
     try:
-        content = generate_story_content(
-            req.child_profile.model_dump(),
-            req.meal_context.model_dump(),
-            req.story_config.model_dump(),
-        )
+        content = generate_story_content(child_profile, meal_context, story_config)
     except RateLimitError:
         raise HTTPException(429, detail={"error": {"code": "RATE_LIMIT", "message": "AI 生成频率超限，请等待 1 分钟后重试。"}})
     except json.JSONDecodeError as e:
@@ -69,6 +68,10 @@ def story_generate(req: GenerateRequest):
 
     story_id = "st_" + uuid.uuid4().hex[:16]
     draft = _build_draft(content, story_id)
+    # 保存原始请求参数，供 regenerate 时复用
+    draft["child_profile"] = child_profile
+    draft["meal_context"] = meal_context
+    draft["story_config"] = story_config
 
     with get_db() as db:
         db.execute(
@@ -121,6 +124,10 @@ def story_regenerate(req: RegenerateRequest):
 
     story_id = "st_" + uuid.uuid4().hex[:16]
     draft = _build_draft(content, story_id)
+    # 保存请求参数，供下一次 regenerate 复用
+    draft["child_profile"] = prev_draft.get("child_profile") or {}
+    draft["meal_context"] = meal_context
+    draft["story_config"] = story_config
 
     with get_db() as db:
         db.execute(

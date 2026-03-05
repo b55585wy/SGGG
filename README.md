@@ -14,34 +14,55 @@
 - `/api/user/*` → `localhost:3001/api/*`（user-api）
 - `/api/v1/*` → `localhost:8000/api/v1/*`（backend）
 
-## 安装
+## 安装与初始化
+
+**第一步：安装依赖**
 
 ```bash
+# 在项目根目录执行
 npm install
-cd frontend && npm install
-cd ../user-api && npm install
-cd ../backend && pip install -r requirements.txt
+cd frontend && npm install && cd ..
+cd user-api && npm install && cd ..
+cd backend && pip install -r requirements.txt && cd ..
 ```
+
+**第二步：创建环境变量文件**
+
+```bash
+# user-api（必须，含管理员密钥）
+cp user-api/.env.example user-api/.env
+# 编辑 user-api/.env，将 ADMIN_API_KEY 改为 dev-admin（与 E2E 测试一致）
+# PORT=3001
+# JWT_SECRET=dev-secret-change-me
+# ADMIN_API_KEY=dev-admin          ← 改这里
+# FASTAPI_URL=http://localhost:8000
+
+# backend（必须，含 LLM API 密钥）
+# 在 backend/ 目录下创建 .env：
+# DEEPSEEK_API_KEY=sk-xxxx
+# DASHSCOPE_API_KEY=sk-xxxx        ← 图片生成（可选）
+```
+
+> **注意**：frontend 目录下已有 `.env` 和 `.env.development`，无需另行创建。
 
 ## 启动
 
-同时启动三个服务（推荐）：
+同时启动三个服务（推荐，在项目根目录执行）：
 
 ```bash
-# 需要先配置 backend/.env 和 user-api/.env
 npm run dev
 ```
 
-单独启动：
+单独启动（各服务需在其自己的目录下运行）：
 
 ```bash
-# user-api（默认端口 3001）
-cd user-api && npm run dev
-
-# backend（默认端口 8000）
+# backend（端口 8000）—— 必须在 backend/ 目录下
 cd backend && uvicorn main:app --reload --port 8000
 
-# frontend（默认端口 5173）
+# user-api（端口 3001）—— 必须在 user-api/ 目录下
+cd user-api && npm run dev
+
+# frontend（端口 5173）—— 必须在 frontend/ 目录下（注意不是旧的 taste-skill/）
 cd frontend && npm run dev
 ```
 

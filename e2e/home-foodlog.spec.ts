@@ -144,10 +144,9 @@ test.describe('绘本区域状态', () => {
     await page.locator('textarea').fill('今天尝试了西兰花');
     await page.locator('button').filter({ hasText: '发送' }).click();
 
-    // 等待反馈出现
-    await expect(
-      page.locator('[class*="animate-in"]').first()
-    ).toBeVisible({ timeout: 15_000 });
+    // 等待发送完成：表单重置后发送按钮变回禁用
+    const sendButton = page.locator('button').filter({ hasText: '发送' });
+    await expect(sendButton).toBeDisabled({ timeout: 15_000 });
 
     // 如果绘本尚未生成完成，应显示"绘本生成中"加载状态
     const generatingText = page.locator('text=绘本生成中');
