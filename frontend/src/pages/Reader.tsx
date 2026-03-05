@@ -145,11 +145,10 @@ export default function ReaderPage() {
 
   const onBranch = useCallback((choiceId: string, nextPageId: string) => {
     if (!draft) return;
-    tts.stop();
     track('branch_select', { choice_id: choiceId }, draft.pages[pageIdx].page_id);
     const idx = draft.pages.findIndex(p => p.page_id === nextPageId);
     if (idx >= 0) { trackDwell(); setPageIdx(idx); }
-  }, [draft, pageIdx, track, trackDwell, tts]);
+  }, [draft, pageIdx, track, trackDwell]);
 
   const onTTS = useCallback(() => {
     if (!draft) return;
@@ -173,12 +172,15 @@ export default function ReaderPage() {
     if (session) {
       trackDwell(); flush(); setFeedback('ABORTED');
     } else {
-      // Read-only mode (history book) — just go home
+      // Preview / review mode — log the visit and go home
+      void logReadingSession(null, pageIdx + 1, false);
       clearSession();
       localStorage.removeItem('storybook_draft');
+      localStorage.removeItem('storybook_book_id');
+      localStorage.removeItem('storybook_source');
       navigate('/noa/home');
     }
-  }, [session, trackDwell, flush, clearSession, navigate]);
+  }, [session, trackDwell, flush, clearSession, navigate, logReadingSession, pageIdx]);
 
   const TOTAL_SESSIONS = 9;
 
@@ -189,6 +191,9 @@ export default function ReaderPage() {
   ) => {
     if (!draft) return;
     const bookId = localStorage.getItem('storybook_book_id') ?? undefined;
+    const sessionType = session !== null
+      ? 'experiment'
+      : (localStorage.getItem('storybook_source') ?? 'preview');
     const endedAt = new Date().toISOString();
     const durationMs = Date.now() - new Date(sessionStartRef.current).getTime();
     try {
@@ -201,11 +206,12 @@ export default function ReaderPage() {
         pagesRead,
         interactionCount: interactionCountRef.current,
         completed,
+        sessionType,
         tryLevel: feedbackData?.tryLevel ?? null,
         abortReason: feedbackData?.abortReason ?? null,
       });
     } catch { /* best-effort */ }
-  }, [draft]);
+  }, [draft, session]);
 
   const onFeedbackDone = useCallback((data: FeedbackDoneData) => {
     setFeedback(null);
@@ -216,6 +222,7 @@ export default function ReaderPage() {
       clearSession();
       localStorage.removeItem('storybook_draft');
       localStorage.removeItem('storybook_book_id');
+      localStorage.removeItem('storybook_source');
       navigate('/noa/home');
     }
   }, [session, clearSession, navigate, logReadingSession, pageIdx]);
@@ -224,11 +231,12 @@ export default function ReaderPage() {
     clearSession();
     localStorage.removeItem('storybook_draft');
     localStorage.removeItem('storybook_book_id');
+    localStorage.removeItem('storybook_source');
     navigate('/noa/home');
   }, [clearSession, navigate]);
 
   if (!draft) return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div className="flex items-center justify-center min-h-screen" style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}>
       <div className="w-8 h-8 border-2 border-[var(--color-accent)]/30 border-t-[var(--color-accent)] rounded-full animate-spin" />
     </div>
   );
@@ -239,48 +247,78 @@ export default function ReaderPage() {
   const progress = ((pageIdx + 1) / draft.pages.length) * 100;
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-[var(--color-background)]">
+    <div
+      className="flex flex-col h-screen overflow-hidden"
+      style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}
+    >
 
       {/* ── 顶部通栏 ── */}
-      <header className="relative flex items-center justify-between h-11 px-6 flex-shrink-0 bg-[var(--color-surface)]/90 backdrop-blur-sm border-b border-[var(--color-border-light)] z-20">
+      <header
+        className="relative flex items-center justify-between h-14 px-6 flex-shrink-0 z-20"
+        style={{
+          background: 'rgba(236,253,245,0.85)',
+          backdropFilter: 'blur(16px)',
+          borderBottom: '1px solid rgba(5,150,105,0.1)',
+        }}
+      >
         {/* 退出 */}
-        <button onClick={onExit}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--color-muted)] hover:bg-[var(--color-warm-100)] active:scale-[0.98] transition-colors">
-          <SignOut size={14} weight="bold" />退出
+        <button
+          onClick={onExit}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all active:scale-[0.97]"
+          style={{ borderColor: 'var(--color-border-light)', background: 'white', color: 'var(--color-muted)' }}
+        >
+          <SignOut size={13} weight="bold" />退出
         </button>
 
         {/* 进度条 + 页码（绝对居中） */}
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
-          <div className="w-40 h-1 bg-[var(--color-warm-100)] rounded-full overflow-hidden">
+          <div
+            className="w-52 rounded-full overflow-hidden"
+            style={{ height: 6, background: 'var(--color-warm-200)' }}
+          >
             <motion.div
-              className="h-full bg-[var(--color-accent)] rounded-full"
+              className="h-full rounded-full"
+              style={{ background: 'linear-gradient(90deg, #059669, #34d399)' }}
               animate={{ width: `${progress}%` }}
               transition={{ type: 'spring', stiffness: 100, damping: 20 }}
             />
           </div>
-          <span className="text-xs font-mono text-[var(--color-muted)]">{pageIdx + 1} / {draft.pages.length}</span>
+          <span
+            className="text-xs font-mono font-semibold tabular-nums rounded-full px-2.5 py-0.5"
+            style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}
+          >
+            {pageIdx + 1} / {draft.pages.length}
+          </span>
         </div>
 
         {/* TTS */}
         {tts.isSupported ? (
-          <button onClick={onTTS}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium active:scale-[0.98] transition-colors
-              ${autoReadEnabled ? 'bg-[var(--color-accent-light)] text-[var(--color-accent)]' : 'text-[var(--color-muted)] hover:bg-[var(--color-warm-100)]'}`}>
-            {autoReadEnabled ? <SpeakerHigh size={14} weight="fill" /> : <SpeakerSlash size={14} weight="light" />}
+          <button
+            onClick={onTTS}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all active:scale-[0.97]"
+            style={autoReadEnabled
+              ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' }
+              : { borderColor: 'var(--color-border-light)', background: 'white', color: 'var(--color-muted)' }
+            }
+          >
+            {autoReadEnabled ? <SpeakerHigh size={13} weight="fill" /> : <SpeakerSlash size={13} weight="light" />}
             {autoReadEnabled ? '朗读中' : '朗读'}
           </button>
         ) : (
-          <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+          <span className="flex items-center gap-1 text-xs rounded-full px-3 py-1.5" style={{ color: 'var(--color-muted)', background: 'var(--color-warm-100)' }}>
             <Warning size={12} weight="fill" />朗读不可用
           </span>
         )}
       </header>
 
       {/* ── 主区域：左图 + 右文 ── */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden p-3 pt-3 gap-3">
 
         {/* 左栏 58%：插图 */}
-        <div className="relative w-[58%] flex-shrink-0 bg-gradient-to-br from-[var(--color-warm-100)] to-[var(--color-accent-light)]/40">
+        <div
+          className="relative w-[58%] flex-shrink-0 overflow-hidden rounded-[2rem]"
+          style={{ background: 'linear-gradient(160deg, #ecfdf5 0%, #f0fdf4 40%, #f8fdf9 100%)' }}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={page.page_id + '-img'}
@@ -288,61 +326,69 @@ export default function ReaderPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35 }}
-              className="absolute inset-0 flex flex-col items-center justify-center px-14"
+              className="absolute inset-0 flex flex-col items-center justify-center"
             >
               {page.image_url ? (
                 /* 真实插图 */
                 <img
                   src={page.image_url}
                   alt={page.image_prompt}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover rounded-[2rem]"
                 />
               ) : (
                 /* 占位卡片（无图时显示 image_prompt） */
-                <>
+                <div className="flex flex-col items-center px-14">
                   {/* 页码 badge */}
-                  <div className="absolute top-5 left-5 px-2.5 py-1 rounded-full bg-white/60 backdrop-blur-sm text-xs font-mono text-[var(--color-muted)]">
+                  <div
+                    className="absolute top-5 left-5 px-2.5 py-1 rounded-full text-xs font-mono font-semibold"
+                    style={{ background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(8px)', color: 'var(--color-muted)' }}
+                  >
                     P{page.page_no}
                   </div>
 
                   {/* 画笔图标 */}
-                  <div className="w-14 h-14 rounded-2xl bg-white/60 backdrop-blur-sm flex items-center justify-center mb-5">
-                    <PaintBrush size={28} weight="light" className="text-[var(--color-accent)]" />
+                  <div
+                    className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
+                    style={{ background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(8px)' }}
+                  >
+                    <PaintBrush size={28} weight="light" style={{ color: 'var(--color-accent)' }} />
                   </div>
 
-                  {/* 标签 */}
-                  <p className="text-[10px] font-semibold tracking-widest uppercase text-[var(--color-accent)]/70 mb-3">插图场景</p>
-
-                  {/* 图片描述 */}
-                  <p className="text-center text-sm leading-relaxed text-[var(--color-foreground)]/65 max-w-xs">
+                  <p className="text-[10px] font-bold tracking-widest uppercase mb-3" style={{ color: 'var(--color-accent)' }}>插图场景</p>
+                  <p className="text-center text-sm leading-relaxed max-w-xs" style={{ color: 'var(--color-muted)' }}>
                     {page.image_prompt}
                   </p>
-                </>
+                </div>
               )}
             </motion.div>
           </AnimatePresence>
         </div>
 
         {/* 右栏 42%：文字 + 互动 + 导航 */}
-        <div className="w-[42%] flex flex-col overflow-hidden border-l border-[var(--color-border-light)]">
+        <div
+          className="flex-1 flex flex-col overflow-hidden rounded-[2rem]"
+          style={{ background: 'white', boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)' }}
+        >
 
           {/* 可滚动内容区 */}
-          <div className="flex-1 overflow-y-auto px-10 py-8">
+          <div className="flex-1 overflow-y-auto px-9 py-7" style={{ scrollbarWidth: 'none' }}>
             <AnimatePresence mode="wait">
               <motion.div
                 key={page.page_id}
-                initial={{ opacity: 0, x: 40 }}
+                initial={{ opacity: 0, x: 30 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -40 }}
+                exit={{ opacity: 0, x: -30 }}
                 transition={{ type: 'spring', stiffness: 200, damping: 25 }}
               >
                 {/* 故事文字 */}
-                <p className="text-2xl leading-loose text-[var(--color-foreground)]">
+                <p className="text-2xl leading-loose" style={{ color: 'var(--color-foreground)' }}>
                   {page.text}
                 </p>
-                <div className="mt-4 flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
-                  <Tag size={14} weight="bold" />
-                  <span>{page.behavior_anchor}</span>
+
+                {/* 行为锚点 badge */}
+                <div className="mt-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1" style={{ background: 'var(--color-warm-100)' }}>
+                  <Tag size={11} weight="bold" style={{ color: 'var(--color-muted)' }} />
+                  <span className="text-xs font-medium" style={{ color: 'var(--color-muted)' }}>{page.behavior_anchor}</span>
                 </div>
 
                 {/* 互动层 */}
@@ -363,10 +409,11 @@ export default function ReaderPage() {
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3, type: 'spring', stiffness: 100, damping: 20 }}
-                    className="mt-6 bg-[var(--color-accent-light)] rounded-2xl border border-[var(--color-accent)]/20 p-5"
+                    className="mt-6 rounded-[1.5rem] p-5"
+                    style={{ background: 'var(--color-accent-light)', border: '1px solid rgba(5,150,105,0.15)' }}
                   >
-                    <p className="text-sm font-medium text-[var(--color-accent)]">{draft.ending.positive_feedback}</p>
-                    <p className="text-xs text-[var(--color-muted)] mt-2">下一个目标：{draft.ending.next_micro_goal}</p>
+                    <p className="text-sm font-medium" style={{ color: 'var(--color-accent)' }}>{draft.ending.positive_feedback}</p>
+                    <p className="text-xs mt-2" style={{ color: 'var(--color-accent-hover)' }}>下一个目标：{draft.ending.next_micro_goal}</p>
                   </motion.div>
                 )}
               </motion.div>
@@ -374,19 +421,28 @@ export default function ReaderPage() {
           </div>
 
           {/* 底部导航（固定） */}
-          <div className="flex-shrink-0 flex items-center gap-3 px-10 py-6 border-t border-[var(--color-border-light)]">
+          <div
+            className="flex-shrink-0 flex items-center gap-3 px-7 py-5"
+            style={{ borderTop: '1px solid var(--color-border-light)' }}
+          >
             <button
               onClick={() => goTo(pageIdx - 1)}
               disabled={isFirst}
-              className="flex items-center gap-1.5 px-4 py-3 rounded-xl text-sm font-medium border border-[var(--color-border-light)] hover:bg-[var(--color-warm-100)] disabled:opacity-30 active:scale-[0.98] transition-all"
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold border transition-all active:scale-[0.97] disabled:opacity-30"
+              style={{ borderColor: 'var(--color-border-light)', background: 'white', color: 'var(--color-foreground)' }}
             >
               <CaretLeft size={14} weight="bold" />上一页
             </button>
             <button
               onClick={() => goTo(pageIdx + 1)}
-              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] active:scale-[0.98] transition-all"
+              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-bold text-white transition-all active:scale-[0.97]"
+              style={{
+                background: 'linear-gradient(135deg, #059669, #047857)',
+                border: 'none',
+                boxShadow: '0 6px 18px -4px rgba(5,150,105,0.4)',
+              }}
             >
-              {isLast ? '完成' : '下一页'}<CaretRight size={14} weight="bold" />
+              {isLast ? '完成 ✓' : '下一页'}<CaretRight size={14} weight="bold" />
             </button>
           </div>
 
