@@ -39,6 +39,7 @@ export default function BookDetailPage() {
 
         // 3. 存入 localStorage（Reader 从这里读取）
         localStorage.setItem('storybook_draft', JSON.stringify(draft))
+        localStorage.setItem('storybook_book_id', bookId!)
 
         if (data.book.confirmed) {
           // 历史绘本：只读模式，不进入实验流程，清除任何残留 session

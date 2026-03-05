@@ -23,10 +23,16 @@ const ABORT_REASONS: { value: AbortReason; label: string }[] = [
   { value: 'other',          label: '其他原因' },
 ];
 
+export type FeedbackDoneData = {
+  status: FeedbackStatus;
+  tryLevel: TryLevel | null;
+  abortReason: AbortReason | null;
+};
+
 interface Props {
   status: FeedbackStatus;
   session_id: string;
-  onDone: () => void;
+  onDone: (data: FeedbackDoneData) => void;
 }
 
 export function FeedbackModal({ status, session_id, onDone }: Props) {
@@ -42,15 +48,18 @@ export function FeedbackModal({ status, session_id, onDone }: Props) {
   // is left without a feedback record. For COMPLETED, just dismiss.
   const handleClose = async () => {
     if (status === 'ABORTED' && !submitting) {
+      const finalReason = abortReason ?? 'other';
       try {
         await feedbackSubmit({
           session_id,
           status: 'ABORTED',
-          abort_reason: abortReason ?? 'other',
+          abort_reason: finalReason,
         });
       } catch { /* ignore — best-effort submit */ }
+      onDone({ status, tryLevel: null, abortReason: finalReason });
+    } else {
+      onDone({ status, tryLevel, abortReason });
     }
-    onDone();
   };
 
   const handleSubmit = async () => {
@@ -64,7 +73,7 @@ export function FeedbackModal({ status, session_id, onDone }: Props) {
         ...(status === 'COMPLETED' ? { try_level: tryLevel! } : { abort_reason: abortReason! }),
         ...(notes ? { notes } : {}),
       });
-      onDone();
+      onDone({ status, tryLevel, abortReason });
     } catch {
       setError('提交失败，请稍后重试。');
     } finally {

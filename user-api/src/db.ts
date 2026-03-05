@@ -106,6 +106,41 @@ function ensureSchema(db: Database) {
       FOREIGN KEY (user_id) REFERENCES users(user_id)
     );
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS reading_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      book_id TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      total_pages INTEGER NOT NULL DEFAULT 0,
+      pages_read INTEGER NOT NULL DEFAULT 0,
+      interaction_count INTEGER NOT NULL DEFAULT 0,
+      completed INTEGER NOT NULL DEFAULT 0,
+      try_level TEXT,
+      abort_reason TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_rs_user ON reading_sessions(user_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_rs_date ON reading_sessions(created_at);`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS voice_recordings (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'interaction',
+      context_id TEXT,
+      page_id TEXT,
+      audio_data TEXT,
+      transcript TEXT,
+      duration_ms INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_vr_user ON voice_recordings(user_id);`);
 }
 
 function ensureUserAvatarColumns(db: Database) {
@@ -598,6 +633,100 @@ export async function getLastFoodScore(userID: string): Promise<number | null> {
   }
 }
 
+export type FoodLogEntry = {
+  score: number;
+  content: string;
+  createdAt: string;
+};
+
+/**
+ * 获取用户最近 N 条进食记录（不含本次，按时间降序）
+ * 用于向 GPT 传递纵向历史数据，支持个性化故事生成
+ */
+export async function getFoodLogHistory(
+  userID: string,
+  limit = 10,
+): Promise<FoodLogEntry[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `SELECT score, content, created_at
+     FROM user_food_logs
+     WHERE user_id = $user_id
+     ORDER BY created_at DESC
+     LIMIT $limit;`,
+  );
+  try {
+    stmt.bind({ $user_id: userID, $limit: limit });
+    const entries: FoodLogEntry[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as {
+        score: number;
+        content: string;
+        created_at: string;
+      };
+      entries.push({ score: row.score, content: row.content, createdAt: row.created_at });
+    }
+    return entries;
+  } finally {
+    stmt.free();
+  }
+}
+
+export type ReadingSummary = {
+  totalSessions: number;
+  lastCompletionRate: number | null; // 0-1
+  lastCompleted: boolean | null;
+};
+
+/**
+ * 获取用户最近一次阅读会话摘要，用于个性化故事难度调整
+ */
+export async function getReadingSummary(userID: string): Promise<ReadingSummary> {
+  const db = await getDb();
+  const totalStmt = db.prepare(
+    "SELECT COUNT(*) as cnt FROM reading_sessions WHERE user_id = $user_id;",
+  );
+  let totalSessions = 0;
+  try {
+    totalStmt.bind({ $user_id: userID });
+    if (totalStmt.step()) {
+      totalSessions = (totalStmt.getAsObject() as unknown as { cnt: number }).cnt ?? 0;
+    }
+  } finally {
+    totalStmt.free();
+  }
+
+  const lastStmt = db.prepare(
+    `SELECT completed, pages_read, total_pages
+     FROM reading_sessions
+     WHERE user_id = $user_id
+     ORDER BY created_at DESC
+     LIMIT 1;`,
+  );
+  try {
+    lastStmt.bind({ $user_id: userID });
+    if (!lastStmt.step()) {
+      return { totalSessions, lastCompletionRate: null, lastCompleted: null };
+    }
+    const row = lastStmt.getAsObject() as unknown as {
+      completed: number;
+      pages_read: number;
+      total_pages: number;
+    };
+    const rate =
+      row.total_pages > 0
+        ? Math.round((row.pages_read / row.total_pages) * 100) / 100
+        : null;
+    return {
+      totalSessions,
+      lastCompletionRate: rate,
+      lastCompleted: row.completed === 1,
+    };
+  } finally {
+    lastStmt.free();
+  }
+}
+
 export type TempBook = {
   userID: string;
   bookID: string;
@@ -864,6 +993,118 @@ export async function deleteUser(userID: string): Promise<boolean> {
 
 // ─── Admin Stats ───────────────────────────────────────────
 
+export async function insertReadingSession(params: {
+  userID: string;
+  bookID?: string | null;
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  totalPages: number;
+  pagesRead: number;
+  interactionCount: number;
+  completed: boolean;
+  tryLevel?: string | null;
+  abortReason?: string | null;
+}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `INSERT INTO reading_sessions
+      (id, user_id, book_id, started_at, ended_at, duration_ms, total_pages, pages_read, interaction_count, completed, try_level, abort_reason, created_at)
+     VALUES ($id, $user_id, $book_id, $started_at, $ended_at, $duration_ms, $total_pages, $pages_read, $interaction_count, $completed, $try_level, $abort_reason, $created_at);`,
+    {
+      $id: crypto.randomUUID(),
+      $user_id: params.userID,
+      $book_id: params.bookID ?? null,
+      $started_at: params.startedAt,
+      $ended_at: params.endedAt,
+      $duration_ms: params.durationMs,
+      $total_pages: params.totalPages,
+      $pages_read: params.pagesRead,
+      $interaction_count: params.interactionCount,
+      $completed: params.completed ? 1 : 0,
+      $try_level: params.tryLevel ?? null,
+      $abort_reason: params.abortReason ?? null,
+      $created_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
+export async function insertVoiceRecording(params: {
+  userID: string;
+  source?: string;
+  contextId?: string | null;
+  pageId?: string | null;
+  audioData?: string | null;
+  transcript?: string | null;
+  durationMs?: number | null;
+}): Promise<string> {
+  const db = await getDb();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.run(
+    `INSERT INTO voice_recordings
+      (id, user_id, source, context_id, page_id, audio_data, transcript, duration_ms, created_at)
+     VALUES ($id, $user_id, $source, $context_id, $page_id, $audio_data, $transcript, $duration_ms, $created_at);`,
+    {
+      $id: id,
+      $user_id: params.userID,
+      $source: params.source ?? "interaction",
+      $context_id: params.contextId ?? null,
+      $page_id: params.pageId ?? null,
+      $audio_data: params.audioData ?? null,
+      $transcript: params.transcript ?? null,
+      $duration_ms: params.durationMs ?? null,
+      $created_at: now,
+    },
+  );
+  await persistDb(db);
+  return id;
+}
+
+export type DailyReadingStat = {
+  date: string;
+  sessionCount: number;
+  completedCount: number;
+  totalDurationMs: number;
+  totalInteractions: number;
+  positiveFeedbackCount: number;
+};
+
+export async function getDailyReadingStats(days = 7): Promise<DailyReadingStat[]> {
+  const db = await getDb();
+  const rows = db.exec(`
+    SELECT
+      DATE(created_at) as date,
+      COUNT(*) as session_count,
+      SUM(completed) as completed_count,
+      SUM(duration_ms) as total_duration_ms,
+      SUM(interaction_count) as total_interactions,
+      SUM(CASE WHEN try_level IS NOT NULL AND try_level != 'look' THEN 1 ELSE 0 END) as positive_feedback_count
+    FROM reading_sessions
+    WHERE created_at >= DATE('now', '-${days} days')
+    GROUP BY DATE(created_at)
+    ORDER BY date DESC;
+  `);
+  const result: DailyReadingStat[] = [];
+  const cols = rows[0]?.columns ?? [];
+  for (const row of rows[0]?.values ?? []) {
+    const get = (name: string) => row[cols.indexOf(name)];
+    result.push({
+      date: get("date") as string,
+      sessionCount: (get("session_count") as number) ?? 0,
+      completedCount: (get("completed_count") as number) ?? 0,
+      totalDurationMs: (get("total_duration_ms") as number) ?? 0,
+      totalInteractions: (get("total_interactions") as number) ?? 0,
+      positiveFeedbackCount: (get("positive_feedback_count") as number) ?? 0,
+    });
+  }
+  return result;
+}
+
+// ─── Admin Stats ───────────────────────────────────────────
+
 export type AdminUserStats = {
   funnel: {
     totalUsers: number;
@@ -890,6 +1131,12 @@ export type AdminUserStats = {
     bookCount: number;
     confirmedAt: string | null;
     lastActive: string | null;
+    readingCount: number;
+    readingCompletedCount: number;
+    readingAbortedCount: number;
+    avgDurationMs: number | null;
+    avgCompletion: number | null;
+    positiveFeedbackCount: number;
   }>;
 };
 
@@ -954,7 +1201,13 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       fl.avg_score,
       COALESCE(hb.cnt, 0) as book_count,
       hb.last_confirmed_at,
-      COALESCE(fl.last_at, ua.updated_at) as last_active
+      COALESCE(fl.last_at, ua.updated_at) as last_active,
+      COALESCE(rs.reading_count, 0) as reading_count,
+      COALESCE(rs.completed_count, 0) as completed_count,
+      COALESCE(rs.aborted_count, 0) as aborted_count,
+      rs.avg_duration_ms,
+      rs.avg_completion,
+      COALESCE(rs.positive_feedback_count, 0) as positive_feedback_count
     FROM users u
     LEFT JOIN (
       SELECT user_id, COUNT(*) as cnt, AVG(score) as avg_score, MAX(created_at) as last_at
@@ -964,6 +1217,18 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       SELECT user_id, COUNT(*) as cnt, MAX(confirmed_at) as last_confirmed_at FROM history_books GROUP BY user_id
     ) hb ON u.user_id = hb.user_id
     LEFT JOIN user_avatars ua ON u.user_id = ua.user_id
+    LEFT JOIN (
+      SELECT
+        user_id,
+        COUNT(*) as reading_count,
+        SUM(completed) as completed_count,
+        SUM(1 - completed) as aborted_count,
+        AVG(duration_ms) as avg_duration_ms,
+        AVG(CAST(pages_read AS REAL) / NULLIF(total_pages, 0)) as avg_completion,
+        SUM(CASE WHEN try_level IS NOT NULL AND try_level != 'look' THEN 1 ELSE 0 END) as positive_feedback_count
+      FROM reading_sessions
+      GROUP BY user_id
+    ) rs ON u.user_id = rs.user_id
     ORDER BY u.user_id;
   `);
 
@@ -980,6 +1245,12 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       bookCount: (get("book_count") as number) ?? 0,
       confirmedAt: (get("last_confirmed_at") as string) ?? null,
       lastActive: (get("last_active") as string) ?? null,
+      readingCount: (get("reading_count") as number) ?? 0,
+      readingCompletedCount: (get("completed_count") as number) ?? 0,
+      readingAbortedCount: (get("aborted_count") as number) ?? 0,
+      avgDurationMs: get("avg_duration_ms") != null ? Math.round(get("avg_duration_ms") as number) : null,
+      avgCompletion: get("avg_completion") != null ? Math.round((get("avg_completion") as number) * 1000) / 1000 : null,
+      positiveFeedbackCount: (get("positive_feedback_count") as number) ?? 0,
     });
   }
 

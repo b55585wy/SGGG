@@ -15,9 +15,14 @@ import {
   getUserAvatar,
   getHistoryBookById,
   getLastFoodScore,
+  getFoodLogHistory,
+  getReadingSummary,
   insertUser,
   insertAvatarState,
   insertFoodLog,
+  insertReadingSession,
+  getDailyReadingStats,
+  insertVoiceRecording,
   listAvatarOptions,
   listHistoryBooks,
   listUsers,
@@ -58,6 +63,23 @@ function mapScore(score: number): number {
   return 5;
 }
 
+/** 根据最近得分列表计算趋势（improving / declining / stable） */
+function calcScoreTrend(scores: number[]): "improving" | "declining" | "stable" {
+  if (scores.length < 2) return "stable";
+  // 比较最近一次与前两次均值
+  const latest = scores[0];
+  const baseline = scores.slice(1, 3).reduce((a, b) => a + b, 0) / Math.min(scores.length - 1, 2);
+  if (latest - baseline >= 1) return "improving";
+  if (baseline - latest >= 1) return "declining";
+  return "stable";
+}
+
+/** 计算首次尝试至今的天数 */
+function daysSinceFirst(firstAt: string): number {
+  const first = new Date(firstAt).getTime();
+  return Math.round((Date.now() - first) / 86_400_000);
+}
+
 async function generateTempBookForUser(params: {
   userID: string;
   nickname: string;
@@ -66,7 +88,26 @@ async function generateTempBookForUser(params: {
   mealScore: number;
   mealContent: string;
   regenerateCount: number;
+  /** 最近历史进食记录（不含本次，降序） */
+  recentHistory: Array<{ score: number; content: string; createdAt: string }>;
+  /** 阅读行为摘要 */
+  readingSummary: { totalSessions: number; lastCompletionRate: number | null; lastCompleted: boolean | null };
 }) {
+  const allScores = [params.mealScore, ...params.recentHistory.map((h) => h.score)];
+  const trend = calcScoreTrend(allScores);
+  const attemptNumber = params.recentHistory.length + 1; // 含本次
+  const firstAt = params.recentHistory.length > 0
+    ? params.recentHistory[params.recentHistory.length - 1].createdAt
+    : new Date().toISOString();
+
+  // 自动推断故事难度：进步中且读完了上一本 → 稍难；一直低分 → 简单
+  let autoDifficulty: "easy" | "medium" | "hard" = "medium";
+  if (trend === "improving" && params.readingSummary.lastCompleted === true) {
+    autoDifficulty = allScores[0] >= 7 ? "hard" : "medium";
+  } else if (allScores[0] <= 3) {
+    autoDifficulty = "easy";
+  }
+
   const requestBody = {
     child_profile: {
       nickname: params.nickname,
@@ -77,10 +118,21 @@ async function generateTempBookForUser(params: {
       target_food: params.themeFood,
       meal_score: mapScore(params.mealScore),
       meal_text: params.mealContent || "",
+      attempt_number: attemptNumber,
+    },
+    food_history: {
+      recent_scores: params.recentHistory.slice(0, 5).map((h) => h.score),
+      score_trend: trend,
+      days_since_first_attempt: daysSinceFirst(firstAt),
+    },
+    reading_context: {
+      total_reading_sessions: params.readingSummary.totalSessions,
+      previous_book_completed: params.readingSummary.lastCompleted ?? false,
+      previous_book_completion_rate: params.readingSummary.lastCompletionRate,
     },
     story_config: {
       story_type: "interactive",
-      difficulty: "medium",
+      difficulty: autoDifficulty,
       pages: 6,
       interactive_density: "medium",
       language: "zh-CN",
@@ -238,6 +290,20 @@ app.get("/api/admin/stats", adminRequired, async (_req, res) => {
     console.error("[ADMIN] stats error:", e);
     res.status(500).json({ message: "统计数据加载失败" });
   }
+});
+
+app.get("/api/avatar/current", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!req.user) { res.status(401).json({ message: "未登录" }); return; }
+  const avatar = await getUserAvatar(req.user.userID);
+  if (!avatar) { res.status(404).json({ message: "未找到虚拟形象" }); return; }
+  res.json({
+    nickname: avatar.nickname,
+    gender: avatar.gender,
+    hairStyle: avatar.hairStyle,
+    glasses: avatar.glasses,
+    topColor: avatar.topColor,
+    bottomColor: avatar.bottomColor,
+  });
 });
 
 app.get("/api/avatar/base", async (_req, res) => {
@@ -412,6 +478,12 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       ? (body as { voiceData: string }).voiceData
       : null;
 
+  // 在插入本次记录前先取历史，确保历史不含本次（计算 attempt_number / trend 准确）
+  const [historyBeforeInsert, avatar] = await Promise.all([
+    getFoodLogHistory(req.user.userID, 10),
+    getUserAvatar(req.user.userID),
+  ]);
+
   await insertFoodLog({
     userID: req.user.userID,
     score,
@@ -435,8 +507,8 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
 
   await insertAvatarState({ userID: req.user.userID, feedbackText });
 
-  const avatar = await getUserAvatar(req.user.userID);
   if (avatar) {
+    const readingSummary = await getReadingSummary(req.user.userID);
     generateTempBookForUser({
       userID: req.user.userID,
       nickname: avatar.nickname,
@@ -445,6 +517,8 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       mealScore: score,
       mealContent: content,
       regenerateCount: 0,
+      recentHistory: historyBeforeInsert,
+      readingSummary,
     }).catch((err) => console.error("[BOOK] 绘本生成失败:", err));
   }
 
@@ -630,12 +704,77 @@ app.get("/api/books/:bookId", authRequired, async (req: AuthenticatedRequest, re
   });
 });
 
+// ─── Voice Recording ────────────────────────────────────────
+
+app.post("/api/voice/record", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!req.user) { res.status(401).json({ message: "未登录" }); return; }
+  const body = req.body as {
+    audioData?: unknown;
+    transcript?: unknown;
+    source?: unknown;
+    contextId?: unknown;
+    pageId?: unknown;
+    durationMs?: unknown;
+  };
+  const recordingId = await insertVoiceRecording({
+    userID: req.user.userID,
+    source: typeof body.source === "string" ? body.source : "interaction",
+    contextId: typeof body.contextId === "string" ? body.contextId : null,
+    pageId: typeof body.pageId === "string" ? body.pageId : null,
+    audioData: typeof body.audioData === "string" ? body.audioData : null,
+    transcript: typeof body.transcript === "string" ? body.transcript : null,
+    durationMs: typeof body.durationMs === "number" ? body.durationMs : null,
+  });
+  const transcript = typeof body.transcript === "string" ? body.transcript : "";
+  res.json({ ok: true, recordingId, transcript });
+});
+
+// Legacy transcribe stub — kept for backward compat with food log button
 app.post("/api/voice/transcribe", authRequired, (_req: AuthenticatedRequest, res) => {
-  res.json({ text: "（语音转写示例）" });
+  res.json({ text: "" });
 });
 
 app.get("/api/auth/me", authRequired, (req: AuthenticatedRequest, res) => {
   res.json({ user: req.user });
+});
+
+// ─── Reading Session Auto-Log ──────────────────────────────
+
+app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!req.user) { res.status(401).json({ message: "未登录" }); return; }
+  const body = req.body as {
+    bookId?: unknown;
+    startedAt?: unknown;
+    endedAt?: unknown;
+    durationMs?: unknown;
+    totalPages?: unknown;
+    pagesRead?: unknown;
+    interactionCount?: unknown;
+    completed?: unknown;
+    tryLevel?: unknown;
+    abortReason?: unknown;
+  };
+  const durationMs = typeof body.durationMs === "number" ? body.durationMs : 0;
+  const totalPages = typeof body.totalPages === "number" ? body.totalPages : 0;
+  const pagesRead = typeof body.pagesRead === "number" ? body.pagesRead : 0;
+  const now = new Date().toISOString();
+  await insertReadingSession({
+    userID: req.user.userID,
+    bookID: typeof body.bookId === "string" ? body.bookId : null,
+    startedAt: typeof body.startedAt === "string" ? body.startedAt : now,
+    endedAt: typeof body.endedAt === "string" ? body.endedAt : now,
+    durationMs,
+    totalPages,
+    pagesRead,
+    interactionCount: typeof body.interactionCount === "number" ? body.interactionCount : 0,
+    completed: body.completed === true,
+    tryLevel: typeof body.tryLevel === "string" ? body.tryLevel : null,
+    abortReason: typeof body.abortReason === "string" ? body.abortReason : null,
+  });
+  // Return daily count for today for this user
+  const daily = await getDailyReadingStats(1);
+  const todayCount = daily[0]?.sessionCount ?? 1;
+  res.json({ ok: true, todayCount });
 });
 
 const port = Number(process.env.PORT || 3001);

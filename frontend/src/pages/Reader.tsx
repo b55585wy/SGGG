@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag, PaintBrush } from '@phosphor-icons/react';
 import { InteractionLayer } from '@/components/InteractionLayer';
-import { FeedbackModal } from '@/components/FeedbackModal';
+import { FeedbackModal, type FeedbackDoneData } from '@/components/FeedbackModal';
 import { useSession } from '@/hooks/useSession';
 import { useTelemetry } from '@/hooks/useTelemetry';
 import { useTTS } from '@/hooks/useTTS';
 import { SUSModal } from '@/components/SUSModal';
 import { storyGet } from '@/lib/api';
+import { postJson } from '@/lib/ncApi';
 import type { Draft, FeedbackStatus } from '@/types/story';
 
 export default function ReaderPage() {
@@ -21,8 +22,12 @@ export default function ReaderPage() {
   const [pageIdx, setPageIdx] = useState(0);
   const [feedback, setFeedback] = useState<FeedbackStatus | null>(null);
   const [showSUS, setShowSUS] = useState(false);
+  const [autoReadEnabled, setAutoReadEnabled] = useState(false);
+  const autoReadRef = useRef(false);
   const enterRef = useRef(Date.now());
   const trackedRef = useRef(false);
+  const sessionStartRef = useRef(new Date().toISOString());
+  const interactionCountRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -82,6 +87,20 @@ export default function ReaderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageIdx, draft, session]);
 
+  // 翻页后自动续读：故事文字读完后接续朗读互动提示
+  const speakPage = useCallback((p: typeof draft extends null ? never : NonNullable<typeof draft>['pages'][0]) => {
+    const onEnd = p.interaction.type !== 'none' && p.interaction.instruction
+      ? () => tts.speak(p.interaction.instruction)
+      : undefined;
+    tts.speak(p.text, 'zhimiao', onEnd);
+  }, [tts]);
+
+  useEffect(() => {
+    if (!draft || !autoReadRef.current) return;
+    const p = draft.pages[pageIdx];
+    if (p) speakPage(p);
+  }, [pageIdx, draft]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const trackDwell = useCallback(() => {
     if (!draft || !session) return;
     const p = draft.pages[pageIdx];
@@ -120,6 +139,7 @@ export default function ReaderPage() {
 
   const onInteraction = useCallback((key: string, ms: number) => {
     if (!draft) return;
+    interactionCountRef.current += 1;
     track('interaction', { event_key: key, latency_ms: ms }, draft.pages[pageIdx].page_id);
   }, [draft, pageIdx, track]);
 
@@ -134,9 +154,20 @@ export default function ReaderPage() {
   const onTTS = useCallback(() => {
     if (!draft) return;
     const p = draft.pages[pageIdx];
-    if (tts.isSpeaking) { tts.stop(); track('read_aloud_play', { enabled: false, page_id: p.page_id }, p.page_id); }
-    else { tts.speak(p.text); track('read_aloud_play', { enabled: true, page_id: p.page_id }, p.page_id); }
-  }, [draft, pageIdx, tts, track]);
+    if (autoReadRef.current) {
+      // 关闭自动朗读
+      autoReadRef.current = false;
+      setAutoReadEnabled(false);
+      tts.stop();
+      track('read_aloud_play', { enabled: false, page_id: p.page_id }, p.page_id);
+    } else {
+      // 开启自动朗读，立即朗读当前页
+      autoReadRef.current = true;
+      setAutoReadEnabled(true);
+      speakPage(p);
+      track('read_aloud_play', { enabled: true, page_id: p.page_id }, p.page_id);
+    }
+  }, [draft, pageIdx, tts, track, speakPage]);
 
   const onExit = useCallback(() => {
     if (session) {
@@ -151,20 +182,48 @@ export default function ReaderPage() {
 
   const TOTAL_SESSIONS = 9;
 
-  const onFeedbackDone = useCallback(() => {
+  const logReadingSession = useCallback(async (
+    feedbackData: FeedbackDoneData | null,
+    pagesRead: number,
+    completed: boolean,
+  ) => {
+    if (!draft) return;
+    const bookId = localStorage.getItem('storybook_book_id') ?? undefined;
+    const endedAt = new Date().toISOString();
+    const durationMs = Date.now() - new Date(sessionStartRef.current).getTime();
+    try {
+      await postJson('/api/reading/log', {
+        bookId,
+        startedAt: sessionStartRef.current,
+        endedAt,
+        durationMs,
+        totalPages: draft.pages.length,
+        pagesRead,
+        interactionCount: interactionCountRef.current,
+        completed,
+        tryLevel: feedbackData?.tryLevel ?? null,
+        abortReason: feedbackData?.abortReason ?? null,
+      });
+    } catch { /* best-effort */ }
+  }, [draft]);
+
+  const onFeedbackDone = useCallback((data: FeedbackDoneData) => {
     setFeedback(null);
+    void logReadingSession(data, pageIdx + 1, data.status === 'COMPLETED');
     if (session && session.session_index >= TOTAL_SESSIONS - 1) {
       setShowSUS(true);
     } else {
       clearSession();
       localStorage.removeItem('storybook_draft');
+      localStorage.removeItem('storybook_book_id');
       navigate('/noa/home');
     }
-  }, [session, clearSession, navigate]);
+  }, [session, clearSession, navigate, logReadingSession, pageIdx]);
 
   const onSUSDone = useCallback(() => {
     clearSession();
     localStorage.removeItem('storybook_draft');
+    localStorage.removeItem('storybook_book_id');
     navigate('/noa/home');
   }, [clearSession, navigate]);
 
@@ -206,9 +265,9 @@ export default function ReaderPage() {
         {tts.isSupported ? (
           <button onClick={onTTS}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium active:scale-[0.98] transition-colors
-              ${tts.isSpeaking ? 'bg-[var(--color-accent-light)] text-[var(--color-accent)]' : 'text-[var(--color-muted)] hover:bg-[var(--color-warm-100)]'}`}>
-            {tts.isSpeaking ? <SpeakerHigh size={14} weight="fill" /> : <SpeakerSlash size={14} weight="light" />}
-            {tts.isSpeaking ? '朗读中' : '朗读'}
+              ${autoReadEnabled ? 'bg-[var(--color-accent-light)] text-[var(--color-accent)]' : 'text-[var(--color-muted)] hover:bg-[var(--color-warm-100)]'}`}>
+            {autoReadEnabled ? <SpeakerHigh size={14} weight="fill" /> : <SpeakerSlash size={14} weight="light" />}
+            {autoReadEnabled ? '朗读中' : '朗读'}
           </button>
         ) : (
           <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
@@ -293,6 +352,9 @@ export default function ReaderPage() {
                   onInteractionComplete={onInteraction}
                   onBranchSelect={onBranch}
                   onInteractionStart={onInteractionStart}
+                  speak={tts.speak}
+                  autoRead={autoReadEnabled}
+                  pageId={page.page_id}
                 />
 
                 {/* 最后一页：正反馈区 */}
