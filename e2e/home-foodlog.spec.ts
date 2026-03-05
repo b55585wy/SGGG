@@ -33,8 +33,8 @@ test.describe('主页面 + 进食记录', () => {
   });
 
   test('显示虚拟形象预览', async ({ page }) => {
-    // 虚拟形象区域应有 img 元素 (DiceBear avatar)
-    await expect(page.locator('img[alt="avatar"]')).toBeVisible({ timeout: 10_000 });
+    // 虚拟形象区域应有 base 图层 img 元素 (Kenney stacked avatar)
+    await expect(page.locator('img[alt="base"]')).toBeVisible({ timeout: 10_000 });
   });
 
   test('发送按钮在未填写时禁用', async ({ page }) => {
@@ -136,6 +136,27 @@ test.describe('绘本区域状态', () => {
     if (!hasBookOrWaiting) {
       await expect(page.locator('text=当前绘本')).toBeVisible();
     }
+  });
+
+  test('提交后显示绘本生成中状态', async ({ page }) => {
+    await expect(page.locator('text=进食情况录入')).toBeVisible();
+    await page.locator('input[type="range"]').fill('7');
+    await page.locator('textarea').fill('今天尝试了西兰花');
+    await page.locator('button').filter({ hasText: '发送' }).click();
+
+    // 等待反馈出现
+    await expect(
+      page.locator('[class*="animate-in"]').first()
+    ).toBeVisible({ timeout: 15_000 });
+
+    // 如果绘本尚未生成完成，应显示"绘本生成中"加载状态
+    const generatingText = page.locator('text=绘本生成中');
+    const bookTitle = page.locator('h3').filter({ hasNotText: '等待生成' });
+
+    // 两种合法状态：正在生成中 或 已经生成完毕
+    const showsGenerating = await generatingText.isVisible({ timeout: 3_000 }).catch(() => false);
+    const showsBook = await bookTitle.first().isVisible({ timeout: 1_000 }).catch(() => false);
+    expect(showsGenerating || showsBook).toBe(true);
   });
 
   test('提交进食记录后绘本区域更新（需要 FastAPI）', async ({ page }) => {

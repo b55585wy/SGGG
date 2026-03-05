@@ -126,3 +126,41 @@ body {
 .animate-in {
   animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* Book generating shimmer */
+@keyframes book-gen-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.book-gen-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(5, 150, 105, 0.06) 40%,
+    rgba(5, 150, 105, 0.1) 50%,
+    rgba(5, 150, 105, 0.06) 60%,
+    transparent 100%
+  );
+  animation: book-gen-shimmer 2.4s ease-in-out infinite;
+}
+
+/* Book generating breathe */
+@keyframes book-gen-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+
+.book-gen-breathe {
+  animation: book-gen-breathe 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Book generating dots */
+@keyframes book-gen-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1.2); }
+}
+
+.book-gen-dot {
+  animation: book-gen-dot 1.4s ease-in-out infinite;
+}

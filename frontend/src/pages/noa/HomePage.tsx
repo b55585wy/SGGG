@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { clearToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
-import AvatarRenderer from '@/components/AvatarRenderer'
-import { scoreToExpression, type AvatarBase, type ExpressionKey } from '@/lib/avatarConfig'
 import {
   ClockCounterClockwise,
   Microphone,
@@ -20,14 +18,14 @@ import {
 type HomeStatusResponse = {
   avatar: {
     nickname: string
-    skinColor: string
-    hair: string
-    hairColor: string
-    expression: string
+    baseImage: string | null
+    hairImage: string
+    glassesImage: string
+    topImage: string
+    bottomImage: string
   }
   feedbackText: string
   themeFood: string
-  lastScore: number | null
   book: {
     bookID: string
     title: string
@@ -41,7 +39,7 @@ type HomeStatusResponse = {
 type FoodLogResponse = {
   ok: boolean
   feedbackText: string
-  expression: ExpressionKey
+  expression: string
   score: number
 }
 
@@ -96,14 +94,14 @@ export default function HomePage() {
   const [error, setError] = useState('')
   const [status, setStatus] = useState<HomeStatusResponse | null>(null)
   const [feedbackText, setFeedbackText] = useState('')
-  const [lastScore, setLastScore] = useState<number | null>(null)
-  const [serverExpression, setServerExpression] = useState<ExpressionKey | null>(null)
 
   const [score, setScore] = useState(0)
   const [scoreTouched, setScoreTouched] = useState(false)
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
   const [voiceLoading, setVoiceLoading] = useState(false)
+  const [bookGenerating, setBookGenerating] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const canSend = useMemo(
     () => !!content.trim() && scoreTouched && score > 0 && !sending,
@@ -116,9 +114,6 @@ export default function HomePage() {
     try {
       const data = await getJson<HomeStatusResponse>('/api/home/status')
       setStatus(data)
-      if (data.lastScore !== null && data.lastScore !== undefined) {
-        setLastScore(data.lastScore)
-      }
     } catch (e) {
       if (e && typeof e === 'object' && 'status' in e) {
         const statusCode = (e as { status?: number }).status
@@ -145,23 +140,44 @@ export default function HomePage() {
     }
   }, [navigate])
 
+  // Silent refresh: update status without full-page skeleton
+  const refreshStatus = useCallback(async () => {
+    try {
+      const data = await getJson<HomeStatusResponse>('/api/home/status')
+      setStatus(data)
+      return data
+    } catch {
+      return null
+    }
+  }, [])
+
   useEffect(() => {
     void loadStatus()
   }, [loadStatus])
+
+  // Poll for book generation completion
+  useEffect(() => {
+    if (!bookGenerating) return
+    pollRef.current = setInterval(async () => {
+      const data = await refreshStatus()
+      if (data?.book) {
+        setBookGenerating(false)
+      }
+    }, 3000)
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [bookGenerating, refreshStatus])
 
   useEffect(() => {
     const lastPath = sessionStorage.getItem('lastPath')
     if (lastPath && lastPath !== '/noa/home') {
       sessionStorage.removeItem('homeFeedbackText')
-      sessionStorage.removeItem('homeLastScore')
       setFeedbackText('')
-      setLastScore(null)
       return
     }
     const storedFeedback = sessionStorage.getItem('homeFeedbackText')
     if (storedFeedback) setFeedbackText(storedFeedback)
-    const storedScore = sessionStorage.getItem('homeLastScore')
-    if (storedScore) setLastScore(Number(storedScore))
   }, [])
 
   async function onSend() {
@@ -181,16 +197,12 @@ export default function HomePage() {
         content: content.trim(),
       })
       setFeedbackText(data.feedbackText)
-      setLastScore(score)
-      setServerExpression(data.expression)
       sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-      sessionStorage.setItem('homeLastScore', String(score))
       setContent('')
       setScore(0)
       setScoreTouched(false)
-      setTimeout(() => {
-        void loadStatus()
-      }, 300)
+      setBookGenerating(true)
+      void refreshStatus()
     } catch (e) {
       const message =
         e &&
@@ -250,13 +262,6 @@ export default function HomePage() {
   const avatar = status?.avatar
   const book = status?.book
   const regenerateReached = book ? book.regenerateCount >= 2 : false
-
-  // Prefer server-returned expression; fall back to client-side mapping during slider drag
-  const expression: ExpressionKey =
-    serverExpression ?? scoreToExpression(lastScore ?? status?.lastScore ?? null)
-  const avatarBase: AvatarBase | null = avatar
-    ? { skinColor: avatar.skinColor, hair: avatar.hair, hairColor: avatar.hairColor }
-    : null
 
   // Range slider progress percentage
   const sliderPct = (score / 10) * 100
@@ -328,20 +333,29 @@ export default function HomePage() {
                             shadow-[0_20px_40px_-15px_rgba(0,0,0,0.04)]">
               <div className="flex items-center gap-5 p-4">
                 {/* Avatar thumbnail */}
-                <div className={`h-20 w-20 shrink-0 overflow-hidden
-                                rounded-2xl bg-gradient-to-b from-warm-100 to-warm-200/60 p-2
+                <div className={`relative h-20 w-20 shrink-0 overflow-hidden
+                                rounded-2xl bg-gradient-to-b from-warm-100 to-warm-200/60
                                 ${feedbackText ? 'avatar-glow' : ''}`}>
-                  {avatarBase ? (
-                    <AvatarRenderer
-                      base={avatarBase}
-                      expression={expression}
-                      className="h-full w-full"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs text-muted">
-                      ...
-                    </div>
-                  )}
+                  {avatar?.baseImage ? (
+                    <img src={avatar.baseImage} alt="base"
+                      className="absolute inset-0 h-full w-full" />
+                  ) : null}
+                  {avatar?.topImage ? (
+                    <img src={avatar.topImage} alt="top"
+                      className="absolute inset-0 h-full w-full" />
+                  ) : null}
+                  {avatar?.bottomImage ? (
+                    <img src={avatar.bottomImage} alt="bottom"
+                      className="absolute inset-0 h-full w-full" />
+                  ) : null}
+                  {avatar?.hairImage ? (
+                    <img src={avatar.hairImage} alt="hair"
+                      className="absolute inset-0 h-full w-full" />
+                  ) : null}
+                  {avatar?.glassesImage ? (
+                    <img src={avatar.glassesImage} alt="glasses"
+                      className="absolute inset-0 h-full w-full" />
+                  ) : null}
                 </div>
 
                 {/* Avatar info */}
@@ -357,11 +371,7 @@ export default function HomePage() {
                       {feedbackText}
                     </p>
                   ) : (
-                    <p className="mt-1 text-xs text-muted">
-                      {expression === 'happy' ? '心情很好' :
-                       expression === 'encouraging' ? '在加油' :
-                       expression === 'gentle' ? '很温柔' : '心情平静'}
-                    </p>
+                    <p className="mt-1 text-xs text-muted">心情平静</p>
                   )}
                 </div>
 
@@ -493,89 +503,132 @@ export default function HomePage() {
           {/* Right: Book card (full height) */}
           <div className="flex flex-col overflow-hidden rounded-[2rem] border border-border-light bg-surface
                           shadow-[0_20px_40px_-15px_rgba(0,0,0,0.04)]">
-            <button
-              onClick={() => book && navigate(`/noa/books/${book.bookID}`)}
-              className="flex flex-1 flex-col text-left transition-opacity duration-200 hover:opacity-80"
-              style={{ cursor: book ? 'pointer' : 'default' }}
-            >
-              <div className="relative flex-1">
-                {book?.preview ? (
-                  <div className="relative h-full min-h-[12rem] overflow-hidden bg-gradient-to-br from-accent-light/40 via-warm-100 to-warm-200/60">
-                    <img
-                      src={book.preview}
-                      alt={book.title}
-                      className="h-full w-full object-cover mix-blend-multiply"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-surface/80 to-transparent" />
-                  </div>
-                ) : (
-                  <div className="flex h-full min-h-[12rem] flex-col items-center justify-center
-                                bg-gradient-to-br from-accent-light/30 via-warm-100 to-warm-200/40">
-                    <div className="mb-3 flex h-14 w-14 items-center justify-center
-                                  rounded-2xl bg-surface/80 shadow-sm">
-                      <BookOpenText size={28} weight="light" className="text-accent" />
+            {bookGenerating && !book ? (
+              /* Book generating skeleton */
+              <div className="flex flex-1 flex-col">
+                <div className="relative flex-1 min-h-[12rem] overflow-hidden
+                              bg-gradient-to-br from-accent-light/30 via-warm-100 to-warm-200/40">
+                  {/* Animated shimmer overlay */}
+                  <div className="absolute inset-0 book-gen-shimmer" />
+                  <div className="relative flex h-full flex-col items-center justify-center gap-4 p-6">
+                    {/* Breathing book icon */}
+                    <div className="book-gen-breathe flex h-16 w-16 items-center justify-center
+                                    rounded-2xl bg-surface/90 shadow-sm
+                                    border border-accent/10">
+                      <BookOpenText size={32} weight="light" className="text-accent" />
                     </div>
-                    <span className="text-xs font-medium text-muted">
-                      提交进食记录后将生成绘本
-                    </span>
+                    <div className="space-y-2 text-center">
+                      <p className="text-sm font-semibold text-foreground">
+                        绘本生成中
+                      </p>
+                      <p className="text-xs text-muted leading-relaxed max-w-[18ch] mx-auto">
+                        正在为你创作专属故事
+                      </p>
+                    </div>
+                    {/* Progress dots */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="book-gen-dot h-1.5 w-1.5 rounded-full bg-accent/60" style={{ animationDelay: '0ms' }} />
+                      <span className="book-gen-dot h-1.5 w-1.5 rounded-full bg-accent/60" style={{ animationDelay: '200ms' }} />
+                      <span className="book-gen-dot h-1.5 w-1.5 rounded-full bg-accent/60" style={{ animationDelay: '400ms' }} />
+                    </div>
                   </div>
-                )}
-                {book?.confirmed ? (
-                  <span className="absolute bottom-3 right-3 inline-flex items-center gap-1
-                                   rounded-full bg-accent px-3 py-1 text-xs font-medium text-surface
-                                   shadow-sm">
-                    <CheckCircle size={12} weight="fill" />
-                    已确认
-                  </span>
-                ) : null}
-              </div>
-              <div className="p-5">
-                <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted">
-                  当前绘本
                 </div>
-                <h3 className="text-base font-semibold text-foreground">
-                  {book?.title || '等待生成'}
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted">
-                  {book?.description || '完成进食记录后，系统会为你生成专属绘本'}
-                </p>
+                <div className="p-5">
+                  <div className="mb-2 h-3 w-16 rounded skeleton-shimmer" />
+                  <div className="mb-3 h-5 w-36 rounded skeleton-shimmer" />
+                  <div className="space-y-1.5">
+                    <div className="h-3.5 w-full rounded skeleton-shimmer" />
+                    <div className="h-3.5 w-2/3 rounded skeleton-shimmer" />
+                  </div>
+                </div>
               </div>
-            </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => book && navigate(`/noa/books/${book.bookID}`)}
+                  className="flex flex-1 flex-col text-left transition-opacity duration-200 hover:opacity-80"
+                  style={{ cursor: book ? 'pointer' : 'default' }}
+                >
+                  <div className="relative flex-1">
+                    {book?.preview ? (
+                      <div className="relative h-full min-h-[12rem] overflow-hidden bg-gradient-to-br from-accent-light/40 via-warm-100 to-warm-200/60">
+                        <img
+                          src={book.preview}
+                          alt={book.title}
+                          className="h-full w-full object-cover mix-blend-multiply"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-surface/80 to-transparent" />
+                      </div>
+                    ) : (
+                      <div className="flex h-full min-h-[12rem] flex-col items-center justify-center
+                                    bg-gradient-to-br from-accent-light/30 via-warm-100 to-warm-200/40">
+                        <div className="mb-3 flex h-14 w-14 items-center justify-center
+                                      rounded-2xl bg-surface/80 shadow-sm">
+                          <BookOpenText size={28} weight="light" className="text-accent" />
+                        </div>
+                        <span className="text-xs font-medium text-muted">
+                          提交进食记录后将生成绘本
+                        </span>
+                      </div>
+                    )}
+                    {book?.confirmed ? (
+                      <span className="absolute bottom-3 right-3 inline-flex items-center gap-1
+                                       rounded-full bg-accent px-3 py-1 text-xs font-medium text-surface
+                                       shadow-sm">
+                        <CheckCircle size={12} weight="fill" />
+                        已确认
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="p-5">
+                    <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted">
+                      当前绘本
+                    </div>
+                    <h3 className="text-base font-semibold text-foreground">
+                      {book?.title || '等待生成'}
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-muted">
+                      {book?.description || '完成进食记录后，系统会为你生成专属绘本'}
+                    </p>
+                  </div>
+                </button>
 
-            {book && !book.confirmed ? (
-              <div className="space-y-3 px-5 pb-5">
-                <div className="flex gap-3">
-                  <button
-                    onClick={onConfirmBook}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5
-                               rounded-xl border border-accent bg-accent
-                               py-2.5 text-sm font-semibold text-surface
-                               shadow-[0_2px_8px_rgba(5,150,105,0.2)]
-                               transition-all duration-200 hover:bg-accent-hover active:scale-[0.98]"
-                  >
-                    <CheckCircle size={16} weight="bold" />
-                    确认绘本
-                  </button>
-                  <button
-                    onClick={() => navigate('/noa/books/create', { state: { fromRegenerate: true } })}
-                    disabled={regenerateReached}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5
-                               rounded-xl border border-border bg-surface
-                               py-2.5 text-sm font-semibold text-foreground
-                               transition-all duration-200 hover:border-foreground active:scale-[0.98]
-                               disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <ArrowsClockwise size={16} weight="bold" />
-                    重新生成
-                  </button>
-                </div>
-                {regenerateReached ? (
-                  <p className="text-center text-xs text-error">
-                    已达到重新生成上限，请确认当前绘本
-                  </p>
+                {book && !book.confirmed ? (
+                  <div className="space-y-3 px-5 pb-5">
+                    <div className="flex gap-3">
+                      <button
+                        onClick={onConfirmBook}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5
+                                   rounded-xl border border-accent bg-accent
+                                   py-2.5 text-sm font-semibold text-surface
+                                   shadow-[0_2px_8px_rgba(5,150,105,0.2)]
+                                   transition-all duration-200 hover:bg-accent-hover active:scale-[0.98]"
+                      >
+                        <CheckCircle size={16} weight="bold" />
+                        确认绘本
+                      </button>
+                      <button
+                        onClick={() => navigate('/noa/books/create', { state: { fromRegenerate: true } })}
+                        disabled={regenerateReached}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5
+                                   rounded-xl border border-border bg-surface
+                                   py-2.5 text-sm font-semibold text-foreground
+                                   transition-all duration-200 hover:border-foreground active:scale-[0.98]
+                                   disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <ArrowsClockwise size={16} weight="bold" />
+                        重新生成
+                      </button>
+                    </div>
+                    {regenerateReached ? (
+                      <p className="text-center text-xs text-error">
+                        已达到重新生成上限，请确认当前绘本
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
-              </div>
-            ) : null}
+              </>
+            )}
           </div>
         </div>
       </div>
