@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const ADMIN_KEY = 'test-admin-key';
+const ADMIN_KEY = process.env.ADMIN_API_KEY || 'dev-admin';
 
 test.describe('管理员后台', () => {
   test('页面加载显示正确的标题和表单', async ({ page }) => {

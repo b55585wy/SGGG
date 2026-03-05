@@ -36,13 +36,23 @@ function ensureSchema(db: Database) {
     );
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS avatar_assets (
+      asset_type TEXT NOT NULL,
+      asset_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      image_data TEXT NOT NULL,
+      PRIMARY KEY (asset_type, asset_key)
+    );
+  `);
+  db.run(`
     CREATE TABLE IF NOT EXISTS user_avatars (
       user_id TEXT PRIMARY KEY,
       nickname TEXT NOT NULL,
       gender TEXT NOT NULL,
-      skin_color TEXT DEFAULT 'f2d3b1',
-      hair TEXT DEFAULT 'short01',
-      hair_color TEXT DEFAULT '0e0e0e',
+      hair_style TEXT,
+      glasses TEXT,
+      top_color TEXT,
+      bottom_color TEXT,
       theme_food TEXT DEFAULT '胡萝卜',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -124,15 +134,6 @@ function ensureUserAvatarColumns(db: Database) {
   if (!columns.has("theme_food")) {
     db.run("ALTER TABLE user_avatars ADD COLUMN theme_food TEXT DEFAULT '胡萝卜';");
   }
-  if (!columns.has("skin_color")) {
-    db.run("ALTER TABLE user_avatars ADD COLUMN skin_color TEXT DEFAULT 'f2d3b1';");
-  }
-  if (!columns.has("hair")) {
-    db.run("ALTER TABLE user_avatars ADD COLUMN hair TEXT DEFAULT 'short01';");
-  }
-  if (!columns.has("hair_color")) {
-    db.run("ALTER TABLE user_avatars ADD COLUMN hair_color TEXT DEFAULT '0e0e0e';");
-  }
 }
 
 function ensureSeedData(db: Database) {
@@ -149,7 +150,72 @@ function ensureSeedData(db: Database) {
   );
 }
 
-// DiceBear avatar — options generated client-side, only base config stored in DB
+function svgDataUri(svg: string) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function ensureAvatarAssets(db: Database) {
+  const res = db.exec("SELECT COUNT(*) AS cnt FROM avatar_assets;");
+  const cnt = (res[0]?.values?.[0]?.[0] as number | undefined) ?? 0;
+  if (cnt > 0) return;
+
+  const baseSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" fill="none" stroke="#111827" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><rect width="300" height="420" rx="16" fill="#f8fafc" stroke="none"/><circle cx="150" cy="80" r="38"/><circle cx="135" cy="78" r="4" fill="#111827" stroke="none"/><circle cx="165" cy="78" r="4" fill="#111827" stroke="none"/><path d="M140 96 Q150 104 160 96"/><rect x="125" y="125" width="50" height="20" rx="10"/><path d="M150 145 L150 270"/><path d="M150 170 L90 200"/><path d="M150 170 L210 200"/><path d="M90 200 L70 240"/><path d="M210 200 L230 240"/><path d="M150 270 L120 360"/><path d="M150 270 L180 360"/><path d="M120 360 L110 400"/><path d="M180 360 L190 400"/></svg>`;
+
+  const hairSvgA = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><path d="M110 70 Q150 40 190 70 Q180 50 150 46 Q120 50 110 70" fill="#111827"/></svg>`;
+  const hairSvgB = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><path d="M108 72 Q120 40 150 42 Q180 40 192 72 Q175 58 150 60 Q125 58 108 72" fill="#1f2937"/></svg>`;
+  const hairSvgC = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><path d="M110 72 Q150 30 190 72 Q200 110 190 140 Q175 120 150 120 Q125 120 110 140 Q100 110 110 72" fill="#374151"/></svg>`;
+
+  const glassesNone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"></svg>`;
+  const glassesRound = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" fill="none" stroke="#111827" stroke-width="4"><circle cx="135" cy="80" r="14"/><circle cx="165" cy="80" r="14"/><path d="M149 80 L151 80"/></svg>`;
+  const glassesSquare = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" fill="none" stroke="#111827" stroke-width="4"><rect x="118" y="66" width="32" height="24" rx="4"/><rect x="150" y="66" width="32" height="24" rx="4"/><path d="M150 78 L150 78"/></svg>`;
+
+  const topColors = [
+    { key: "blue", label: "蓝色", color: "#60a5fa" },
+    { key: "green", label: "绿色", color: "#34d399" },
+    { key: "orange", label: "橙色", color: "#fb923c" },
+  ];
+  const bottomColors = [
+    { key: "black", label: "黑色", color: "#111827" },
+    { key: "gray", label: "灰色", color: "#9ca3af" },
+    { key: "yellow", label: "黄色", color: "#facc15" },
+  ];
+
+  const assets: Array<{ type: string; key: string; label: string; svg: string }> = [
+    { type: "base", key: "default", label: "默认底图", svg: baseSvg },
+    { type: "hair", key: "short", label: "短发", svg: hairSvgA },
+    { type: "hair", key: "round", label: "圆刘海", svg: hairSvgB },
+    { type: "hair", key: "long", label: "长发", svg: hairSvgC },
+    { type: "glasses", key: "none", label: "无眼镜", svg: glassesNone },
+    { type: "glasses", key: "round", label: "圆框", svg: glassesRound },
+    { type: "glasses", key: "square", label: "方框", svg: glassesSquare },
+  ];
+
+  for (const item of topColors) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><rect x="118" y="150" width="64" height="90" rx="18" fill="${item.color}"/><rect x="92" y="165" width="30" height="18" rx="9" fill="${item.color}"/><rect x="178" y="165" width="30" height="18" rx="9" fill="${item.color}"/></svg>`;
+    assets.push({ type: "top", key: item.key, label: item.label, svg });
+  }
+
+  for (const item of bottomColors) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420"><rect x="130" y="250" width="20" height="110" rx="8" fill="${item.color}"/><rect x="150" y="250" width="20" height="110" rx="8" fill="${item.color}"/></svg>`;
+    assets.push({ type: "bottom", key: item.key, label: item.label, svg });
+  }
+
+  const stmt = db.prepare(
+    "INSERT INTO avatar_assets (asset_type, asset_key, label, image_data) VALUES ($type, $key, $label, $image);",
+  );
+  try {
+    for (const asset of assets) {
+      stmt.run({
+        $type: asset.type,
+        $key: asset.key,
+        $label: asset.label,
+        $image: svgDataUri(asset.svg),
+      });
+    }
+  } finally {
+    stmt.free();
+  }
+}
 
 export async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -171,6 +237,7 @@ export async function getDb(): Promise<Database> {
       ensureSchema(db);
       ensureUserAvatarColumns(db);
       ensureSeedData(db);
+      ensureAvatarAssets(db);
       await persistDb(db);
 
       return db;
@@ -261,13 +328,89 @@ export async function getUserThemeFood(userID: string): Promise<string> {
   }
 }
 
+export type AvatarOption = {
+  id: string;
+  label: string;
+  image: string;
+};
+
+export async function getAvatarBase(): Promise<string | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT image_data FROM avatar_assets WHERE asset_type = 'base' AND asset_key = 'default' LIMIT 1;",
+  );
+  try {
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { image_data: string };
+    return row.image_data || null;
+  } finally {
+    stmt.free();
+  }
+}
+
+async function listOptionsByType(type: string): Promise<AvatarOption[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT asset_key, label, image_data FROM avatar_assets WHERE asset_type = $type ORDER BY asset_key ASC;",
+  );
+  try {
+    const options: AvatarOption[] = [];
+    stmt.bind({ $type: type });
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as {
+        asset_key: string;
+        label: string;
+        image_data: string;
+      };
+      options.push({ id: row.asset_key, label: row.label, image: row.image_data });
+    }
+    return options;
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function listAvatarOptions(): Promise<{
+  hair: AvatarOption[];
+  glasses: AvatarOption[];
+  topColors: AvatarOption[];
+  bottomColors: AvatarOption[];
+}> {
+  const [hair, glasses, topColors, bottomColors] = await Promise.all([
+    listOptionsByType("hair"),
+    listOptionsByType("glasses"),
+    listOptionsByType("top"),
+    listOptionsByType("bottom"),
+  ]);
+  return { hair, glasses, topColors, bottomColors };
+}
+
+export async function getAvatarComponent(
+  type: "hair" | "glasses" | "top" | "bottom",
+  id: string,
+): Promise<string | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT image_data FROM avatar_assets WHERE asset_type = $type AND asset_key = $key LIMIT 1;",
+  );
+  try {
+    stmt.bind({ $type: type, $key: id });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { image_data: string };
+    return row.image_data || null;
+  } finally {
+    stmt.free();
+  }
+}
+
 export async function saveUserAvatar(params: {
   userID: string;
   nickname: string;
   gender: string;
-  skinColor?: string;
-  hair?: string;
-  hairColor?: string;
+  hairStyle?: string | null;
+  glasses?: string | null;
+  topColor?: string | null;
+  bottomColor?: string | null;
 }) {
   const db = await getDb();
   const now = new Date().toISOString();
@@ -276,22 +419,23 @@ export async function saveUserAvatar(params: {
     `
     INSERT INTO user_avatars (
       user_id, nickname, gender,
-      skin_color, hair, hair_color,
+      hair_style, glasses, top_color, bottom_color,
       theme_food,
       created_at, updated_at
     )
     VALUES (
       $user_id, $nickname, $gender,
-      $skin_color, $hair, $hair_color,
+      $hair_style, $glasses, $top_color, $bottom_color,
       $theme_food,
       $created_at, $updated_at
     )
     ON CONFLICT(user_id) DO UPDATE SET
       nickname = $nickname,
       gender = $gender,
-      skin_color = $skin_color,
-      hair = $hair,
-      hair_color = $hair_color,
+      hair_style = $hair_style,
+      glasses = $glasses,
+      top_color = $top_color,
+      bottom_color = $bottom_color,
       theme_food = $theme_food,
       updated_at = $updated_at;
     `,
@@ -299,9 +443,10 @@ export async function saveUserAvatar(params: {
       $user_id: params.userID,
       $nickname: params.nickname,
       $gender: params.gender,
-      $skin_color: params.skinColor ?? "f2d3b1",
-      $hair: params.hair ?? "short01",
-      $hair_color: params.hairColor ?? "0e0e0e",
+      $hair_style: params.hairStyle ?? null,
+      $glasses: params.glasses ?? null,
+      $top_color: params.topColor ?? null,
+      $bottom_color: params.bottomColor ?? null,
       $theme_food: themeFood,
       $created_at: now,
       $updated_at: now,
@@ -314,9 +459,10 @@ export type UserAvatar = {
   userID: string;
   nickname: string;
   gender: string;
-  skinColor: string;
-  hair: string;
-  hairColor: string;
+  hairStyle: string | null;
+  glasses: string | null;
+  topColor: string | null;
+  bottomColor: string | null;
   themeFood: string;
   createdAt: string;
   updatedAt: string;
@@ -326,7 +472,7 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
   const db = await getDb();
   const stmt = db.prepare(
     `
-    SELECT user_id, nickname, gender, skin_color, hair, hair_color, theme_food, created_at, updated_at
+    SELECT user_id, nickname, gender, hair_style, glasses, top_color, bottom_color, theme_food, created_at, updated_at
     FROM user_avatars
     WHERE user_id = $user_id
     LIMIT 1;
@@ -339,9 +485,10 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
       user_id: string;
       nickname: string;
       gender: string;
-      skin_color: string | null;
-      hair: string | null;
-      hair_color: string | null;
+      hair_style: string | null;
+      glasses: string | null;
+      top_color: string | null;
+      bottom_color: string | null;
       theme_food: string | null;
       created_at: string;
       updated_at: string;
@@ -350,9 +497,10 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
       userID: row.user_id,
       nickname: row.nickname,
       gender: row.gender,
-      skinColor: row.skin_color || "f2d3b1",
-      hair: row.hair || "short01",
-      hairColor: row.hair_color || "0e0e0e",
+      hairStyle: row.hair_style ?? null,
+      glasses: row.glasses ?? null,
+      topColor: row.top_color ?? null,
+      bottomColor: row.bottom_color ?? null,
       themeFood: row.theme_food || "胡萝卜",
       createdAt: row.created_at,
       updatedAt: row.updated_at,

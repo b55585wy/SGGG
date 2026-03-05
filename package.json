@@ -2,6 +2,8 @@
   "name": "sggg",
   "private": true,
   "scripts": {
+    "kill": "npx kill-port 3001 5173 8000",
+    "predev": "npx kill-port 3001 5173 8000",
     "dev": "npm-run-all --parallel dev:backend dev:user-api dev:frontend",
     "dev:backend": "cd backend && uvicorn main:app --reload --port 8000",
     "dev:user-api": "cd user-api && npm run dev",
@@ -11,6 +13,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "kill-port": "^2.0.1",
     "npm-run-all": "^4.1.5"
   }
 }

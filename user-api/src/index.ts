@@ -6,6 +6,8 @@ import { adminRequired, authRequired, type AuthenticatedRequest } from "./auth";
 import {
   addHistoryBook,
   findUserById,
+  getAvatarBase,
+  getAvatarComponent,
   getLatestAvatarState,
   getLatestHistoryBook,
   getTempBook,
@@ -16,6 +18,7 @@ import {
   insertUser,
   insertAvatarState,
   insertFoodLog,
+  listAvatarOptions,
   listHistoryBooks,
   listUsers,
   saveTempBook,
@@ -237,6 +240,39 @@ app.get("/api/admin/stats", adminRequired, async (_req, res) => {
   }
 });
 
+app.get("/api/avatar/base", async (_req, res) => {
+  const image = await getAvatarBase();
+  if (!image) {
+    res.status(404).json({ message: "未找到形象底图" });
+    return;
+  }
+  res.json({ image });
+});
+
+app.get("/api/avatar/options", async (_req, res) => {
+  const options = await listAvatarOptions();
+  res.json(options);
+});
+
+app.get("/api/avatar/component", async (req, res) => {
+  const type = typeof req.query.type === "string" ? req.query.type : "";
+  const id = typeof req.query.id === "string" ? req.query.id : "";
+  if (!type || !id) {
+    res.status(400).json({ message: "参数错误" });
+    return;
+  }
+  if (type !== "hair" && type !== "glasses" && type !== "top" && type !== "bottom") {
+    res.status(400).json({ message: "参数错误" });
+    return;
+  }
+  const image = await getAvatarComponent(type, id);
+  if (!image) {
+    res.status(404).json({ message: "未找到组件图片" });
+    return;
+  }
+  res.json({ image });
+});
+
 app.post("/api/avatar/save", authRequired, async (req: AuthenticatedRequest, res) => {
   const body = req.body as unknown;
   if (!req.user) {
@@ -263,15 +299,16 @@ app.post("/api/avatar/save", authRequired, async (req: AuthenticatedRequest, res
   const str = (key: string) =>
     typeof (body as Record<string, unknown>)[key] === "string"
       ? (body as Record<string, string>)[key]
-      : undefined;
+      : null;
 
   await saveUserAvatar({
     userID: req.user.userID,
     nickname,
     gender,
-    skinColor: str("skinColor"),
-    hair: str("hair"),
-    hairColor: str("hairColor"),
+    hairStyle: str("hairStyle"),
+    glasses: str("glasses"),
+    topColor: str("topColor"),
+    bottomColor: str("bottomColor"),
   });
   res.json({ ok: true });
 });
@@ -287,21 +324,29 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  const latestState = await getLatestAvatarState(req.user.userID);
-  const lastScore = await getLastFoodScore(req.user.userID);
+  const [baseImage, hairImage, glassesImage, topImage, bottomImage, latestState] =
+    await Promise.all([
+      getAvatarBase(),
+      avatar.hairStyle ? getAvatarComponent("hair", avatar.hairStyle) : Promise.resolve(null),
+      avatar.glasses ? getAvatarComponent("glasses", avatar.glasses) : Promise.resolve(null),
+      avatar.topColor ? getAvatarComponent("top", avatar.topColor) : Promise.resolve(null),
+      avatar.bottomColor ? getAvatarComponent("bottom", avatar.bottomColor) : Promise.resolve(null),
+      getLatestAvatarState(req.user.userID),
+    ]);
 
   const avatarData = {
     nickname: avatar.nickname,
-    skinColor: avatar.skinColor,
-    hair: avatar.hair,
-    hairColor: avatar.hairColor,
+    baseImage,
+    hairImage: hairImage || "",
+    glassesImage: glassesImage || "",
+    topImage: topImage || "",
+    bottomImage: bottomImage || "",
   };
 
   const base = {
     avatar: avatarData,
     feedbackText: latestState?.feedbackText || "",
     themeFood: avatar.themeFood,
-    lastScore,
   };
 
   const tempBook = await getTempBook(req.user.userID);

@@ -147,9 +147,14 @@ export default function NcLoginPage() {
             </button>
           </form>
 
-          <p className="mt-6 text-center text-xs text-muted">
-            测试账号：demo / demo123
-          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/noa/admin/users')}
+            className="mt-6 w-full text-center text-xs text-muted/60
+                       transition-colors hover:text-accent"
+          >
+            管理员入口
+          </button>
         </div>
       </div>
     </div>
