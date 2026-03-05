@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { postJson } from '@/lib/ncApi'
 import { setToken } from '@/lib/auth'
-import { SignIn, BookOpen, Star } from '@phosphor-icons/react'
+import { BookOpenText, ArrowRight, Sparkle } from '@phosphor-icons/react'
 
 type LoginResponse = {
   token: string
   user: { userID: string }
   firstLogin: boolean
 }
+
+const spring = { type: 'spring' as const, stiffness: 110, damping: 22 }
+
+const FEATURES = [
+  { emoji: '🧒', text: '个性化虚拟形象' },
+  { emoji: '📖', text: '智能绘本生成' },
+  { emoji: '🥦', text: '进食行为追踪' },
+]
 
 export default function NcLoginPage() {
   const navigate = useNavigate()
@@ -26,17 +35,12 @@ export default function NcLoginPage() {
     setError('')
     setLoading(true)
     try {
-      const data = await postJson<LoginResponse>('/api/auth/login', {
-        userID,
-        password,
-      })
+      const data = await postJson<LoginResponse>('/api/auth/login', { userID, password })
       setToken(data.token)
       navigate(data.firstLogin ? '/noa/avatar' : '/noa/home', { replace: true })
     } catch (err) {
       const message =
-        err &&
-        typeof err === 'object' &&
-        'message' in err &&
+        err && typeof err === 'object' && 'message' in err &&
         typeof (err as { message?: unknown }).message === 'string'
           ? (err as { message: string }).message
           : '登录失败'
@@ -46,117 +50,240 @@ export default function NcLoginPage() {
     }
   }
 
+  const canSubmit = !!userID && !!password && !loading
+
   return (
-    <div className="grid min-h-[100dvh] grid-cols-1 md:grid-cols-[1fr_1fr]">
-      {/* Left: Branding panel */}
-      <div className="relative hidden overflow-hidden bg-accent md:flex md:flex-col md:items-center md:justify-center">
-        {/* Decorative shapes */}
-        <div className="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-white/10" />
-        <div className="absolute -bottom-16 -right-16 h-64 w-64 rounded-full bg-white/[0.07]" />
-        <div className="absolute right-12 top-16 h-32 w-32 rounded-[2rem] bg-white/[0.05] rotate-12" />
+    <div
+      className="h-[100dvh] overflow-hidden flex items-center justify-center relative"
+      style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}
+    >
+      {/* Decorative blobs */}
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          top: -120, right: -80, width: 500, height: 500,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(5,150,105,0.07) 0%, transparent 70%)',
+        }}
+      />
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          bottom: -140, left: '10%', width: 600, height: 600,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(5,150,105,0.04) 0%, transparent 70%)',
+        }}
+      />
 
-        <div className="relative z-10 px-12 text-center">
-          <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-[1.5rem]
-                          bg-white/20 backdrop-blur-sm">
-            <BookOpen size={40} weight="duotone" className="text-white" />
-          </div>
-          <h2 className="mb-3 text-3xl font-semibold tracking-tight text-white">
-            食育绘本
-          </h2>
-          <p className="mx-auto max-w-[28ch] text-sm leading-relaxed text-white/70">
-            通过互动故事，让每个孩子爱上健康饮食
-          </p>
+      {/* Main card */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={spring}
+        className="relative flex overflow-hidden"
+        style={{
+          width: '88%',
+          maxWidth: 820,
+          height: '72dvh',
+          minHeight: 460,
+          borderRadius: '2.5rem',
+          boxShadow: '0 40px 100px -20px rgba(0,0,0,0.13), 0 0 0 1px rgba(231,229,228,0.5)',
+        }}
+      >
+        {/* ── Left: Branding panel ── */}
+        <div
+          className="w-[42%] relative flex flex-col items-center justify-center px-10 shrink-0 overflow-hidden"
+          style={{ background: 'linear-gradient(160deg, #059669 0%, #047857 55%, #065f46 100%)' }}
+        >
+          {/* Decorative circles */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              top: -60, left: -60, width: 260, height: 260,
+              borderRadius: '50%', background: 'rgba(255,255,255,0.06)',
+            }}
+          />
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              bottom: -80, right: -40, width: 320, height: 320,
+              borderRadius: '50%', background: 'rgba(255,255,255,0.04)',
+            }}
+          />
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              top: '30%', right: -30, width: 120, height: 120,
+              borderRadius: '50%', background: 'rgba(255,255,255,0.05)',
+            }}
+          />
 
-          {/* Feature highlights */}
-          <div className="mt-10 space-y-4">
-            {[
-              '个性化虚拟形象',
-              '智能绘本生成',
-              '进食行为追踪',
-            ].map((text) => (
-              <div key={text} className="flex items-center justify-center gap-2.5">
-                <Star size={14} weight="fill" className="text-white/50" />
-                <span className="text-sm text-white/60">{text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Right: Login form */}
-      <div className="flex flex-col items-center justify-center bg-background px-6 py-12">
-        <div className="w-full max-w-[380px]">
-          {/* Mobile-only header */}
-          <div className="mb-10 flex items-center gap-3 md:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent">
-              <BookOpen size={22} weight="duotone" className="text-white" />
-            </div>
-            <span className="text-lg font-semibold tracking-tight text-foreground">
-              食育绘本
-            </span>
-          </div>
-
-          <h1 className="mb-2 text-2xl font-semibold tracking-tight text-foreground">
-            欢迎回来
-          </h1>
-          <p className="mb-8 text-sm text-muted">
-            登录你的账号以继续
-          </p>
-
-          <form onSubmit={onSubmit} className="space-y-5">
-            <label className="block">
-              <div className="mb-1.5 text-xs font-medium text-muted">用户ID</div>
-              <input
-                value={userID}
-                onChange={(e) => setUserID(e.target.value)}
-                autoComplete="username"
-                placeholder="请输入用户ID"
-                className="form-input w-full"
-              />
-            </label>
-
-            <label className="block">
-              <div className="mb-1.5 text-xs font-medium text-muted">密码</div>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                autoComplete="current-password"
-                placeholder="请输入密码"
-                className="form-input w-full"
-              />
-            </label>
-
-            {error ? (
-              <div className="rounded-xl border border-error/20 bg-error-light px-4 py-3 text-sm text-error">
-                {error}
-              </div>
-            ) : null}
-
-            <button
-              type="submit"
-              disabled={loading || !userID || !password}
-              className="inline-flex w-full items-center justify-center gap-2
-                         rounded-xl border border-foreground bg-foreground py-3
-                         text-sm font-semibold text-surface
-                         transition-all duration-200 hover:opacity-90 active:scale-[0.98]
-                         disabled:cursor-not-allowed disabled:border-muted disabled:bg-muted"
+          {/* Content */}
+          <div className="relative z-10 flex flex-col items-center text-center gap-6">
+            {/* Icon */}
+            <div
+              className="flex items-center justify-center"
+              style={{
+                width: 72, height: 72,
+                borderRadius: '1.5rem',
+                background: 'rgba(255,255,255,0.18)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255,255,255,0.25)',
+              }}
             >
-              <SignIn size={18} weight="bold" />
-              {loading ? '登录中...' : '登录'}
-            </button>
-          </form>
+              <BookOpenText size={34} weight="duotone" style={{ color: 'white' }} />
+            </div>
 
-          <button
-            type="button"
-            onClick={() => navigate('/noa/admin/users')}
-            className="mt-6 w-full text-center text-xs text-muted/60
-                       transition-colors hover:text-accent"
-          >
-            管理员入口
-          </button>
+            {/* Title */}
+            <div>
+              <h1 className="text-2xl font-black tracking-tight text-white">食育绘本</h1>
+              <p className="mt-1.5 text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)', maxWidth: '22ch' }}>
+                通过互动故事，让每个孩子爱上健康饮食
+              </p>
+            </div>
+
+            {/* Features */}
+            <div className="flex flex-col gap-2.5 w-full">
+              {FEATURES.map(({ emoji, text }, i) => (
+                <motion.div
+                  key={text}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ ...spring, delay: 0.12 + i * 0.06 }}
+                  className="flex items-center gap-3 rounded-2xl px-4 py-2.5"
+                  style={{ background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.12)' }}
+                >
+                  <span className="text-base leading-none">{emoji}</span>
+                  <span className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.85)' }}>{text}</span>
+                </motion.div>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+
+        {/* ── Right: Login form ── */}
+        <div
+          className="flex-1 flex flex-col items-center justify-center px-10"
+          style={{ background: 'white' }}
+        >
+          <div className="w-full" style={{ maxWidth: 320 }}>
+            {/* Header */}
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...spring, delay: 0.08 }}
+              className="mb-8"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <div
+                  className="flex items-center justify-center shrink-0"
+                  style={{
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: 'var(--color-accent-light)',
+                  }}
+                >
+                  <Sparkle size={13} weight="fill" style={{ color: 'var(--color-accent)' }} />
+                </div>
+                <span className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
+                  欢迎回来
+                </span>
+              </div>
+              <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                登录你的账号
+              </h2>
+              <p className="text-sm mt-1" style={{ color: 'var(--color-muted)' }}>
+                输入账号信息以继续
+              </p>
+            </motion.div>
+
+            {/* Form */}
+            <motion.form
+              onSubmit={onSubmit}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...spring, delay: 0.14 }}
+              className="space-y-4"
+            >
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold" style={{ color: 'var(--color-muted)' }}>
+                  用户 ID
+                </label>
+                <input
+                  value={userID}
+                  onChange={(e) => setUserID(e.target.value)}
+                  autoComplete="username"
+                  placeholder="请输入用户 ID"
+                  className="form-input"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold" style={{ color: 'var(--color-muted)' }}>
+                  密码
+                </label>
+                <input
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="请输入密码"
+                  className="form-input"
+                />
+              </div>
+
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="rounded-2xl px-4 py-2.5 text-sm"
+                  style={{ background: 'var(--color-error-light)', color: 'var(--color-error)' }}
+                >
+                  {error}
+                </motion.div>
+              )}
+
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="w-full py-3.5 rounded-full font-bold text-sm text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                style={{
+                  background: canSubmit
+                    ? 'linear-gradient(135deg, #059669, #047857)'
+                    : 'var(--color-warm-200)',
+                  color: canSubmit ? 'white' : 'var(--color-muted)',
+                  border: 'none',
+                  cursor: canSubmit ? 'pointer' : 'not-allowed',
+                  boxShadow: canSubmit ? '0 8px 24px -4px rgba(5,150,105,0.38)' : 'none',
+                }}
+              >
+                {loading ? '登录中…' : (
+                  <>
+                    登录
+                    <ArrowRight size={15} weight="bold" />
+                  </>
+                )}
+              </button>
+            </motion.form>
+
+            {/* Admin link */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="mt-6 text-center"
+            >
+              <button
+                type="button"
+                onClick={() => navigate('/noa/admin/users')}
+                className="text-xs transition-colors"
+                style={{ color: 'var(--color-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                管理员入口
+              </button>
+            </motion.div>
+          </div>
+        </div>
+      </motion.div>
     </div>
   )
 }
