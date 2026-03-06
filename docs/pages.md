@@ -316,13 +316,15 @@
 - **Route**：`/noa/admin/users`
 - **功能**：
   - 输入管理员密钥后加载数据
-  - 统计概览：用户总数、会话总数、SUS 均分、数据完整度
+  - 统计概览（两排卡片）：
+    - 第一排：用户总数、会话总数（完成/中止）、SUS 均分、数据完整度
+    - 第二排（当日）：今日阅读次数、今日累计时长、今日互动点击、今日正反馈
   - 参与度漏斗：注册 → 完成形象 → 提交进食 → 生成绘本 → 确认绘本
   - 进食评分分布（拒绝/一般/喜欢）
   - 绘本指标（总生成数、确认率、平均重新生成次数）
   - 会话统计（完成率/中止率）、反馈分布（进食等级/中止原因）
   - SUS 可用性评分分布、数据完整度（反馈/SUS 回收率）
-  - 用户明细表（可排序）：ID、目标食物、进食次数、平均分、绘本数、最近活跃
+  - 用户明细表（可排序）：ID、目标食物、进食次数、平均分、预览/回顾/实验完成/中断次数、正反馈次数、**平均时长**、**平均互动点击**、确认时间、最近活跃
   - 创建/删除用户
 - **关键实现**：`frontend/src/pages/noa/AdminUsersPage.tsx`
 
@@ -357,14 +359,23 @@
           "foodLogCount": 3,
           "avgScore": 7.2,
           "bookCount": 1,
+          "confirmedAt": "2026-03-05T10:00:00.000Z",
           "lastActive": "2026-03-05T10:00:00.000Z",
-          "preview_count": 2,
-          "review_count": 1,
-          "experiment_completed_count": 3,
-          "experiment_aborted_count": 1,
-          "positive_feedback_count": 2
+          "previewCount": 2,
+          "reviewCount": 1,
+          "experimentCompletedCount": 3,
+          "experimentAbortedCount": 1,
+          "positiveFeedbackCount": 2,
+          "avgDurationMs": 85000,
+          "avgInteractionCount": 4.5
         }
-      ]
+      ],
+      "today": {
+        "sessionCount": 3,
+        "totalDurationMs": 255000,
+        "totalInteractions": 14,
+        "positiveFeedbackCount": 2
+      }
     }
     ```
 
@@ -392,6 +403,49 @@
     ```
 
 - `DELETE /api/admin/users/:userID`
+
+---
+
+## 数据字段说明
+
+### reading_sessions 表字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `duration_ms` | INTEGER | 阅读会话时长（毫秒）。从 `started_at` 到 `ended_at` 差值，由前端 Reader 在退出时上报。管理员后台显示每用户平均时长（`avgDurationMs`）以及今日累计时长（`today.totalDurationMs`）。 |
+| `interaction_count` | INTEGER | 本次阅读中互动点击总次数（tap 点击 + mimic"我做到了"点击 + branch 选择）。由前端 Reader 在退出时上报。管理员后台显示每用户平均互动次数（`avgInteractionCount`）以及今日总互动（`today.totalInteractions`）。 |
+| `session_type` | TEXT | 阅读模式：`'preview'`（预览未确认绘本，不创建 telemetry session）、`'review'`（回顾已确认绘本）、`'experiment'`（正式实验，创建 telemetry session）。 |
+| `try_level` | TEXT | 孩子尝试食物的等级，由家长在 FeedbackModal 中选择：`'look'`（只是看了看）、`'Lv1'`（闻了闻）、`'Lv2'`（舔了一下）、`'Lv3'`（咬了一口）、`'Lv4'`（吃了一部分）、`'Lv5'`（正常进食）。 |
+| `abort_reason` | TEXT | 中止阅读的原因，由家长选择。 |
+| `pages_read` | INTEGER | 实际阅读的页数。 |
+| `total_pages` | INTEGER | 绘本总页数。 |
+| `completed` | INTEGER | `1` = 阅读至最后一页并点击"完成"；`0` = 中途退出。 |
+
+**正反馈（positiveFeedbackCount）**：`try_level IS NOT NULL AND try_level != 'look'`，即孩子不仅"看了看"而是有实际尝试行为（闻/舔/咬/吃）时计为一次正反馈。
+
+### RegenModal 不满意原因选项
+
+| `value` | 显示文字 | 说明 |
+|---------|---------|------|
+| `too_long` | 太长了 | 故事篇幅过长 |
+| `too_short` | 太短了 | 故事篇幅过短 |
+| `too_scary` | 太恐怖了 | 内容对孩子有压迫感 |
+| `too_preachy` | 太说教了 | 说教感过强 |
+| `not_cute` | 不够可爱 | 缺乏童趣 |
+| `style_inconsistent` | 风格不统一 | 图文或情节风格不一致 |
+| `interaction_unclear` | 互动不清晰 | 互动指令不明确 |
+| `repetitive` | 内容重复 | 情节或句式重复 |
+| `wrong_age_level` | 年龄不符合 | 难度/内容不适龄 |
+| `other` | 其他 | 其他原因（配合补充说明输入框） |
+
+### RegenModal 故事设置选项
+
+| 字段 | 选项 | 说明 |
+|------|------|------|
+| `story_type` | `interactive`（互动冒险）/ `adventure`（探险故事）/ `social`（社交故事）/ `sensory`（感官体验） | 故事类型，影响情节结构 |
+| `difficulty` | `easy` / `medium` / `hard` | 难度，影响词汇量和行为期望层级 |
+| `interaction_density` | `low` / `medium` / `high` | 互动频率，影响每页互动指令的数量 |
+| `pages` | 数字（如 `6`、`8`、`10`） | 绘本总页数 |
 
 ---
 

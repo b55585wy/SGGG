@@ -1200,7 +1200,15 @@ export type AdminUserStats = {
     experimentCompletedCount: number;
     experimentAbortedCount: number;
     positiveFeedbackCount: number;
+    avgDurationMs: number;
+    avgInteractionCount: number;
   }>;
+  today: {
+    sessionCount: number;
+    totalDurationMs: number;
+    totalInteractions: number;
+    positiveFeedbackCount: number;
+  };
 };
 
 function execScalar(db: Database, sql: string): number {
@@ -1269,7 +1277,9 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       COALESCE(rs.review_count, 0) as review_count,
       COALESCE(rs.experiment_completed_count, 0) as experiment_completed_count,
       COALESCE(rs.experiment_aborted_count, 0) as experiment_aborted_count,
-      COALESCE(rs.positive_feedback_count, 0) as positive_feedback_count
+      COALESCE(rs.positive_feedback_count, 0) as positive_feedback_count,
+      COALESCE(rs.avg_duration_ms, 0) as avg_duration_ms,
+      COALESCE(rs.avg_interaction_count, 0) as avg_interaction_count
     FROM users u
     LEFT JOIN (
       SELECT user_id, COUNT(*) as cnt, AVG(score) as avg_score, MAX(created_at) as last_at
@@ -1286,7 +1296,9 @@ export async function getAdminStats(): Promise<AdminUserStats> {
         SUM(CASE WHEN session_type = 'review' THEN 1 ELSE 0 END) as review_count,
         SUM(CASE WHEN session_type = 'experiment' AND completed = 1 THEN 1 ELSE 0 END) as experiment_completed_count,
         SUM(CASE WHEN session_type = 'experiment' AND completed = 0 THEN 1 ELSE 0 END) as experiment_aborted_count,
-        SUM(CASE WHEN session_type = 'experiment' AND try_level IS NOT NULL AND try_level != 'look' THEN 1 ELSE 0 END) as positive_feedback_count
+        SUM(CASE WHEN session_type = 'experiment' AND try_level IS NOT NULL AND try_level != 'look' THEN 1 ELSE 0 END) as positive_feedback_count,
+        AVG(duration_ms) as avg_duration_ms,
+        AVG(interaction_count) as avg_interaction_count
       FROM reading_sessions
       GROUP BY user_id
     ) rs ON u.user_id = rs.user_id
@@ -1311,14 +1323,35 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       experimentCompletedCount: (get("experiment_completed_count") as number) ?? 0,
       experimentAbortedCount: (get("experiment_aborted_count") as number) ?? 0,
       positiveFeedbackCount: (get("positive_feedback_count") as number) ?? 0,
+      avgDurationMs: Math.round((get("avg_duration_ms") as number) ?? 0),
+      avgInteractionCount: Math.round(((get("avg_interaction_count") as number) ?? 0) * 10) / 10,
     });
   }
+
+  // Today's aggregate stats
+  const todayRows = db.exec(`
+    SELECT
+      COUNT(*) as session_count,
+      SUM(duration_ms) as total_duration_ms,
+      SUM(interaction_count) as total_interactions,
+      SUM(CASE WHEN try_level IS NOT NULL AND try_level != 'look' THEN 1 ELSE 0 END) as positive_feedback_count
+    FROM reading_sessions
+    WHERE DATE(created_at) = DATE('now');
+  `);
+  const todayRow = todayRows[0]?.values[0];
+  const today = {
+    sessionCount: (todayRow?.[0] as number) ?? 0,
+    totalDurationMs: (todayRow?.[1] as number) ?? 0,
+    totalInteractions: (todayRow?.[2] as number) ?? 0,
+    positiveFeedbackCount: (todayRow?.[3] as number) ?? 0,
+  };
 
   return {
     funnel: { totalUsers, completedAvatar, submittedFoodLog, generatedBook, confirmedBook },
     foodScores: { avgScore, distribution },
     books: { totalGenerated: totalGeneratedBooks, totalConfirmed: totalConfirmedBooks, avgRegenerateCount },
     enrichedUsers,
+    today,
   };
 }
 

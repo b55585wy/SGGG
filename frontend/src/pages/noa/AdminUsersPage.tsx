@@ -47,7 +47,15 @@ type UserApiStats = {
     experimentCompletedCount: number
     experimentAbortedCount: number
     positiveFeedbackCount: number
+    avgDurationMs: number
+    avgInteractionCount: number
   }>
+  today: {
+    sessionCount: number
+    totalDurationMs: number
+    totalInteractions: number
+    positiveFeedbackCount: number
+  }
 }
 
 type BackendStats = {
@@ -103,7 +111,16 @@ function formatTimestamp(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-type SortKey = 'userID' | 'themeFood' | 'foodLogCount' | 'avgScore' | 'bookCount' | 'confirmedAt' | 'lastActive' | 'previewCount' | 'reviewCount' | 'experimentCompletedCount' | 'experimentAbortedCount'
+function formatDuration(ms: number): string {
+  if (!ms || ms <= 0) return '--'
+  const secs = Math.round(ms / 1000)
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  const rem = secs % 60
+  return rem > 0 ? `${mins}m ${rem}s` : `${mins}m`
+}
+
+type SortKey = 'userID' | 'themeFood' | 'foodLogCount' | 'avgScore' | 'bookCount' | 'confirmedAt' | 'lastActive' | 'previewCount' | 'reviewCount' | 'experimentCompletedCount' | 'experimentAbortedCount' | 'positiveFeedbackCount' | 'avgDurationMs' | 'avgInteractionCount'
 
 // ─── Sub-components ─────────────────────────────────────────
 
@@ -311,6 +328,7 @@ export default function AdminUsersPage() {
   const funnel = userStats?.funnel
   const fs = userStats?.foodScores
   const bk = userStats?.books
+  const today = userStats?.today
   const sess = backendStats?.sessions
   const sus = backendStats?.sus
   const comp = backendStats?.completeness
@@ -375,6 +393,23 @@ export default function AdminUsersPage() {
                 sub={comp ? `反馈 ${comp.sessionsWithFeedbackPct}% / SUS ${comp.sessionsWithSUSPct}%` : undefined}
               />
             </div>
+
+            {/* Today's stats */}
+            {today ? (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <StatCard label="今日阅读次数" value={today.sessionCount} />
+                <StatCard
+                  label="今日累计时长"
+                  value={formatDuration(today.totalDurationMs)}
+                />
+                <StatCard label="今日互动点击" value={today.totalInteractions} />
+                <StatCard
+                  label="今日正反馈"
+                  value={today.positiveFeedbackCount}
+                  sub="孩子尝试/吃了食物"
+                />
+              </div>
+            ) : null}
 
             {/* Engagement Funnel */}
             <div className="rounded-2xl border border-border-light bg-surface p-5
@@ -607,7 +642,9 @@ export default function AdminUsersPage() {
                     <ColHeader label="回顾" sk="reviewCount" />
                     <ColHeader label="实验完成" sk="experimentCompletedCount" />
                     <ColHeader label="实验中断" sk="experimentAbortedCount" />
-                    <ColHeader label="正反馈" sk="confirmedAt" />
+                    <ColHeader label="正反馈" sk="positiveFeedbackCount" />
+                    <ColHeader label="平均时长" sk="avgDurationMs" />
+                    <ColHeader label="平均互动" sk="avgInteractionCount" />
                     <ColHeader label="确认时间" sk="confirmedAt" />
                     <ColHeader label="最近活跃" sk="lastActive" />
                     <th className="px-4 py-3 text-right text-[11px] font-medium text-muted">操作</th>
@@ -616,7 +653,7 @@ export default function AdminUsersPage() {
                 <tbody>
                   {sortedUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="px-5 py-8 text-center text-sm text-muted">
+                      <td colSpan={14} className="px-5 py-8 text-center text-sm text-muted">
                         暂无数据
                       </td>
                     </tr>
@@ -665,6 +702,12 @@ export default function AdminUsersPage() {
                           ) : (
                             <span className="text-xs text-muted">0</span>
                           )}
+                        </td>
+                        <td className="px-4 py-2.5 text-[11px] tabular-nums text-muted">
+                          {formatDuration(u.avgDurationMs)}
+                        </td>
+                        <td className="px-4 py-2.5 text-[11px] tabular-nums text-muted">
+                          {u.avgInteractionCount > 0 ? u.avgInteractionCount.toFixed(1) : '--'}
                         </td>
                         <td className="px-4 py-2.5 text-[11px] font-mono text-muted">
                           {formatTimestamp(u.confirmedAt)}
