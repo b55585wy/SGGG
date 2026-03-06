@@ -52,6 +52,9 @@ class RegenerateRequest(BaseModel):
     story_type: str
     dissatisfaction_reason: str
     dislike_reason: Optional[str] = None
+    pages: Optional[int] = None
+    difficulty: Optional[str] = None
+    interaction_density: Optional[str] = None
 
 
 # ── Session ───────────────────────────────────────────────────

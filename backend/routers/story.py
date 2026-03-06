@@ -104,7 +104,17 @@ def story_regenerate(req: RegenerateRequest):
 
     prev_draft = json.loads(row["story_json"])
     story_config = prev_draft.get("story_config") or {"story_type": req.story_type, "pages": 8, "interactive_density": "medium", "language": "zh-CN"}
+    # 用户重新生成时选择的新参数覆盖旧配置
+    story_config["story_type"] = req.story_type
+    if req.pages is not None:
+        story_config["pages"] = req.pages
+    if req.difficulty is not None:
+        story_config["difficulty"] = req.difficulty
+    if req.interaction_density is not None:
+        story_config["interactive_density"] = req.interaction_density
+
     meal_context = prev_draft.get("meal_context") or {"target_food": req.target_food, "meal_score": 3, "meal_text": ""}
+    meal_context["target_food"] = req.target_food
 
     try:
         content = generate_story_content(

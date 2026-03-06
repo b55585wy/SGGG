@@ -77,6 +77,11 @@ INTERACTION DISTRIBUTION by density:
 - medium: mix of tap, choice, mimic, some none; at least 3 interactive pages
 - high:   frequent tap/choice/mimic, at least 1 drag; minimal none pages
 
+MANDATORY: Every story MUST include exactly 1 page with interaction type "record_voice".
+Place it in the Lv2-Lv3 section where the child is encouraged to speak to or about the food
+(e.g., "对西兰花说：你好呀！" or "告诉小厨师你觉得胡萝卜闻起来像什么").
+The instruction should be a warm, simple prompt that encourages verbal engagement with the food.
+
 EVENT KEY RULES:
 - Must be unique across all pages
 - snake_case format, descriptive (e.g., "smell_broccoli_p02", "choose_path_p03")
