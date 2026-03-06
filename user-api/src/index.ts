@@ -38,6 +38,12 @@ import { signUserToken } from "./jwt";
 
 dotenv.config();
 
+// In-memory set tracking users whose book is currently being generated/regenerated.
+// Cleared when the temp book is saved (or on error). Survives individual requests but
+// resets on server restart — acceptable because the polling client will see the book
+// in the DB once generation completes regardless.
+const generatingUsers = new Set<string>();
+
 const app = express();
 
 app.use(cors());
@@ -429,9 +435,11 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   };
 
   const tempBook = await getTempBook(req.user.userID);
+  const generating = generatingUsers.has(req.user.userID);
   if (tempBook) {
     res.json({
       ...base,
+      generating,
       book: {
         bookID: tempBook.bookID,
         title: tempBook.title,
@@ -448,6 +456,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   if (latestHistory) {
     res.json({
       ...base,
+      generating,
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
@@ -460,7 +469,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  res.json({ ...base, book: null });
+  res.json({ ...base, generating, book: null });
 });
 
 app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -522,6 +531,7 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
 
   if (avatar) {
     const readingSummary = await getReadingSummary(req.user.userID);
+    generatingUsers.add(req.user.userID);
     generateTempBookForUser({
       userID: req.user.userID,
       nickname: avatar.nickname,
@@ -532,7 +542,8 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       regenerateCount: 0,
       recentHistory: historyBeforeInsert,
       readingSummary,
-    }).catch((err) => console.error("[BOOK] 绘本生成失败:", err));
+    }).catch((err) => console.error("[BOOK] 绘本生成失败:", err))
+      .finally(() => generatingUsers.delete(req.user!.userID));
   }
 
   res.json({ ok: true, feedbackText, expression, score });
@@ -598,6 +609,21 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
       ? (body as { story_type: string }).story_type
       : "interactive";
 
+  const regenPages =
+    body && typeof body === "object" && typeof (body as { pages?: unknown }).pages === "number"
+      ? Math.min(12, Math.max(4, (body as { pages: number }).pages))
+      : 6;
+
+  const regenDifficulty =
+    body && typeof body === "object" && typeof (body as { difficulty?: unknown }).difficulty === "string"
+      ? (body as { difficulty: string }).difficulty
+      : "medium";
+
+  const regenInteractionDensity =
+    body && typeof body === "object" && typeof (body as { interaction_density?: unknown }).interaction_density === "string"
+      ? (body as { interaction_density: string }).interaction_density
+      : "medium";
+
   // Optional: temporary food override for this regeneration only
   const targetFoodOverride =
     body && typeof body === "object" && typeof (body as { target_food?: unknown }).target_food === "string"
@@ -608,9 +634,14 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     previous_story_id: tempBook.bookID,
     target_food: targetFoodOverride || avatar.themeFood,
     story_type: storyType,
+    pages: regenPages,
+    difficulty: regenDifficulty,
+    interaction_density: regenInteractionDensity,
     dissatisfaction_reason: promptReason || promptNote || "用户要求重新生成",
   };
 
+  generatingUsers.add(req.user.userID);
+  try {
   const response = await fetch(`${FASTAPI_URL}/api/v1/story/regenerate`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -655,6 +686,9 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
       regenerateCount: tempBook.regenerateCount + 1,
     },
   });
+  } finally {
+    generatingUsers.delete(req.user.userID);
+  }
 });
 
 app.get("/api/food/heatmap", authRequired, async (req: AuthenticatedRequest, res) => {

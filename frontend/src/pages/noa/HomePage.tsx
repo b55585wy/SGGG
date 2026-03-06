@@ -40,6 +40,7 @@ type HomeStatusResponse = {
   }
   feedbackText: string
   themeFood: string
+  generating?: boolean
   book: {
     bookID: string
     title: string
@@ -650,7 +651,14 @@ export default function HomePage() {
     setLoading(true)
     try {
       const data = await getJson<HomeStatusResponse>('/api/home/status')
-      setStatus(data)
+      // Restore generating state from server (survives page refresh).
+      // While generating, clear any stale book so the animation shows correctly.
+      if (data.generating) {
+        setStatus((prev) => prev ? { ...prev, ...data, book: null } : { ...data, book: null })
+        setBookGenerating(true)
+      } else {
+        setStatus(data)
+      }
     } catch (e) {
       if (e && typeof e === 'object' && 'status' in e) {
         const statusCode = (e as { status?: number }).status
@@ -689,10 +697,8 @@ export default function HomePage() {
     pollRef.current = setInterval(async () => {
       try {
         const data = await getJson<HomeStatusResponse>('/api/home/status')
-        // 只有当服务端返回新的未确认绘本时才更新 status 并停止生成中状态；
-        // 若返回的是已确认历史书（confirmed=true），忽略并继续等待，
-        // 防止旧书覆盖当前 book=null 的生成中 UI
-        if (data?.book && !data.book.confirmed) {
+        // Stop polling once server confirms generation is complete
+        if (!data.generating) {
           setStatus(data)
           setBookGenerating(false)
         }
