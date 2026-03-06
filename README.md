@@ -92,10 +92,10 @@ cd frontend && npm run dev
 | GET | `/api/avatar/options` | 形象选项列表 | 无 |
 | GET | `/api/avatar/component` | 单个组件图片（`?type=&id=`） | 无 |
 | POST | `/api/avatar/save` | 保存用户形象 | Bearer |
-| GET | `/api/home/status` | 主页聚合数据 | Bearer |
+| GET | `/api/home/status` | 主页聚合数据（含 `generating` 字段，刷新后恢复生成状态） | Bearer |
 | POST | `/api/food/log` | 提交进食记录 | Bearer |
 | POST | `/api/book/confirm` | 确认临时绘本 | Bearer |
-| POST | `/api/book/regenerate` | 重新生成临时绘本 | Bearer |
+| POST | `/api/book/regenerate` | 重新生成临时绘本（转发 pages/difficulty/interaction_density 给 FastAPI） | Bearer |
 | GET | `/api/books/history` | 历史绘本列表 | Bearer |
 | GET | `/api/books/:bookId` | 绘本详情 | Bearer |
 | POST | `/api/voice/transcribe` | 语音转写（占位） | Bearer |
@@ -110,8 +110,8 @@ cd frontend && npm run dev
 |------|------|------|
 | POST | `/api/v1/session/start` | 创建故事会话 |
 | GET | `/api/v1/story/{story_id}` | 获取故事 |
-| POST | `/api/v1/story/generate` | 生成故事 |
-| POST | `/api/v1/story/regenerate` | 重新生成故事 |
+| POST | `/api/v1/story/generate` | 生成故事（接受 JITAI 字段：food_history / reading_context） |
+| POST | `/api/v1/story/regenerate` | 重新生成故事（接受 pages / difficulty / interaction_density） |
 | POST | `/api/v1/feedback/submit` | 提交反馈 |
 | POST | `/api/v1/sus/submit` | 提交 SUS 问卷 |
 | POST | `/api/v1/telemetry/report` | 遥测上报 |
@@ -205,12 +205,21 @@ SGGG/
 │       ├── pages/noa/     # 页面组件
 │       └── lib/           # 工具库
 ├── e2e/                   # Playwright E2E 测试
+│   ├── auth.spec.ts
+│   ├── avatar.spec.ts
+│   ├── admin.spec.ts
+│   ├── navigation.spec.ts
+│   ├── home-foodlog.spec.ts
+│   ├── reader.spec.ts
+│   ├── regen-modal.spec.ts
+│   ├── book-generation.spec.ts  # 生成动效 + JITAI 多次提交
+│   └── regen-state.spec.ts      # 重新生成设置传递 + 刷新状态恢复
 ├── scripts/               # 工具脚本
 │   └── compose_avatar.py  # Kenney 角色图层生成
 ├── docs/
 │   ├── pages.md           # 页面功能与接口详细说明
 │   ├── prompts/           # Prompt 文档
-│   │   ├── 绘本故事prompt.md
+│   │   ├── 绘本故事prompt.md  # 生产 prompt + JITAI 字段 + 变更历史
 │   │   ├── 前端开工promptV1.0.md
 │   │   └── taste_skill.md
 │   └── misc/              # 设计/架构文档

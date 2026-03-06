@@ -103,14 +103,15 @@
       - 已确认绘本（`book.confirmed`）：封面预览 + "开始阅读"按钮（跳转 `/noa/books/:bookId?experiment=1`）
   - Header 中的"记录进食"按钮在 State B 下仍可用，打开 FoodLogModal 提交新进食记录
   - "重新生成"按钮打开 RegenModal 底部弹层（在主页面内完成，不再跳转至 `/noa/books/create`）
-  - 进食记录提交或重新生成成功后：`book` → null，`bookGenerating` → true，进入生成中 shimmer 状态；轮询（每 3 秒）`GET /api/home/status` 等待新的**未确认**绘本（若返回已确认的历史书则忽略，继续等待）
+  - 进食记录提交或重新生成成功后：`book` → null，`bookGenerating` → true，进入生成中 shimmer 状态
+  - 轮询（每 3 秒）`GET /api/home/status`，以 `generating: false` 作为终止条件（不再依赖 book 是否存在），确保刷新后生成状态可恢复
 - **关键实现**：`frontend/src/pages/noa/HomePage.tsx`
 
 **API**
 
 - `GET /api/home/status`
   - **Headers**：`Authorization: Bearer <token>`
-  - **Response 200（有未确认绘本）**
+  - **Response 200（有未确认绘本，生成完成）**
     ```json
     {
       "avatar": {
@@ -123,6 +124,7 @@
       },
       "feedbackText": "太棒了！你又进步了一点点。",
       "themeFood": "胡萝卜",
+      "generating": false,
       "book": {
         "bookID": "uuid",
         "title": "小宇的美味冒险",
@@ -133,12 +135,23 @@
       }
     }
     ```
+  - **Response 200（生成中，`generating: true`）**
+    ```json
+    {
+      "avatar": { "...": "..." },
+      "feedbackText": "...",
+      "themeFood": "胡萝卜",
+      "generating": true,
+      "book": null
+    }
+    ```
   - **Response 200（已确认历史书 / 无绘本）**
     ```json
     {
       "avatar": { "...": "..." },
       "feedbackText": "...",
       "themeFood": "胡萝卜",
+      "generating": false,
       "book": {
         "bookID": "uuid",
         "title": "小宇的美味冒险",
@@ -149,7 +162,7 @@
       }
     }
     ```
-    > `book` 字段可为 `null`（用户尚未提交进食记录）。`confirmed: true` 表示历史确认书，生成轮询期间前端会忽略此值，继续等待新的未确认绘本。
+  > `generating: true` 表示服务器正在异步生成绘本（初次生成）或同步等待 FastAPI 重新生成。客户端以此字段决定是否继续轮询，并在页面刷新后恢复生成动效（不丢失状态）。`book` 字段可为 `null`（尚未生成完成或未提交进食记录）。
 
 - `POST /api/food/log`
   - **Headers**：`Authorization: Bearer <token>`
@@ -177,8 +190,18 @@
 - `POST /api/book/regenerate`
   - **Request**
     ```json
-    { "title": "新标题", "note": "偏冒险主题" }
+    {
+      "reason": "太长了",
+      "target_food": "西兰花",
+      "title": "新标题（选填）",
+      "note": "偏冒险主题（选填）",
+      "story_type": "冒险",
+      "difficulty": "medium",
+      "pages": 8,
+      "interaction_density": "medium"
+    }
     ```
+  > `target_food` 选填，仅本次生效；`pages`、`difficulty`、`interaction_density` 从 RegenModal 故事设置读取，2026-03-05 起已正确转发给 FastAPI。
   - **Response 200**
     ```json
     {
