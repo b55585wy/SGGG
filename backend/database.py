@@ -139,6 +139,31 @@ def get_backend_stats() -> dict:
         }
 
 
+def get_telemetry_stats() -> dict:
+    """Aggregate telemetry event stats for admin dashboard."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total_events,
+                COUNT(DISTINCT session_id) as unique_sessions,
+                AVG(ts_client_ms) as avg_dwell_ms
+            FROM telemetry_events
+        """).fetchone()
+
+        type_dist = conn.execute("""
+            SELECT event_type, COUNT(*) as cnt
+            FROM telemetry_events
+            GROUP BY event_type
+        """).fetchall()
+
+        return {
+            "totalEvents": row["total_events"] or 0,
+            "uniqueSessions": row["unique_sessions"] or 0,
+            "avgDwellMs": round(row["avg_dwell_ms"] or 0, 1),
+            "byType": {r["event_type"]: r["cnt"] for r in type_dist},
+        }
+
+
 @contextmanager
 def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)

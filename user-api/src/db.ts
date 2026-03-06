@@ -154,6 +154,9 @@ function ensureUserAvatarColumns(db: Database) {
     if (!columns.has("theme_food")) {
       db.run("ALTER TABLE users ADD COLUMN theme_food TEXT DEFAULT '胡萝卜';");
     }
+    if (!columns.has("generating_since")) {
+      db.run("ALTER TABLE users ADD COLUMN generating_since TEXT DEFAULT NULL;");
+    }
   }
 
   // reading_sessions table migration — add session_type column
@@ -1190,6 +1193,11 @@ export type AdminUserStats = {
     userID: string;
     themeFood: string;
     firstLogin: boolean;
+    nickname: string | null;
+    gender: string | null;
+    voiceCount: number;
+    totalPagesRead: number;
+    totalTotalPages: number;
     foodLogCount: number;
     avgScore: number | null;
     bookCount: number;
@@ -1268,6 +1276,9 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       u.user_id,
       u.theme_food,
       u.first_login,
+      ua.nickname,
+      ua.gender,
+      COALESCE(vr.voice_count, 0) as voice_count,
       COALESCE(fl.cnt, 0) as food_log_count,
       fl.avg_score,
       COALESCE(hb.cnt, 0) as book_count,
@@ -1279,7 +1290,9 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       COALESCE(rs.experiment_aborted_count, 0) as experiment_aborted_count,
       COALESCE(rs.positive_feedback_count, 0) as positive_feedback_count,
       COALESCE(rs.avg_duration_ms, 0) as avg_duration_ms,
-      COALESCE(rs.avg_interaction_count, 0) as avg_interaction_count
+      COALESCE(rs.avg_interaction_count, 0) as avg_interaction_count,
+      COALESCE(rs.total_pages_read, 0) as total_pages_read,
+      COALESCE(rs.total_total_pages, 0) as total_total_pages
     FROM users u
     LEFT JOIN (
       SELECT user_id, COUNT(*) as cnt, AVG(score) as avg_score, MAX(created_at) as last_at
@@ -1290,6 +1303,9 @@ export async function getAdminStats(): Promise<AdminUserStats> {
     ) hb ON u.user_id = hb.user_id
     LEFT JOIN user_avatars ua ON u.user_id = ua.user_id
     LEFT JOIN (
+      SELECT user_id, COUNT(*) as voice_count FROM voice_recordings GROUP BY user_id
+    ) vr ON u.user_id = vr.user_id
+    LEFT JOIN (
       SELECT
         user_id,
         SUM(CASE WHEN session_type = 'preview' THEN 1 ELSE 0 END) as preview_count,
@@ -1298,7 +1314,9 @@ export async function getAdminStats(): Promise<AdminUserStats> {
         SUM(CASE WHEN session_type = 'experiment' AND completed = 0 THEN 1 ELSE 0 END) as experiment_aborted_count,
         SUM(CASE WHEN session_type = 'experiment' AND try_level IS NOT NULL AND try_level != 'look' THEN 1 ELSE 0 END) as positive_feedback_count,
         AVG(duration_ms) as avg_duration_ms,
-        AVG(interaction_count) as avg_interaction_count
+        AVG(interaction_count) as avg_interaction_count,
+        SUM(pages_read) as total_pages_read,
+        SUM(total_pages) as total_total_pages
       FROM reading_sessions
       GROUP BY user_id
     ) rs ON u.user_id = rs.user_id
@@ -1313,6 +1331,11 @@ export async function getAdminStats(): Promise<AdminUserStats> {
       userID: get("user_id") as string,
       themeFood: (get("theme_food") as string) ?? "胡萝卜",
       firstLogin: get("first_login") === 1,
+      nickname: (get("nickname") as string) ?? null,
+      gender: (get("gender") as string) ?? null,
+      voiceCount: (get("voice_count") as number) ?? 0,
+      totalPagesRead: (get("total_pages_read") as number) ?? 0,
+      totalTotalPages: (get("total_total_pages") as number) ?? 0,
       foodLogCount: (get("food_log_count") as number) ?? 0,
       avgScore: get("avg_score") != null ? Math.round((get("avg_score") as number) * 10) / 10 : null,
       bookCount: (get("book_count") as number) ?? 0,
@@ -1435,4 +1458,99 @@ export async function getTempBookById(
   } finally {
     stmt.free();
   }
+}
+
+// ─── Generating state persistence ─────────────────────────────────────────────
+
+export async function setUserGenerating(userID: string) {
+  const db = await getDb();
+  db.run("UPDATE users SET generating_since = datetime('now') WHERE user_id = $uid;", { $uid: userID });
+  await persistDb(db);
+}
+
+export async function clearUserGenerating(userID: string) {
+  const db = await getDb();
+  db.run("UPDATE users SET generating_since = NULL WHERE user_id = $uid;", { $uid: userID });
+  await persistDb(db);
+}
+
+export async function isUserGenerating(userID: string): Promise<boolean> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT generating_since FROM users WHERE user_id = $uid;",
+  );
+  stmt.bind({ $uid: userID });
+  try {
+    if (!stmt.step()) return false;
+    const row = stmt.getAsObject() as { generating_since: string | null };
+    if (!row.generating_since) return false;
+    const sinceMs = new Date(row.generating_since + "Z").getTime();
+    return Date.now() - sinceMs < 5 * 60 * 1000;
+  } finally {
+    stmt.free();
+  }
+}
+
+// ─── Admin CSV Exports ────────────────────────────────────
+
+function execRows(db: Database, sql: string): Record<string, unknown>[] {
+  const res = db.exec(sql);
+  if (!res[0]) return [];
+  const cols = res[0].columns;
+  return res[0].values.map((row) => {
+    const obj: Record<string, unknown> = {};
+    for (let i = 0; i < cols.length; i++) obj[cols[i]] = row[i];
+    return obj;
+  });
+}
+
+export async function exportAllUsers(): Promise<Record<string, unknown>[]> {
+  const db = await getDb();
+  return execRows(db, `
+    SELECT u.user_id, u.first_login, u.theme_food,
+           ua.nickname, ua.gender, ua.hair_style, ua.glasses,
+           ua.top_color, ua.bottom_color, ua.created_at as avatar_created_at
+    FROM users u
+    LEFT JOIN user_avatars ua ON u.user_id = ua.user_id
+    ORDER BY u.user_id;
+  `);
+}
+
+export async function exportAllFoodLogs(): Promise<Record<string, unknown>[]> {
+  const db = await getDb();
+  return execRows(db, `
+    SELECT log_id, user_id, score, content, created_at
+    FROM user_food_logs
+    ORDER BY created_at DESC;
+  `);
+}
+
+export async function exportAllReadingSessions(): Promise<Record<string, unknown>[]> {
+  const db = await getDb();
+  return execRows(db, `
+    SELECT id, user_id, book_id, started_at, ended_at, duration_ms,
+           total_pages, pages_read, interaction_count, completed,
+           session_type, try_level, abort_reason, created_at
+    FROM reading_sessions
+    ORDER BY created_at DESC;
+  `);
+}
+
+export async function exportAllVoiceRecordings(): Promise<Record<string, unknown>[]> {
+  const db = await getDb();
+  return execRows(db, `
+    SELECT id, user_id, source, context_id, page_id, transcript, duration_ms, created_at
+    FROM voice_recordings
+    ORDER BY created_at DESC;
+  `);
+}
+
+export async function exportAllAvatars(): Promise<Record<string, unknown>[]> {
+  const db = await getDb();
+  return execRows(db, `
+    SELECT user_id, nickname, gender, hair_style, glasses,
+           top_color, bottom_color, theme_food, created_at, updated_at
+    FROM user_avatars
+    ORDER BY user_id;
+  `);
 }

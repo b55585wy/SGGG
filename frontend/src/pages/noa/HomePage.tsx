@@ -624,8 +624,8 @@ function LoadingSkeleton() {
         </div>
       </div>
       {/* Content */}
-      <div className="flex-1 min-h-0 flex gap-4 p-4 pt-3">
-        <div className="w-[34%] rounded-[2.5rem] skeleton-shimmer" />
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 lg:gap-4 p-3 lg:p-4 lg:pt-3">
+        <div className="w-full lg:w-[28%] xl:w-[30%] h-48 lg:h-auto rounded-[2rem] lg:rounded-[2.5rem] shrink-0 skeleton-shimmer" />
         <div className="flex-1 rounded-[2rem] skeleton-shimmer" />
       </div>
     </div>
@@ -832,14 +832,14 @@ export default function HomePage() {
       </header>
 
       {/* ── Main 2-column layout ── */}
-      <div className="relative z-10 flex-1 min-h-0 flex gap-4 p-4 pt-3">
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col lg:flex-row gap-3 lg:gap-4 p-3 lg:p-4 lg:pt-3">
 
         {/* ── Left: Avatar card (full height) ── */}
         <motion.div
           initial={{ opacity: 0, x: -16 }}
           animate={{ opacity: 1, x: 0 }}
           transition={spring}
-          className="w-[34%] relative overflow-hidden rounded-[2.5rem] flex flex-col"
+          className="w-full lg:w-[28%] xl:w-[30%] h-48 lg:h-auto relative overflow-hidden rounded-[2rem] lg:rounded-[2.5rem] flex flex-col shrink-0"
           style={{
             background: 'white',
             boxShadow: '0 24px 56px -12px rgba(0,0,0,0.09), 0 0 0 1px rgba(5,150,105,0.08)',
@@ -941,7 +941,7 @@ export default function HomePage() {
             >
               {/* Book cover thumbnail */}
               <div
-                className="w-[42%] relative shrink-0 overflow-hidden"
+                className="w-[35%] lg:w-[38%] relative shrink-0 overflow-hidden"
                 style={{
                   background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
                   borderRight: '1px solid rgba(231,229,228,0.4)',
@@ -1004,7 +1004,7 @@ export default function HomePage() {
               <div className="flex-1 min-w-0 flex flex-col">
 
                 {/* Fixed header */}
-                <div className="shrink-0 px-7 pt-7 pb-5" style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                <div className="shrink-0 px-4 lg:px-6 pt-5 lg:pt-6 pb-4 lg:pb-5" style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                   <div className="flex items-center gap-2 mb-1.5">
                     <div
                       className="flex items-center justify-center shrink-0"
@@ -1022,14 +1022,14 @@ export default function HomePage() {
                       <div className="h-3.5 w-full rounded skeleton-shimmer" />
                     </div>
                   ) : (
-                    <h2 className="text-xl font-black tracking-tight line-clamp-2 mt-1" style={{ color: 'var(--color-foreground)' }}>
+                    <h2 className="text-lg lg:text-xl font-black tracking-tight line-clamp-2 mt-1" style={{ color: 'var(--color-foreground)' }}>
                       {book?.title || '绘本生成中…'}
                     </h2>
                   )}
                 </div>
 
                 {/* Scrollable description */}
-                <div className="flex-1 min-h-0 overflow-y-auto px-7 py-5" style={{ scrollbarWidth: 'none' }}>
+                <div className="flex-1 min-h-0 overflow-y-auto px-4 lg:px-6 py-4 lg:py-5" style={{ scrollbarWidth: 'none' }}>
                   {bookGenerating && !book ? (
                     <div className="space-y-2">
                       <div className="h-3 w-full rounded skeleton-shimmer" />
@@ -1044,7 +1044,7 @@ export default function HomePage() {
                 </div>
 
                 {/* Fixed action footer */}
-                <div className="shrink-0 px-7 pb-6 pt-4" style={{ borderTop: '1px solid var(--color-border-light)' }}>
+                <div className="shrink-0 px-4 lg:px-6 pb-5 lg:pb-6 pt-3 lg:pt-4" style={{ borderTop: '1px solid var(--color-border-light)' }}>
                   {book?.confirmed ? (
                     <button
                       onClick={() => navigate(`/noa/books/${book.bookID}?experiment=1`)}
@@ -1144,6 +1144,7 @@ export default function HomePage() {
               <InlineFoodLog
                 themeFood={status?.themeFood ?? ''}
                 onSuccess={(data) => {
+                  localStorage.removeItem('pending_meal_reminder')
                   setFeedbackText(data.feedbackText)
                   sessionStorage.setItem('homeFeedbackText', data.feedbackText)
                   setStatus((prev) => (prev ? { ...prev, book: null } : null))
@@ -1163,6 +1164,7 @@ export default function HomePage() {
             themeFood={status?.themeFood ?? ''}
             onClose={() => setShowFoodLogModal(false)}
             onSuccess={(data) => {
+              localStorage.removeItem('pending_meal_reminder')
               setShowFoodLogModal(false)
               setFeedbackText(data.feedbackText)
               sessionStorage.setItem('homeFeedbackText', data.feedbackText)

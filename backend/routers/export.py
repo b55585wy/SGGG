@@ -1,11 +1,35 @@
 import json
 import csv
 import io
-from fastapi import APIRouter
+import os
+from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import StreamingResponse
 from database import get_db
 
 router = APIRouter(prefix="/api/v1/export", tags=["export"])
+
+
+def _check_admin(x_admin_key: str | None = None, key: str | None = None):
+    expected = os.environ.get("ADMIN_API_KEY", "")
+    if not expected:
+        raise HTTPException(503, detail="admin key not configured")
+    if (x_admin_key or key or "") != expected:
+        raise HTTPException(403, detail="forbidden")
+
+
+def _rows_to_csv(rows, filename: str) -> StreamingResponse:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    if rows:
+        writer.writerow(rows[0].keys())
+        for r in rows:
+            writer.writerow(r)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/child/{child_id}")
@@ -71,4 +95,110 @@ def export_child_data(child_id: str):
         iter([output.getvalue()]),
         media_type='text/csv',
         headers={'Content-Disposition': f'attachment; filename="child_{child_id}.csv"'},
+    )
+
+
+# ─── Admin CSV Exports ─────────────────────────────────────
+
+@router.get("/admin/sessions.csv")
+def export_admin_sessions(
+    x_admin_key: str | None = Header(None),
+    key: str | None = Query(None),
+):
+    _check_admin(x_admin_key, key)
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT session_id, story_id, child_id, session_index,
+                   client_session_token, status, created_at
+            FROM sessions ORDER BY created_at DESC
+        """).fetchall()
+    return _rows_to_csv(rows, "sessions.csv")
+
+
+@router.get("/admin/telemetry.csv")
+def export_admin_telemetry(
+    x_admin_key: str | None = Header(None),
+    key: str | None = Query(None),
+):
+    _check_admin(x_admin_key, key)
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT event_id, session_id, story_id, page_id,
+                   event_type, payload, ts_client_ms, created_at
+            FROM telemetry_events ORDER BY created_at DESC
+        """).fetchall()
+    return _rows_to_csv(rows, "telemetry.csv")
+
+
+@router.get("/admin/feedback.csv")
+def export_admin_feedback(
+    x_admin_key: str | None = Header(None),
+    key: str | None = Query(None),
+):
+    _check_admin(x_admin_key, key)
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT id, session_id, status, try_level, abort_reason, notes, created_at
+            FROM feedback ORDER BY created_at DESC
+        """).fetchall()
+    return _rows_to_csv(rows, "feedback.csv")
+
+
+@router.get("/admin/sus.csv")
+def export_admin_sus(
+    x_admin_key: str | None = Header(None),
+    key: str | None = Query(None),
+):
+    _check_admin(x_admin_key, key)
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT id, session_id, answers, sus_score, created_at
+            FROM sus_responses ORDER BY created_at DESC
+        """).fetchall()
+    return _rows_to_csv(rows, "sus.csv")
+
+
+@router.get("/admin/stories.csv")
+def export_admin_stories(
+    x_admin_key: str | None = Header(None),
+    key: str | None = Query(None),
+):
+    _check_admin(x_admin_key, key)
+    with get_db() as db:
+        raw = db.execute("""
+            SELECT story_id, parent_story_id, child_id, regen_count, story_json, created_at
+            FROM stories ORDER BY created_at DESC
+        """).fetchall()
+    # Extract book_meta fields, omit full story_json
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "story_id", "parent_story_id", "child_id", "regen_count",
+        "title", "summary", "theme_food", "story_type", "page_count", "created_at",
+    ])
+    for r in raw:
+        meta: dict = {}
+        if r["story_json"]:
+            try:
+                story = json.loads(r["story_json"])
+                bm = story.get("book_meta", {})
+                meta = {
+                    "title": bm.get("title", ""),
+                    "summary": bm.get("summary", ""),
+                    "theme_food": bm.get("theme_food", ""),
+                    "story_type": bm.get("story_type", ""),
+                    "page_count": len(story.get("pages", [])),
+                }
+            except Exception:
+                pass
+        writer.writerow([
+            r["story_id"], r["parent_story_id"], r["child_id"], r["regen_count"],
+            meta.get("title", ""), meta.get("summary", ""), meta.get("theme_food", ""),
+            meta.get("story_type", ""), meta.get("page_count", ""), r["created_at"],
+        ])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="stories.csv"'},
     )

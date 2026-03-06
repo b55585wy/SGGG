@@ -216,6 +216,9 @@ export default function ReaderPage() {
   const onFeedbackDone = useCallback((data: FeedbackDoneData) => {
     setFeedback(null);
     void logReadingSession(data, pageIdx + 1, data.status === 'COMPLETED');
+    if (data.status === 'COMPLETED' && session) {
+      localStorage.setItem('pending_meal_reminder', '1');
+    }
     if (session && session.session_index >= TOTAL_SESSIONS - 1) {
       setShowSUS(true);
     } else {

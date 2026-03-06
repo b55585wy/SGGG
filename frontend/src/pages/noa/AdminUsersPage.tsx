@@ -10,6 +10,8 @@ import {
   SortDescending,
   CaretDown,
   Warning,
+  DownloadSimple,
+  Pulse,
 } from '@phosphor-icons/react'
 
 // ─── Types ──────────────────────────────────────────────────
@@ -37,6 +39,11 @@ type UserApiStats = {
     userID: string
     themeFood: string
     firstLogin: boolean
+    nickname: string | null
+    gender: string | null
+    voiceCount: number
+    totalPagesRead: number
+    totalTotalPages: number
     foodLogCount: number
     avgScore: number | null
     bookCount: number
@@ -81,6 +88,12 @@ type BackendStats = {
     sessionsWithSUS: number
     sessionsWithSUSPct: number
   }
+  telemetry?: {
+    totalEvents: number
+    uniqueSessions: number
+    avgDwellMs: number
+    byType: Record<string, number>
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -120,7 +133,7 @@ function formatDuration(ms: number): string {
   return rem > 0 ? `${mins}m ${rem}s` : `${mins}m`
 }
 
-type SortKey = 'userID' | 'themeFood' | 'foodLogCount' | 'avgScore' | 'bookCount' | 'confirmedAt' | 'lastActive' | 'previewCount' | 'reviewCount' | 'experimentCompletedCount' | 'experimentAbortedCount' | 'positiveFeedbackCount' | 'avgDurationMs' | 'avgInteractionCount'
+type SortKey = 'userID' | 'themeFood' | 'nickname' | 'gender' | 'voiceCount' | 'totalPagesRead' | 'foodLogCount' | 'avgScore' | 'bookCount' | 'confirmedAt' | 'lastActive' | 'previewCount' | 'reviewCount' | 'experimentCompletedCount' | 'experimentAbortedCount' | 'positiveFeedbackCount' | 'avgDurationMs' | 'avgInteractionCount'
 
 // ─── Sub-components ─────────────────────────────────────────
 
@@ -333,6 +346,7 @@ export default function AdminUsersPage() {
   const sus = backendStats?.sus
   const comp = backendStats?.completeness
   const fb = backendStats?.feedback
+  const telem = backendStats?.telemetry
 
   return (
     <div className="min-h-[100dvh] bg-background">
@@ -628,6 +642,76 @@ export default function AdminUsersPage() {
               </div>
             ) : null}
 
+            {/* Telemetry Summary */}
+            {telem ? (
+              <div className="rounded-2xl border border-border-light bg-surface p-5
+                              shadow-[0_8px_24px_-8px_rgba(0,0,0,0.04)]">
+                <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Pulse size={16} weight="bold" className="text-accent" />
+                  遥测事件概览
+                </h2>
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div>
+                    <div className="text-[11px] text-muted">事件总数</div>
+                    <div className="text-lg font-bold tabular-nums text-foreground">{telem.totalEvents}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-muted">独立会话</div>
+                    <div className="text-lg font-bold tabular-nums text-foreground">{telem.uniqueSessions}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-muted">平均停留 (ms)</div>
+                    <div className="text-lg font-bold tabular-nums text-foreground">{telem.avgDwellMs}</div>
+                  </div>
+                </div>
+                {Object.keys(telem.byType).length > 0 ? (
+                  <div>
+                    <div className="mb-2 text-[11px] text-muted">事件类型分布</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(telem.byType).map(([k, v]) => (
+                        <DistBadge key={k} label={k} count={v} color="#7c3aed" />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* CSV Export Section */}
+            <div className="rounded-2xl border border-border-light bg-surface p-5
+                            shadow-[0_8px_24px_-8px_rgba(0,0,0,0.04)]">
+              <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
+                <DownloadSimple size={16} weight="bold" className="text-accent" />
+                数据导出 (CSV)
+              </h2>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {[
+                  { label: '用户', href: `${API_BASE}/admin/export/users.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: '进食记录', href: `${API_BASE}/admin/export/food_logs.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: '阅读会话', href: `${API_BASE}/admin/export/reading_sessions.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: '语音录制', href: `${API_BASE}/admin/export/voice_recordings.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: '虚拟形象', href: `${API_BASE}/admin/export/avatars.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: '后端会话', href: `/api/v1/export/admin/sessions.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: '遥测事件', href: `/api/v1/export/admin/telemetry.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: '反馈', href: `/api/v1/export/admin/feedback.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: 'SUS 问卷', href: `/api/v1/export/admin/sus.csv?key=${encodeURIComponent(adminKey)}` },
+                  { label: '故事元数据', href: `/api/v1/export/admin/stories.csv?key=${encodeURIComponent(adminKey)}` },
+                ].map((item) => (
+                  <a
+                    key={item.label}
+                    href={item.href}
+                    download
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-border-light
+                               px-3 py-2 text-xs font-medium text-foreground
+                               transition-all duration-200 hover:bg-warm-100 active:scale-[0.97]"
+                  >
+                    <DownloadSimple size={14} weight="bold" className="text-muted" />
+                    {item.label}
+                  </a>
+                ))}
+              </div>
+            </div>
+
             {/* Enriched User Table */}
             <div className="overflow-hidden rounded-2xl border border-border-light bg-surface
                             shadow-[0_8px_24px_-8px_rgba(0,0,0,0.04)]">
@@ -636,6 +720,10 @@ export default function AdminUsersPage() {
                   <tr className="border-b border-border-light bg-warm-100/50">
                     <ColHeader label="用户ID" sk="userID" />
                     <ColHeader label="目标食物" sk="themeFood" />
+                    <ColHeader label="昵称" sk="nickname" />
+                    <ColHeader label="性别" sk="gender" />
+                    <ColHeader label="语音数" sk="voiceCount" />
+                    <ColHeader label="阅读页数" sk="totalPagesRead" />
                     <ColHeader label="进食次数" sk="foodLogCount" />
                     <ColHeader label="平均分" sk="avgScore" />
                     <ColHeader label="预览" sk="previewCount" />
@@ -653,7 +741,7 @@ export default function AdminUsersPage() {
                 <tbody>
                   {sortedUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-5 py-8 text-center text-sm text-muted">
+                      <td colSpan={18} className="px-5 py-8 text-center text-sm text-muted">
                         暂无数据
                       </td>
                     </tr>
@@ -662,6 +750,12 @@ export default function AdminUsersPage() {
                       <tr key={u.userID} className="border-t border-border-light hover:bg-warm-100/30 transition-colors">
                         <td className="px-4 py-2.5 text-sm font-medium text-foreground">{u.userID}</td>
                         <td className="px-4 py-2.5 text-sm text-foreground">{u.themeFood}</td>
+                        <td className="px-4 py-2.5 text-sm text-foreground">{u.nickname || '--'}</td>
+                        <td className="px-4 py-2.5 text-sm text-foreground">{u.gender === 'male' ? '男' : u.gender === 'female' ? '女' : '--'}</td>
+                        <td className="px-4 py-2.5 text-sm tabular-nums text-foreground">{u.voiceCount}</td>
+                        <td className="px-4 py-2.5 text-sm tabular-nums text-foreground">
+                          {u.totalPagesRead > 0 ? `${u.totalPagesRead}/${u.totalTotalPages}` : '--'}
+                        </td>
                         <td className="px-4 py-2.5 text-sm tabular-nums text-foreground">{u.foodLogCount}</td>
                         <td className="px-4 py-2.5 text-sm tabular-nums">
                           {u.avgScore != null ? (

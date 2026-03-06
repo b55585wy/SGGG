@@ -33,6 +33,14 @@ import {
   setFirstLoginFlag,
   deleteUser,
   getAdminStats,
+  setUserGenerating,
+  clearUserGenerating,
+  isUserGenerating,
+  exportAllUsers,
+  exportAllFoodLogs,
+  exportAllReadingSessions,
+  exportAllVoiceRecordings,
+  exportAllAvatars,
 } from "./db";
 import { signUserToken } from "./jwt";
 
@@ -435,7 +443,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   };
 
   const tempBook = await getTempBook(req.user.userID);
-  const generating = generatingUsers.has(req.user.userID);
+  const generating = generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID);
   if (tempBook) {
     res.json({
       ...base,
@@ -529,9 +537,11 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
 
   await insertAvatarState({ userID: req.user.userID, feedbackText });
 
-  if (avatar) {
+  const skipGen = (body as { skipBookGeneration?: unknown }).skipBookGeneration === true;
+  if (avatar && !skipGen) {
     const readingSummary = await getReadingSummary(req.user.userID);
     generatingUsers.add(req.user.userID);
+    setUserGenerating(req.user.userID).catch(() => {});
     generateTempBookForUser({
       userID: req.user.userID,
       nickname: avatar.nickname,
@@ -543,7 +553,10 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       recentHistory: historyBeforeInsert,
       readingSummary,
     }).catch((err) => console.error("[BOOK] 绘本生成失败:", err))
-      .finally(() => generatingUsers.delete(req.user!.userID));
+      .finally(async () => {
+        generatingUsers.delete(req.user!.userID);
+        await clearUserGenerating(req.user!.userID).catch(() => {});
+      });
   }
 
   res.json({ ok: true, feedbackText, expression, score });
@@ -641,6 +654,7 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
   };
 
   generatingUsers.add(req.user.userID);
+  await setUserGenerating(req.user.userID).catch(() => {});
   try {
   const response = await fetch(`${FASTAPI_URL}/api/v1/story/regenerate`, {
     method: "POST",
@@ -688,6 +702,7 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
   });
   } finally {
     generatingUsers.delete(req.user.userID);
+    await clearUserGenerating(req.user.userID).catch(() => {});
   }
 });
 
@@ -836,6 +851,56 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
   const todayCount = daily[0]?.sessionCount ?? 1;
   res.json({ ok: true, todayCount });
 });
+
+// ─── Admin CSV Exports ─────────────────────────────────────
+
+function checkAdminKey(req: express.Request, res: express.Response): boolean {
+  const expected = process.env.ADMIN_API_KEY;
+  if (!expected) { res.status(503).json({ message: "未配置管理员密钥" }); return false; }
+  const key = req.header("x-admin-key") || (typeof req.query.key === "string" ? req.query.key : "");
+  if (key !== expected) { res.status(403).json({ message: "无权限" }); return false; }
+  return true;
+}
+
+function toCsv(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return "";
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.join(",")];
+  for (const row of rows) {
+    lines.push(headers.map((h) => {
+      const v = row[h];
+      if (v == null) return "";
+      const s = String(v);
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(","));
+  }
+  return lines.join("\n");
+}
+
+function csvRoute(
+  filename: string,
+  fetcher: () => Promise<Record<string, unknown>[]>,
+) {
+  return async (req: express.Request, res: express.Response) => {
+    if (!checkAdminKey(req, res)) return;
+    try {
+      const rows = await fetcher();
+      const csv = toCsv(rows);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (e) {
+      console.error(`[EXPORT] ${filename} error:`, e);
+      res.status(500).json({ message: "导出失败" });
+    }
+  };
+}
+
+app.get("/api/admin/export/users.csv", csvRoute("users.csv", exportAllUsers));
+app.get("/api/admin/export/food_logs.csv", csvRoute("food_logs.csv", exportAllFoodLogs));
+app.get("/api/admin/export/reading_sessions.csv", csvRoute("reading_sessions.csv", exportAllReadingSessions));
+app.get("/api/admin/export/voice_recordings.csv", csvRoute("voice_recordings.csv", exportAllVoiceRecordings));
+app.get("/api/admin/export/avatars.csv", csvRoute("avatars.csv", exportAllAvatars));
 
 const port = Number(process.env.PORT || 3001);
 app.listen(port, () => {

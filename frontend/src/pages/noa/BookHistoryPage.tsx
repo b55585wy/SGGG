@@ -84,7 +84,7 @@ export default function BookHistoryPage() {
 
       {/* ── Header ── */}
       <header
-        className="relative z-10 shrink-0 h-14 flex items-center gap-3 px-6"
+        className="relative z-10 shrink-0 h-14 flex items-center gap-3 px-4 lg:px-6"
         style={{
           background: 'rgba(236,253,245,0.85)',
           backdropFilter: 'blur(16px)',
@@ -124,7 +124,7 @@ export default function BookHistoryPage() {
       </header>
 
       {/* ── Content ── */}
-      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto px-6 py-5">
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto px-4 lg:px-6 py-4 lg:py-5">
 
         {/* Error */}
         {error && (
@@ -138,7 +138,7 @@ export default function BookHistoryPage() {
 
         {/* Loading skeleton */}
         {loading && (
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4">
             {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
               <div key={i} className="rounded-[2rem] overflow-hidden skeleton-shimmer" style={{ aspectRatio: '3/4' }} />
             ))}
@@ -184,7 +184,7 @@ export default function BookHistoryPage() {
         {/* Book grid */}
         {!loading && items.length > 0 && (
           <motion.div
-            className="grid grid-cols-4 gap-4"
+            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4"
             variants={containerVariants}
             initial="hidden"
             animate="show"

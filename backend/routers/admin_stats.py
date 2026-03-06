@@ -1,6 +1,6 @@
 import os
 from fastapi import APIRouter, HTTPException, Header
-from database import get_backend_stats
+from database import get_backend_stats, get_telemetry_stats
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -16,4 +16,6 @@ def _check_admin_key(x_admin_key: str | None):
 @router.get("/stats")
 def admin_stats(x_admin_key: str | None = Header(None)):
     _check_admin_key(x_admin_key)
-    return get_backend_stats()
+    stats = get_backend_stats()
+    stats["telemetry"] = get_telemetry_stats()
+    return stats

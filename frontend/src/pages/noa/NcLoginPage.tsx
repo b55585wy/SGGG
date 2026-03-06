@@ -80,19 +80,18 @@ export default function NcLoginPage() {
         initial={{ opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={spring}
-        className="relative flex overflow-hidden"
+        className="relative flex overflow-hidden w-[92%] lg:w-[88%]"
         style={{
-          width: '88%',
           maxWidth: 820,
           height: '72dvh',
-          minHeight: 460,
+          minHeight: 400,
           borderRadius: '2.5rem',
           boxShadow: '0 40px 100px -20px rgba(0,0,0,0.13), 0 0 0 1px rgba(231,229,228,0.5)',
         }}
       >
         {/* ── Left: Branding panel ── */}
         <div
-          className="w-[42%] relative flex flex-col items-center justify-center px-10 shrink-0 overflow-hidden"
+          className="hidden lg:flex w-[42%] relative flex-col items-center justify-center px-10 shrink-0 overflow-hidden"
           style={{ background: 'linear-gradient(160deg, #059669 0%, #047857 55%, #065f46 100%)' }}
         >
           {/* Decorative circles */}
@@ -163,7 +162,7 @@ export default function NcLoginPage() {
 
         {/* ── Right: Login form ── */}
         <div
-          className="flex-1 flex flex-col items-center justify-center px-10"
+          className="flex-1 flex flex-col items-center justify-center px-6 lg:px-10"
           style={{ background: 'white' }}
         >
           <div className="w-full" style={{ maxWidth: 320 }}>
