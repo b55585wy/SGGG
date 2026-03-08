@@ -175,7 +175,7 @@ export default function AvatarPage() {
       }
     }
     load()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   async function onSelectHair(id: string) {
     setHairId(id)

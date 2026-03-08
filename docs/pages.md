@@ -96,7 +96,7 @@
   - **顶部 header**（始终可见）：昵称问候、今日主题食物徽章、"记录进食"按钮（打开 FoodLogModal 底部弹层）、"历史绘本"入口、退出登录
   - **左侧面板**：虚拟形象合成渲染 + 可选正反馈文字气泡
   - **右侧面板**：两种互斥状态
-    - **State A**（`book === null && !bookGenerating`）：内嵌进食记录表单，含"今天吃得怎么样？"标题、评分滑动条（0–10）、文本输入区域、"提交记录，生成绘本 →"按钮
+    - **State A**（`book === null && !bookGenerating`）：内嵌进食记录表单，含"今天吃得怎么样？"标题、评分滑动条（0–10）、文本输入区域、录音按钮（浏览器录音后自动转写回填）、"提交记录，生成绘本 →"按钮
     - **State B**（`book !== null || bookGenerating`）：绘本卡片，含三种子状态：
       - 生成中（`bookGenerating=true && !book`）：封面区域显示 `.book-gen-shimmer` 动画 + 标题/描述区显示 `.skeleton-shimmer` 占位；底部显示"绘本生成中…"占位文字
       - 未确认绘本（`book && !book.confirmed`）：封面预览 + "确认绘本，开始阅读"按钮 + "重新生成 (N/2)"按钮
@@ -176,9 +176,12 @@
     ```
 
 - `POST /api/voice/transcribe`
+  - **Headers**：`Authorization: Bearer <token>`
+  - **Request**：`multipart/form-data`，字段 `file`（音频文件）
+  - **说明**：user-api 接收后转发到 backend `/api/v1/voice/transcribe`
   - **Response 200**
     ```json
-    { "text": "（语音转写示例）" }
+    { "text": "今天我吃了胡萝卜" }
     ```
 
 - `POST /api/book/confirm`

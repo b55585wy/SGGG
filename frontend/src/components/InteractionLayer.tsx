@@ -19,7 +19,6 @@ interface Props {
   onBranchSelect: (choiceId: string, nextPageId: string) => void;
   onInteractionStart?: (interactionType: string, eventKey: string) => void;
   speak?: (text: string) => void;
-  autoRead?: boolean;
   pageId?: string;
 }
 
@@ -150,7 +149,7 @@ function VoiceRecorder({
       }
       if (speechRef.current) { try { speechRef.current.stop(); } catch { /* ignore */ } }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -222,25 +221,22 @@ export function InteractionLayer({
   onBranchSelect,
   onInteractionStart,
   speak,
-  autoRead,
   pageId,
 }: Props) {
-  const mountTimeRef = useRef(Date.now());
-  const [completed, setCompleted] = useState(false);
+  const mountTimeRef = useRef(0);
+  const [completedKey, setCompletedKey] = useState<string | null>(null);
+  const completed = completedKey === interaction.event_key;
 
   useEffect(() => {
     mountTimeRef.current = Date.now();
-    setCompleted(false);
     if (interaction.type !== 'none') {
       onInteractionStart?.(interaction.type, interaction.event_key);
-      // 互动提示语只在 autoRead 开启时由 Reader.speakPage 的 onEnd 链式触发
-      // autoRead 关闭时不自动播放任何声音
     }
-  }, [interaction.event_key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [interaction.event_key, interaction.type, onInteractionStart]);
 
   const handleComplete = useCallback(() => {
     if (completed) return;
-    setCompleted(true);
+    setCompletedKey(interaction.event_key);
     onInteractionComplete(interaction.event_key, Date.now() - mountTimeRef.current);
     // 完成互动后播放 AI 生成的专属鼓励语
     const encouragement = interaction.ext?.encouragement as string | undefined;

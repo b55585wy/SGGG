@@ -87,12 +87,14 @@ EVENT KEY RULES:
 - snake_case format, descriptive (e.g., "smell_broccoli_p02", "choose_path_p03")
 """
 
+from typing import Optional
+
 
 def build_user_prompt(
     child_profile: dict,
     meal_context: dict,
     story_config: dict,
-    dissatisfaction_reason: str | None = None,
+    dissatisfaction_reason: Optional[str] = None,
 ) -> str:
     lang = story_config.get("language", "zh-CN")
     lang_instruction = "Write ALL story text (title, subtitle, summary, design_logic, page text, instructions, choice labels, ending) in Simplified Chinese (zh-CN)." \

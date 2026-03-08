@@ -1,47 +1,62 @@
 import json
 import os
-from openai import OpenAI, RateLimitError
+import urllib.request
+import urllib.error
+from typing import Optional
+from openai import RateLimitError
 from prompt import SYSTEM_PROMPT, build_user_prompt
 
-_client: OpenAI | None = None
 
-
-def get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        api_key = os.getenv("DEEPSEEK_API_KEY")
-        if not api_key:
-            raise RuntimeError("DEEPSEEK_API_KEY not set")
-        _client = OpenAI(
-            api_key=api_key,
-            base_url="https://api.deepseek.com",
-        )
-    return _client
+def _post_json(uri: str, payload: dict, api_key: str) -> dict:
+    headers = {"Content-Type": "application/json"}
+    if "openai.azure.com" in uri:
+        headers["api-key"] = api_key
+    else:
+        headers["Authorization"] = f"Bearer {api_key}"
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(uri, data=data, headers=headers, method="POST")
+    timeout_sec = int(os.getenv("STORYTEXT_OPENAI_TIMEOUT_SEC", "120"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8")
+        if e.code == 429:
+            raise RateLimitError("请求频率超限，请稍后重试。", response=None, body=None)
+        raise RuntimeError(f"LLM request failed ({e.code}): {body}")
+    return json.loads(body) if body else {}
 
 
 def generate_story_content(
     child_profile: dict,
     meal_context: dict,
     story_config: dict,
-    dissatisfaction_reason: str | None = None,
+    dissatisfaction_reason: Optional[str] = None,
 ) -> dict:
-    """Call DeepSeek and return parsed story dict (book_meta + pages + ending)."""
-    client = get_client()
+    """Call OpenAI GPT and return parsed story dict (book_meta + pages + ending)."""
     user_prompt = build_user_prompt(child_profile, meal_context, story_config, dissatisfaction_reason)
+    uri = os.getenv("STORYTEXT_OPENAI_URI")
+    api_key = os.getenv("STORYTEXT_OPENAI_API_KEY")
+    model = os.getenv("STORYTEXT_OPENAI_MODEL")
+    if not uri:
+        raise RuntimeError("STORYTEXT_OPENAI_URI not set")
+    if not api_key:
+        raise RuntimeError("STORYTEXT_OPENAI_API_KEY not set")
+    if not model:
+        raise RuntimeError("STORYTEXT_OPENAI_MODEL not set")
 
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
+    response = _post_json(
+        uri,
+        {
+            "model": model,
+            "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            response_format={"type": "json_object"},
-            temperature=0.7,
-        )
-    except RateLimitError:
-        raise RateLimitError("请求频率超限，请稍后重试。", response=None, body=None)
-
-    raw = response.choices[0].message.content
+            "response_format": {"type": "json_object"},
+        },
+        api_key,
+    )
+    raw = response.get("choices", [{}])[0].get("message", {}).get("content")
     print("[LLM] raw response (first 200 chars):", raw[:200] if raw else "EMPTY")
     return json.loads(raw)

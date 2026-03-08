@@ -23,7 +23,7 @@
 npm install
 cd frontend && npm install && cd ..
 cd user-api && npm install && cd ..
-cd backend && pip install -r requirements.txt && cd ..
+cd backend && pip3 install -r requirements.txt && cd ..
 ```
 
 **第二步：创建环境变量文件**
@@ -37,10 +37,22 @@ cp user-api/.env.example user-api/.env
 # ADMIN_API_KEY=dev-admin          ← 改这里
 # FASTAPI_URL=http://localhost:8000
 
-# backend（必须，含 LLM API 密钥）
+# backend（必须，含绘本文字/图片生成与语音转写 API 配置）
 # 在 backend/ 目录下创建 .env：
-# DEEPSEEK_API_KEY=sk-xxxx
-# DASHSCOPE_API_KEY=sk-xxxx        ← 图片生成（可选）
+# STORYTEXT_OPENAI_API_KEY=sk-xxxx
+# STORYTEXT_OPENAI_URI=https://api.openai.com/v1/chat/completions
+# STORYTEXT_OPENAI_MODEL=gpt-4o-mini
+# STORYTEXT_OPENAI_TIMEOUT_SEC=120
+# STORYIMAGE_OPENAI_API_KEY=sk-xxxx
+# STORYIMAGE_OPENAI_URI=https://api.openai.com/v1/images/generations
+# STORYIMAGE_OPENAI_MODEL=gpt-image-1
+# TRANSCIBE_OPENAI_API_KEY=sk-xxxx
+# TRANSCIBE_OPENAI_URI=https://api.openai.com/v1/audio/transcriptions
+# TRANSCIBE_OPENAI_MODEL=gpt-4o-transcribe-diarize
+#
+# 如需替换 OpenAI 兼容服务：
+# 1) 修改 backend/.env 中的 *_OPENAI_URI 与 *_OPENAI_MODEL
+# 2) 重启 backend 服务使配置生效
 ```
 
 > **注意**：frontend 目录下已有 `.env` 和 `.env.development`，无需另行创建。
@@ -98,7 +110,7 @@ cd frontend && npm run dev
 | POST | `/api/book/regenerate` | 重新生成临时绘本（转发 pages/difficulty/interaction_density 给 FastAPI） | Bearer |
 | GET | `/api/books/history` | 历史绘本列表 | Bearer |
 | GET | `/api/books/:bookId` | 绘本详情 | Bearer |
-| POST | `/api/voice/transcribe` | 语音转写（占位） | Bearer |
+| POST | `/api/voice/transcribe` | 语音转写（multipart 文件上传，转发到 backend） | Bearer |
 | POST | `/api/admin/users` | 创建用户 | `x-admin-key` |
 | GET | `/api/admin/users` | 查询用户列表 | `x-admin-key` |
 | DELETE | `/api/admin/users/:userID` | 删除用户（级联） | `x-admin-key` |
@@ -116,6 +128,7 @@ cd frontend && npm run dev
 | POST | `/api/v1/sus/submit` | 提交 SUS 问卷 |
 | POST | `/api/v1/telemetry/report` | 遥测上报 |
 | POST | `/api/v1/tts` | 文本转语音 |
+| POST | `/api/v1/voice/transcribe` | 语音转写 |
 | GET | `/api/v1/export/child/{id}` | 导出儿童数据 |
 | GET | `/api/v1/admin/stats` | 后端统计数据 |
 

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import multer from "multer";
 import { adminRequired, authRequired, type AuthenticatedRequest } from "./auth";
 import {
   addHistoryBook,
@@ -56,6 +57,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 function svgDataUri(svg: string) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
@@ -802,9 +804,39 @@ app.post("/api/voice/record", authRequired, async (req: AuthenticatedRequest, re
   res.json({ ok: true, recordingId, transcript });
 });
 
-// Legacy transcribe stub — kept for backward compat with food log button
-app.post("/api/voice/transcribe", authRequired, (_req: AuthenticatedRequest, res) => {
-  res.json({ text: "" });
+app.post("/api/voice/transcribe", authRequired, upload.single("file"), async (req: AuthenticatedRequest, res) => {
+  if (!req.user) { res.status(401).json({ message: "未登录" }); return; }
+  const fastapiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
+  const file = (req as typeof req & { file?: { buffer: Buffer; mimetype?: string; originalname?: string } }).file;
+  if (!file?.buffer) {
+    res.status(400).json({ message: "未收到录音文件" });
+    return;
+  }
+
+  const form = new FormData();
+  const mime = file.mimetype || "audio/webm";
+  const filename = file.originalname || "recording.webm";
+  form.append("file", new Blob([new Uint8Array(file.buffer)], { type: mime }), filename);
+
+  const endpoint = fastapiUrl.replace(/\/$/, "") + "/api/v1/voice/transcribe";
+  let resp: Response;
+  try {
+    resp = await fetch(endpoint, {
+      method: "POST",
+      body: form,
+    });
+  } catch (e) {
+    res.status(502).json({ message: `语音转写失败: 无法连接到 ${endpoint}（${e instanceof Error ? e.message : "fetch failed"}）` });
+    return;
+  }
+  const text = await resp.text();
+  if (!resp.ok) {
+    res.status(502).json({ message: `语音转写失败: ${text || resp.status}` });
+    return;
+  }
+  let payload: { text?: string } | null = null;
+  try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
+  res.json({ text: payload?.text || "" });
 });
 
 app.get("/api/auth/me", authRequired, (req: AuthenticatedRequest, res) => {

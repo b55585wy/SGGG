@@ -1,9 +1,12 @@
+import base64
+import json
 import os
 import time
 import uuid as _uuid
+import urllib.request
+import urllib.error
+from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from http import HTTPStatus
-from dashscope import ImageSynthesis
 
 BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
 _IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "images")
@@ -12,58 +15,68 @@ MAX_RETRIES = 3
 RETRY_DELAYS = [2, 5, 10]  # seconds between retries
 
 
-def _save_locally(dash_url: str) -> str:
-    """下载 DashScope 临时图片保存到本地，返回永久本地 URL。失败则返回原始 URL。"""
+def _save_locally_bytes(raw: bytes, ext: str = ".png") -> Optional[str]:
+    """保存图片字节到本地，返回永久本地 URL。失败返回 None。"""
     try:
-        import requests as _req
         os.makedirs(_IMAGES_DIR, exist_ok=True)
-        img_name = _uuid.uuid4().hex + ".jpg"
+        img_name = _uuid.uuid4().hex + ext
         path = os.path.join(_IMAGES_DIR, img_name)
-        with _req.get(dash_url, timeout=30) as r:
-            r.raise_for_status()
-            with open(path, "wb") as f:
-                f.write(r.content)
+        with open(path, "wb") as f:
+            f.write(raw)
         return f"{BACKEND_BASE_URL}/static/images/{img_name}"
     except Exception as e:
-        print(f"[IMG] 本地保存失败，使用原始 URL: {e}")
-        return dash_url
+        print(f"[IMG] 本地保存失败: {e}")
+        return None
 
 
-def generate_page_image(prompt: str, global_style: str = "") -> str | None:
+def _post_json(uri: str, payload: dict, api_key: str) -> dict:
+    headers = {"Content-Type": "application/json"}
+    if "openai.azure.com" in uri:
+        headers["api-key"] = api_key
+    else:
+        headers["Authorization"] = f"Bearer {api_key}"
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(uri, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8")
+        raise RuntimeError(f"image request failed ({e.code}): {body}")
+    return json.loads(body) if body else {}
+
+
+def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
     """生成单页插图，带重试。返回本地永久 URL，失败返回 None。"""
-    api_key = os.getenv("DASHSCOPE_API_KEY")
-    if not api_key:
+    uri = os.getenv("STORYIMAGE_OPENAI_URI")
+    api_key = os.getenv("STORYIMAGE_OPENAI_API_KEY")
+    model = os.getenv("STORYIMAGE_OPENAI_MODEL")
+    if not uri or not api_key or not model:
+        return None
+    if "/images/generations" not in uri and "/image/generations" not in uri:
+        print("[IMG] STORYIMAGE_OPENAI_URI should point to images/generations endpoint")
         return None
 
     full_prompt = f"{global_style}. {prompt}" if global_style else prompt
 
     for attempt in range(MAX_RETRIES):
         try:
-            rsp = ImageSynthesis.call(
-                api_key=api_key,
-                model="wanx2.1-t2i-turbo",
-                prompt=full_prompt,
-                n=1,
-                size="1024*576",
-            )
-            if rsp.status_code == HTTPStatus.OK:
-                results = rsp.output.get("results", [])
-                if results:
-                    dash_url = results[0].get("url")
-                    if dash_url:
-                        return _save_locally(dash_url)
-                print(f"[IMG] attempt {attempt+1}: OK but empty results")
-            else:
-                code = rsp.status_code
-                msg = getattr(rsp, 'message', '') or str(rsp.output) if hasattr(rsp, 'output') else ''
-                print(f"[IMG] attempt {attempt+1}: status={code} msg={msg}")
-                # Rate limit or server error → retry
-                if code in (429, 500, 502, 503):
-                    if attempt < MAX_RETRIES - 1:
-                        time.sleep(RETRY_DELAYS[attempt])
-                        continue
-                # Client error (400 etc) → no retry
-                return None
+            payload = {
+                "prompt": full_prompt,
+                "size": "1024x1024",
+                "response_format": "b64_json",
+            }
+            if "/deployments/" not in uri:
+                payload["model"] = model
+            rsp = _post_json(uri, payload, api_key)
+            data = rsp.get("data", [])
+            b64 = data[0].get("b64_json") if data else None
+            if b64:
+                raw = base64.b64decode(b64)
+                saved = _save_locally_bytes(raw, ".png")
+                if saved:
+                    return saved
+            print(f"[IMG] attempt {attempt+1}: empty image data")
         except Exception as e:
             print(f"[IMG] attempt {attempt+1} exception: {e}")
 
@@ -76,8 +89,8 @@ def generate_page_image(prompt: str, global_style: str = "") -> str | None:
 
 def generate_images_for_pages(pages: list, global_style: str) -> None:
     """为所有页面生成插图（最多 2 个并发），失败页面重试后仍跳过。"""
-    if not os.getenv("DASHSCOPE_API_KEY"):
-        print("[IMG] DASHSCOPE_API_KEY not set, skipping image generation")
+    if not os.getenv("STORYIMAGE_OPENAI_API_KEY") or not os.getenv("STORYIMAGE_OPENAI_URI") or not os.getenv("STORYIMAGE_OPENAI_MODEL"):
+        print("[IMG] STORYIMAGE_OPENAI_* not set, skipping image generation")
         return
 
     total = len(pages)

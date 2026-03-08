@@ -21,17 +21,14 @@ function pickBestChineseVoice(): SpeechSynthesisVoice | null {
 }
 
 export function useTTS() {
-  const [isSupported, setIsSupported] = useState(true);
+  const [isSupported] = useState(() => !!window.speechSynthesis || typeof Audio !== 'undefined');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const zhVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
 
   useEffect(() => {
-    if (!window.speechSynthesis && typeof Audio === 'undefined') {
-      setIsSupported(false);
-      return;
-    }
+    if (!window.speechSynthesis && typeof Audio === 'undefined') return;
     // 声音列表可能异步加载，先尝试一次，再监听变化
     zhVoiceRef.current = pickBestChineseVoice();
     window.speechSynthesis.onvoiceschanged = () => {

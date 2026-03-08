@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { clearToken } from '@/lib/auth'
+import { clearToken, getToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
 import AvatarEditModal from '@/components/AvatarEditModal'
 import {
@@ -48,7 +48,7 @@ type HomeStatusResponse = {
     description: string
     confirmed: boolean
     regenerateCount: number
-  }
+  } | null
 }
 
 type FoodLogResponse = {
@@ -452,7 +452,7 @@ function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
           </div>
 
           {/* InlineFoodLog fills the rest */}
-          <InlineFoodLog themeFood={themeFood} onSuccess={onSuccess} />
+          <InlineFoodLog onSuccess={onSuccess} />
         </motion.div>
       </div>
     </>
@@ -462,17 +462,21 @@ function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
 // ─── Inline Food Log ──────────────────────────────────────────────────────────
 
 type InlineFoodLogProps = {
-  themeFood: string
   onSuccess: (data: FoodLogResponse) => void
 }
 
-function InlineFoodLog({ themeFood, onSuccess }: InlineFoodLogProps) {
+function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
   const [score, setScore] = useState(0)
   const [scoreTouched, setScoreTouched] = useState(false)
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
   const [voiceLoading, setVoiceLoading] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
 
   const canSend = useMemo(
     () => !!content.trim() && scoreTouched && score > 0 && !sending,
@@ -500,14 +504,73 @@ function InlineFoodLog({ themeFood, onSuccess }: InlineFoodLogProps) {
     }
   }
 
-  async function onTranscribe() {
-    setError('')
+  async function transcribeBlob(blob: Blob) {
     setVoiceLoading(true)
     try {
-      const data = await postJson<VoiceResponse>('/api/voice/transcribe', {})
-      setContent(data.text)
-    } catch { /* ignore */ } finally {
+      const token = getToken()
+      const form = new FormData()
+      form.append('file', blob, 'recording.webm')
+      const res = await fetch('/api/user/voice/transcribe', {
+        method: 'POST',
+        headers: token ? { authorization: `Bearer ${token}` } : undefined,
+        body: form,
+      })
+      if (!res.ok) {
+        const msg = await res.text().catch(() => '')
+        throw new Error(msg || '语音转写失败')
+      }
+      const data = await res.json() as VoiceResponse
+      if (data.text) setContent(data.text)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '语音转写失败')
+    } finally {
       setVoiceLoading(false)
+    }
+  }
+
+  async function startRecording() {
+    setError('')
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('当前浏览器不支持录音')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      chunksRef.current = []
+      const recorder = new MediaRecorder(stream)
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        setAudioUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return URL.createObjectURL(blob)
+        })
+        stream.getTracks().forEach(t => t.stop())
+        await transcribeBlob(blob)
+      }
+      recorderRef.current = recorder
+      recorder.start()
+      setIsRecording(true)
+    } catch {
+      setError('无法访问麦克风，请检查浏览器权限')
+    }
+  }
+
+  function stopRecording() {
+    const recorder = recorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop()
+    }
+    setIsRecording(false)
+  }
+
+  function onTranscribe() {
+    if (voiceLoading) return
+    if (isRecording) {
+      stopRecording()
+    } else {
+      void startRecording()
     }
   }
 
@@ -569,9 +632,12 @@ function InlineFoodLog({ themeFood, onSuccess }: InlineFoodLogProps) {
               className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
               style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
             >
-              <Microphone size={18} weight={voiceLoading ? 'fill' : 'regular'} />
+              <Microphone size={18} weight={isRecording || voiceLoading ? 'fill' : 'regular'} />
             </button>
           </div>
+          {audioUrl && (
+            <audio controls src={audioUrl} className="w-full h-8" />
+          )}
         </div>
 
         {/* Error */}
@@ -654,7 +720,7 @@ export default function HomePage() {
       // Restore generating state from server (survives page refresh).
       // While generating, clear any stale book so the animation shows correctly.
       if (data.generating) {
-        setStatus((prev) => prev ? { ...prev, ...data, book: null } : { ...data, book: null })
+        setStatus((prev) => prev ? ({ ...prev, ...data, book: null } as HomeStatusResponse) : ({ ...data, book: null } as HomeStatusResponse))
         setBookGenerating(true)
       } else {
         setStatus(data)
@@ -830,6 +896,12 @@ export default function HomePage() {
           </button>
         </div>
       </header>
+
+      {error && (
+        <div className="relative z-10 px-6 pt-3 text-sm" style={{ color: 'var(--color-error)' }}>
+          {error}
+        </div>
+      )}
 
       {/* ── Main 2-column layout ── */}
       <div className="relative z-10 flex-1 min-h-0 flex flex-col lg:flex-row gap-3 lg:gap-4 p-3 lg:p-4 lg:pt-3">
@@ -1142,12 +1214,11 @@ export default function HomePage() {
 
               {/* Food log content */}
               <InlineFoodLog
-                themeFood={status?.themeFood ?? ''}
                 onSuccess={(data) => {
                   localStorage.removeItem('pending_meal_reminder')
                   setFeedbackText(data.feedbackText)
                   sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-                  setStatus((prev) => (prev ? { ...prev, book: null } : null))
+                  setStatus((prev) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
                   setBookGenerating(true)
                 }}
               />
@@ -1168,7 +1239,7 @@ export default function HomePage() {
               setShowFoodLogModal(false)
               setFeedbackText(data.feedbackText)
               sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-              setStatus((prev) => (prev ? { ...prev, book: null } : null))
+              setStatus((prev) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
               setBookGenerating(true)
             }}
           />
@@ -1184,7 +1255,7 @@ export default function HomePage() {
             onClose={() => setShowRegenModal(false)}
             onSuccess={() => {
               setShowRegenModal(false)
-              setStatus((prev) => (prev ? { ...prev, book: null } : null))
+              setStatus((prev) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
               setBookGenerating(true)
             }}
           />
