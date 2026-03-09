@@ -18,6 +18,7 @@ import {
   getLastFoodScore,
   getFoodLogHistory,
   getFoodLogHeatmapData,
+  getLatestCompletedReadingForUser,
   getReadingSummary,
   insertUser,
   insertAvatarState,
@@ -67,6 +68,32 @@ function createBookPreviewImage() {
   // Abstract cover art: clean gradient shapes, no embedded text (title shown in UI)
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 480"><rect width="360" height="480" fill="#d1fae5"/><circle cx="300" cy="70" r="120" fill="#a7f3d0" opacity="0.5"/><circle cx="40" cy="430" r="140" fill="#6ee7b7" opacity="0.3"/><rect x="55" y="130" width="250" height="220" rx="22" fill="white" opacity="0.55"/><circle cx="180" cy="195" r="38" fill="#059669" opacity="0.12"/><rect x="85" y="250" width="190" height="9" rx="4.5" fill="#059669" opacity="0.18"/><rect x="85" y="272" width="150" height="9" rx="4.5" fill="#059669" opacity="0.14"/><rect x="85" y="294" width="170" height="9" rx="4.5" fill="#059669" opacity="0.16"/><circle cx="180" cy="196" r="22" fill="#059669" opacity="0.1"/></svg>`;
   return svgDataUri(svg);
+}
+
+function isPlaceholderPreview(preview: string) {
+  return preview.startsWith("data:image/svg+xml");
+}
+
+function extractStoryId(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content) as { story_id?: string };
+    return typeof parsed.story_id === "string" ? parsed.story_id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePreviewFromBackend(storyId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { draft?: { pages?: Array<{ image_url?: string }> } };
+    const pages = data.draft?.pages ?? [];
+    const first = pages.find((p) => typeof p.image_url === "string" && p.image_url.length > 0);
+    return first?.image_url ?? null;
+  } catch {
+    return null;
+  }
 }
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
@@ -195,6 +222,37 @@ async function generateTempBookForUser(params: {
     content: JSON.stringify(draft),
     regenerateCount: params.regenerateCount,
   });
+}
+
+async function triggerAutoBookGeneration(userID: string, avatar: { nickname: string; gender: string; themeFood: string }) {
+  if (generatingUsers.has(userID) || await isUserGenerating(userID)) return;
+  const existingTemp = await getTempBook(userID);
+  if (existingTemp) return;
+
+  const history = await getFoodLogHistory(userID, 10);
+  const latest = history[0] ?? null;
+  const mealScore = latest?.score ?? 5;
+  const mealContent = latest?.content ?? "暂无进食记录";
+  const recentHistory = history.length > 1 ? history.slice(1) : [];
+  const readingSummary = await getReadingSummary(userID);
+
+  generatingUsers.add(userID);
+  setUserGenerating(userID).catch(() => {});
+  generateTempBookForUser({
+    userID,
+    nickname: avatar.nickname,
+    gender: avatar.gender,
+    themeFood: avatar.themeFood,
+    mealScore,
+    mealContent,
+    regenerateCount: 0,
+    recentHistory,
+    readingSummary,
+  }).catch((err) => console.error("[BOOK] 绘本生成失败:", err))
+    .finally(async () => {
+      generatingUsers.delete(userID);
+      await clearUserGenerating(userID).catch(() => {});
+    });
 }
 
 app.get("/api/health", (_req, res) => {
@@ -447,13 +505,32 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   const tempBook = await getTempBook(req.user.userID);
   const generating = generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID);
   if (tempBook) {
+    let preview = tempBook.preview;
+    if (isPlaceholderPreview(preview)) {
+      const storyId = extractStoryId(tempBook.content);
+      if (storyId) {
+        const resolved = await resolvePreviewFromBackend(storyId);
+        if (resolved) {
+          preview = resolved;
+          await saveTempBook({
+            userID: tempBook.userID,
+            bookID: tempBook.bookID,
+            title: tempBook.title,
+            preview,
+            description: tempBook.description,
+            content: tempBook.content,
+            regenerateCount: tempBook.regenerateCount,
+          });
+        }
+      }
+    }
     res.json({
       ...base,
       generating,
       book: {
         bookID: tempBook.bookID,
         title: tempBook.title,
-        preview: tempBook.preview,
+        preview,
         description: tempBook.description,
         confirmed: false,
         regenerateCount: tempBook.regenerateCount,
@@ -464,18 +541,32 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
 
   const latestHistory = await getLatestHistoryBook(req.user.userID);
   if (latestHistory) {
+    let preview = latestHistory.preview;
+    if (isPlaceholderPreview(preview)) {
+      const storyId = extractStoryId(latestHistory.content);
+      if (storyId) {
+        const resolved = await resolvePreviewFromBackend(storyId);
+        if (resolved) preview = resolved;
+      }
+    }
     res.json({
       ...base,
       generating,
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
-        preview: latestHistory.preview,
+        preview,
         description: latestHistory.description,
         confirmed: true,
         regenerateCount: 0,
       },
     });
+    return;
+  }
+
+  if (!generating) {
+    triggerAutoBookGeneration(req.user.userID, avatar);
+    res.json({ ...base, generating: true, book: null });
     return;
   }
 
@@ -492,11 +583,19 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     res.status(400).json({ message: "参数错误" });
     return;
   }
+  const foodName =
+    typeof (body as { foodName?: unknown }).foodName === "string"
+      ? (body as { foodName: string }).foodName.trim()
+      : "";
   const score = Number((body as { score?: unknown }).score);
   const content =
     typeof (body as { content?: unknown }).content === "string"
       ? (body as { content: string }).content.trim()
       : "";
+  if (!foodName) {
+    res.status(400).json({ message: "请输入今日食物" });
+    return;
+  }
   if (!Number.isFinite(score) || score <= 0) {
     res.status(400).json({ message: "请先滑动评分条" });
     return;
@@ -510,17 +609,17 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       ? (body as { voiceData: string }).voiceData
       : null;
 
-  // 在插入本次记录前先取历史，确保历史不含本次（计算 attempt_number / trend 准确）
-  const [historyBeforeInsert, avatar] = await Promise.all([
-    getFoodLogHistory(req.user.userID, 10),
-    getUserAvatar(req.user.userID),
-  ]);
+  const latestReading = await getLatestCompletedReadingForUser(req.user.userID);
 
   await insertFoodLog({
     userID: req.user.userID,
+    foodName,
     score,
     content,
     voiceData,
+    relatedBookID: latestReading?.bookId ?? null,
+    relatedReadingSessionID: latestReading?.sessionId ?? null,
+    relatedReadingEndedAt: latestReading?.endedAt ?? null,
   });
 
   // Immediate feedback (score-based); LLM feedback comes async via story generation
@@ -538,28 +637,6 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     score >= 7 ? "happy" : score >= 5 ? "encouraging" : score >= 3 ? "gentle" : "neutral";
 
   await insertAvatarState({ userID: req.user.userID, feedbackText });
-
-  const skipGen = (body as { skipBookGeneration?: unknown }).skipBookGeneration === true;
-  if (avatar && !skipGen) {
-    const readingSummary = await getReadingSummary(req.user.userID);
-    generatingUsers.add(req.user.userID);
-    setUserGenerating(req.user.userID).catch(() => {});
-    generateTempBookForUser({
-      userID: req.user.userID,
-      nickname: avatar.nickname,
-      gender: avatar.gender,
-      themeFood: avatar.themeFood,
-      mealScore: score,
-      mealContent: content,
-      regenerateCount: 0,
-      recentHistory: historyBeforeInsert,
-      readingSummary,
-    }).catch((err) => console.error("[BOOK] 绘本生成失败:", err))
-      .finally(async () => {
-        generatingUsers.delete(req.user!.userID);
-        await clearUserGenerating(req.user!.userID).catch(() => {});
-      });
-  }
 
   res.json({ ok: true, feedbackText, expression, score });
 });
@@ -878,6 +955,16 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     tryLevel: typeof body.tryLevel === "string" ? body.tryLevel : null,
     abortReason: typeof body.abortReason === "string" ? body.abortReason : null,
   });
+  const bookId = typeof body.bookId === "string" ? body.bookId : null;
+  if (body.completed === true && bookId) {
+    const history = await getHistoryBookById(req.user.userID, bookId);
+    if (history) {
+      const avatar = await getUserAvatar(req.user.userID);
+      if (avatar) {
+        triggerAutoBookGeneration(req.user.userID, avatar);
+      }
+    }
+  }
   // Return daily count for today for this user
   const daily = await getDailyReadingStats(1);
   const todayCount = daily[0]?.sessionCount ?? 1;

@@ -164,20 +164,7 @@ export default function BookHistoryPage() {
             </div>
             <div className="text-center space-y-1">
               <p className="text-base font-bold" style={{ color: 'var(--color-foreground)' }}>还没有绘本</p>
-              <p className="text-sm" style={{ color: 'var(--color-muted)' }}>提交进食记录后会为你生成专属绘本</p>
             </div>
-            <button
-              onClick={() => navigate('/noa/home')}
-              className="rounded-full px-6 py-2.5 text-sm font-bold text-white transition-all active:scale-[0.97]"
-              style={{
-                background: 'linear-gradient(135deg, #059669, #047857)',
-                border: 'none',
-                boxShadow: '0 8px 20px -4px rgba(5,150,105,0.35)',
-                cursor: 'pointer',
-              }}
-            >
-              去记录进食
-            </button>
           </motion.div>
         )}
 

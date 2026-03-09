@@ -8,6 +8,7 @@ from prompt import SYSTEM_PROMPT, build_user_prompt
 
 
 def _post_json(uri: str, payload: dict, api_key: str) -> dict:
+    print(f"[INFO] LLM request start uri={uri}")
     headers = {"Content-Type": "application/json"}
     if "openai.azure.com" in uri:
         headers["api-key"] = api_key
@@ -24,6 +25,7 @@ def _post_json(uri: str, payload: dict, api_key: str) -> dict:
         if e.code == 429:
             raise RateLimitError("请求频率超限，请稍后重试。", response=None, body=None)
         raise RuntimeError(f"LLM request failed ({e.code}): {body}")
+    print("[INFO] LLM request done")
     return json.loads(body) if body else {}
 
 

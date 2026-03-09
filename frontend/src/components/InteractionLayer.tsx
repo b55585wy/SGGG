@@ -220,7 +220,6 @@ export function InteractionLayer({
   onInteractionComplete,
   onBranchSelect,
   onInteractionStart,
-  speak,
   pageId,
 }: Props) {
   const mountTimeRef = useRef(0);
@@ -238,12 +237,7 @@ export function InteractionLayer({
     if (completed) return;
     setCompletedKey(interaction.event_key);
     onInteractionComplete(interaction.event_key, Date.now() - mountTimeRef.current);
-    // 完成互动后播放 AI 生成的专属鼓励语
-    const encouragement = interaction.ext?.encouragement as string | undefined;
-    if (speak && encouragement) {
-      speak(encouragement);
-    }
-  }, [completed, interaction.event_key, interaction.ext, onInteractionComplete, speak]);
+  }, [completed, interaction.event_key, onInteractionComplete]);
 
   if (interaction.type === 'none') return null;
 
@@ -281,9 +275,8 @@ export function InteractionLayer({
             initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
             transition={{ ...spring, delay: i * 0.1 }}
             onClick={() => {
-              handleComplete(); // 会播放 ext.encouragement
-              // 延迟翻页，让鼓励语有时间开始播放
-              setTimeout(() => onBranchSelect(c.choice_id, c.next_page_id), 800);
+              handleComplete();
+              onBranchSelect(c.choice_id, c.next_page_id);
             }}
             className="w-full py-3 px-4 rounded-xl bg-[var(--color-warm-100)] hover:bg-[var(--color-warm-200)] text-[var(--color-foreground)] font-medium transition-colors active:scale-[0.98] border border-[var(--color-border-light)]">
             {c.label}

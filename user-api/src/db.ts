@@ -62,9 +62,13 @@ function ensureSchema(db: Database) {
     CREATE TABLE IF NOT EXISTS user_food_logs (
       log_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      food_name TEXT NOT NULL,
       score INTEGER NOT NULL,
       content TEXT NOT NULL,
       voice_data TEXT,
+      related_book_id TEXT,
+      related_reading_session_id TEXT,
+      related_reading_ended_at TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(user_id)
     );
@@ -186,6 +190,26 @@ function ensureUserAvatarColumns(db: Database) {
   }
 }
 
+function ensureFoodLogColumns(db: Database) {
+  const res = db.exec("PRAGMA table_info(user_food_logs);");
+  const columns = new Set<string>();
+  for (const row of res[0]?.values ?? []) {
+    if (typeof row[1] === "string") columns.add(row[1]);
+  }
+  if (!columns.has("food_name")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN food_name TEXT NOT NULL DEFAULT '';");
+  }
+  if (!columns.has("related_book_id")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN related_book_id TEXT;");
+  }
+  if (!columns.has("related_reading_session_id")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN related_reading_session_id TEXT;");
+  }
+  if (!columns.has("related_reading_ended_at")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN related_reading_ended_at TEXT;");
+  }
+}
+
 function ensureSeedData(db: Database) {
   const res = db.exec("SELECT COUNT(*) AS cnt FROM users;");
   const cnt = (res[0]?.values?.[0]?.[0] as number | undefined) ?? 0;
@@ -286,6 +310,7 @@ export async function getDb(): Promise<Database> {
 
       ensureSchema(db);
       ensureUserAvatarColumns(db);
+      ensureFoodLogColumns(db);
       ensureSeedData(db);
       ensureAvatarAssets(db);
       await persistDb(db);
@@ -562,27 +587,104 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
 
 export async function insertFoodLog(params: {
   userID: string;
+  foodName: string;
   score: number;
   content: string;
   voiceData?: string | null;
+  relatedBookID?: string | null;
+  relatedReadingSessionID?: string | null;
+  relatedReadingEndedAt?: string | null;
 }) {
   const db = await getDb();
   const now = new Date().toISOString();
   db.run(
     `
-    INSERT INTO user_food_logs (log_id, user_id, score, content, voice_data, created_at)
-    VALUES ($log_id, $user_id, $score, $content, $voice_data, $created_at);
+    INSERT INTO user_food_logs (
+      log_id,
+      user_id,
+      food_name,
+      score,
+      content,
+      voice_data,
+      related_book_id,
+      related_reading_session_id,
+      related_reading_ended_at,
+      created_at
+    )
+    VALUES (
+      $log_id,
+      $user_id,
+      $food_name,
+      $score,
+      $content,
+      $voice_data,
+      $related_book_id,
+      $related_reading_session_id,
+      $related_reading_ended_at,
+      $created_at
+    );
     `,
     {
       $log_id: crypto.randomUUID(),
       $user_id: params.userID,
+      $food_name: params.foodName,
       $score: params.score,
       $content: params.content,
       $voice_data: params.voiceData ?? null,
+      $related_book_id: params.relatedBookID ?? null,
+      $related_reading_session_id: params.relatedReadingSessionID ?? null,
+      $related_reading_ended_at: params.relatedReadingEndedAt ?? null,
       $created_at: now,
     },
   );
   await persistDb(db);
+}
+
+export async function getLatestFoodLog(userID: string): Promise<{ score: number; content: string } | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT score, content
+    FROM user_food_logs
+    WHERE user_id = $user_id
+    ORDER BY created_at DESC
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { score: number; content: string };
+    return { score: row.score, content: row.content };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function getLatestCompletedReadingForUser(userID: string): Promise<{
+  sessionId: string;
+  bookId: string;
+  endedAt: string;
+} | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT rs.id, rs.book_id, rs.ended_at
+    FROM reading_sessions rs
+    JOIN history_books hb ON hb.book_id = rs.book_id AND hb.user_id = rs.user_id
+    WHERE rs.user_id = $user_id AND rs.completed = 1 AND rs.book_id IS NOT NULL
+    ORDER BY rs.ended_at DESC
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { id: string; book_id: string; ended_at: string };
+    return { sessionId: row.id, bookId: row.book_id, endedAt: row.ended_at };
+  } finally {
+    stmt.free();
+  }
 }
 
 export async function insertAvatarState(params: {
@@ -1519,7 +1621,7 @@ export async function exportAllUsers(): Promise<Record<string, unknown>[]> {
 export async function exportAllFoodLogs(): Promise<Record<string, unknown>[]> {
   const db = await getDb();
   return execRows(db, `
-    SELECT log_id, user_id, score, content, created_at
+    SELECT log_id, user_id, food_name, score, content, related_book_id, related_reading_session_id, related_reading_ended_at, created_at
     FROM user_food_logs
     ORDER BY created_at DESC;
   `);

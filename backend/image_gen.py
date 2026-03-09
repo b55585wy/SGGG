@@ -30,6 +30,7 @@ def _save_locally_bytes(raw: bytes, ext: str = ".png") -> Optional[str]:
 
 
 def _post_json(uri: str, payload: dict, api_key: str) -> dict:
+    print(f"[INFO] IMG request start uri={uri}")
     headers = {"Content-Type": "application/json"}
     if "openai.azure.com" in uri:
         headers["api-key"] = api_key
@@ -43,6 +44,7 @@ def _post_json(uri: str, payload: dict, api_key: str) -> dict:
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8")
         raise RuntimeError(f"image request failed ({e.code}): {body}")
+    print("[INFO] IMG request done")
     return json.loads(body) if body else {}
 
 
@@ -64,18 +66,30 @@ def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
             payload = {
                 "prompt": full_prompt,
                 "size": "1024x1024",
-                "response_format": "b64_json",
             }
+            if "openai.azure.com" not in uri:
+                payload["response_format"] = "b64_json"
             if "/deployments/" not in uri:
                 payload["model"] = model
             rsp = _post_json(uri, payload, api_key)
             data = rsp.get("data", [])
-            b64 = data[0].get("b64_json") if data else None
-            if b64:
-                raw = base64.b64decode(b64)
-                saved = _save_locally_bytes(raw, ".png")
-                if saved:
-                    return saved
+            if data:
+                b64 = data[0].get("b64_json")
+                if b64:
+                    raw = base64.b64decode(b64)
+                    saved = _save_locally_bytes(raw, ".png")
+                    if saved:
+                        return saved
+                url = data[0].get("url")
+                if url:
+                    try:
+                        with urllib.request.urlopen(url, timeout=60) as resp:
+                            raw = resp.read()
+                        saved = _save_locally_bytes(raw, ".png")
+                        if saved:
+                            return saved
+                    except Exception:
+                        pass
             print(f"[IMG] attempt {attempt+1}: empty image data")
         except Exception as e:
             print(f"[IMG] attempt {attempt+1} exception: {e}")
@@ -96,6 +110,7 @@ def generate_images_for_pages(pages: list, global_style: str) -> None:
     total = len(pages)
     success = 0
     failed = 0
+    print(f"[INFO] IMG batch start pages={total}")
 
     def gen_one(page: dict):
         url = generate_page_image(page.get("image_prompt", ""), global_style)
@@ -118,4 +133,4 @@ def generate_images_for_pages(pages: list, global_style: str) -> None:
                 failed += 1
                 print(f"[IMG] thread error for page_id={page.get('page_id', '?')}: {e}")
 
-    print(f"[IMG] done: {success}/{total} succeeded, {failed} failed")
+    print(f"[INFO] IMG batch done success={success} failed={failed}")

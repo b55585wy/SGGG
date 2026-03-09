@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag, PaintBrush } from '@phosphor-icons/react';
+import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag } from '@phosphor-icons/react';
 import { InteractionLayer } from '@/components/InteractionLayer';
 import { FeedbackModal, type FeedbackDoneData } from '@/components/FeedbackModal';
 import { useSession } from '@/hooks/useSession';
@@ -24,6 +24,8 @@ export default function ReaderPage() {
   const [showSUS, setShowSUS] = useState(false);
   const [autoReadEnabled, setAutoReadEnabled] = useState(false);
   const autoReadRef = useRef(false);
+  const autoReadSeqRef = useRef(0);
+  const lastAutoReadKeyRef = useRef<string | null>(null);
   const enterRef = useRef(Date.now());
   const trackedRef = useRef(false);
   const sessionStartRef = useRef(new Date().toISOString());
@@ -90,16 +92,35 @@ export default function ReaderPage() {
   // 翻页后自动续读：故事文字读完后接续朗读互动提示
   const speakPage = useCallback((p: typeof draft extends null ? never : NonNullable<typeof draft>['pages'][0]) => {
     const onEnd = p.interaction.type !== 'none' && p.interaction.instruction
-      ? () => tts.speak(p.interaction.instruction)
+      ? () => {
+        tts.speak(p.interaction.instruction);
+      }
       : undefined;
     tts.speak(p.text, 'zhimiao', onEnd);
   }, [tts]);
 
   useEffect(() => {
-    if (!draft || !autoReadRef.current) return;
+    autoReadRef.current = autoReadEnabled;
+  }, [autoReadEnabled]);
+
+  useEffect(() => {
+    if (!draft) return;
+    tts.stop();
+    if (!autoReadEnabled) {
+      lastAutoReadKeyRef.current = null;
+      return;
+    }
     const p = draft.pages[pageIdx];
-    if (p) speakPage(p);
-  }, [pageIdx, draft]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!p) return;
+    const key = `${autoReadSeqRef.current}:${p.page_id}`;
+    if (lastAutoReadKeyRef.current === key) return;
+    lastAutoReadKeyRef.current = key;
+    speakPage(p);
+  }, [pageIdx, draft, autoReadEnabled, tts, speakPage]);
+
+  useEffect(() => () => {
+    tts.stop();
+  }, [tts]);
 
   const trackDwell = useCallback(() => {
     if (!draft || !session) return;
@@ -139,16 +160,20 @@ export default function ReaderPage() {
 
   const onInteraction = useCallback((key: string, ms: number) => {
     if (!draft) return;
+    if (autoReadRef.current) {
+      tts.stop();
+    }
     interactionCountRef.current += 1;
     track('interaction', { event_key: key, latency_ms: ms }, draft.pages[pageIdx].page_id);
-  }, [draft, pageIdx, track]);
+  }, [draft, pageIdx, track, tts]);
 
   const onBranch = useCallback((choiceId: string, nextPageId: string) => {
     if (!draft) return;
+    tts.stop();
     track('branch_select', { choice_id: choiceId }, draft.pages[pageIdx].page_id);
     const idx = draft.pages.findIndex(p => p.page_id === nextPageId);
     if (idx >= 0) { trackDwell(); setPageIdx(idx); }
-  }, [draft, pageIdx, track, trackDwell]);
+  }, [draft, pageIdx, track, trackDwell, tts]);
 
   const onTTS = useCallback(() => {
     if (!draft) return;
@@ -157,16 +182,20 @@ export default function ReaderPage() {
       // 关闭自动朗读
       autoReadRef.current = false;
       setAutoReadEnabled(false);
+      autoReadSeqRef.current += 1;
+      lastAutoReadKeyRef.current = null;
       tts.stop();
       track('read_aloud_play', { enabled: false, page_id: p.page_id }, p.page_id);
     } else {
-      // 开启自动朗读，立即朗读当前页
+      // 开启自动朗读
       autoReadRef.current = true;
       setAutoReadEnabled(true);
-      speakPage(p);
+      autoReadSeqRef.current += 1;
+      lastAutoReadKeyRef.current = null;
+      tts.stop();
       track('read_aloud_play', { enabled: true, page_id: p.page_id }, p.page_id);
     }
-  }, [draft, pageIdx, tts, track, speakPage]);
+  }, [draft, pageIdx, tts, track]);
 
   const TOTAL_SESSIONS = 9;
 
@@ -200,6 +229,7 @@ export default function ReaderPage() {
   }, [draft, session]);
 
   const onExit = useCallback(() => {
+    tts.stop();
     if (session) {
       trackDwell(); flush(); setFeedback('ABORTED');
     } else {
@@ -211,14 +241,12 @@ export default function ReaderPage() {
       localStorage.removeItem('storybook_source');
       navigate('/noa/home');
     }
-  }, [session, trackDwell, flush, clearSession, navigate, logReadingSession, pageIdx]);
+  }, [session, trackDwell, flush, clearSession, navigate, logReadingSession, pageIdx, tts]);
 
   const onFeedbackDone = useCallback((data: FeedbackDoneData) => {
+    tts.stop();
     setFeedback(null);
     void logReadingSession(data, pageIdx + 1, data.status === 'COMPLETED');
-    if (data.status === 'COMPLETED' && session) {
-      localStorage.setItem('pending_meal_reminder', '1');
-    }
     if (session && session.session_index >= TOTAL_SESSIONS - 1) {
       setShowSUS(true);
     } else {
@@ -228,15 +256,16 @@ export default function ReaderPage() {
       localStorage.removeItem('storybook_source');
       navigate('/noa/home');
     }
-  }, [session, clearSession, navigate, logReadingSession, pageIdx]);
+  }, [session, clearSession, navigate, logReadingSession, pageIdx, tts]);
 
   const onSUSDone = useCallback(() => {
+    tts.stop();
     clearSession();
     localStorage.removeItem('storybook_draft');
     localStorage.removeItem('storybook_book_id');
     localStorage.removeItem('storybook_source');
     navigate('/noa/home');
-  }, [clearSession, navigate]);
+  }, [clearSession, navigate, tts]);
 
   if (!draft) return (
     <div className="flex items-center justify-center min-h-screen" style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}>
@@ -339,28 +368,8 @@ export default function ReaderPage() {
                   className="w-full h-full object-cover rounded-[2rem]"
                 />
               ) : (
-                /* 占位卡片（无图时显示 image_prompt） */
-                <div className="flex flex-col items-center px-14">
-                  {/* 页码 badge */}
-                  <div
-                    className="absolute top-5 left-5 px-2.5 py-1 rounded-full text-xs font-mono font-semibold"
-                    style={{ background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(8px)', color: 'var(--color-muted)' }}
-                  >
-                    P{page.page_no}
-                  </div>
-
-                  {/* 画笔图标 */}
-                  <div
-                    className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
-                    style={{ background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(8px)' }}
-                  >
-                    <PaintBrush size={28} weight="light" style={{ color: 'var(--color-accent)' }} />
-                  </div>
-
-                  <p className="text-[10px] font-bold tracking-widest uppercase mb-3" style={{ color: 'var(--color-accent)' }}>插图场景</p>
-                  <p className="text-center text-sm leading-relaxed max-w-xs" style={{ color: 'var(--color-muted)' }}>
-                    {page.image_prompt}
-                  </p>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-9 h-9 border-2 border-[var(--color-accent)]/25 border-t-[var(--color-accent)] rounded-full animate-spin" />
                 </div>
               )}
             </motion.div>

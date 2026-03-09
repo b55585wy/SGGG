@@ -29,13 +29,14 @@ def _build_draft(story_content: dict, story_id: str) -> dict:
 def _generate_images_bg(story_id: str, draft_copy: dict):
     """后台线程：并行生成图片后更新数据库。"""
     global_style = draft_copy.get("book_meta", {}).get("global_visual_style", "")
+    print(f"[INFO] IMG generation start story_id={story_id}")
     generate_images_for_pages(draft_copy["pages"], global_style)
     with get_db() as db:
         db.execute(
             "UPDATE stories SET story_json = ? WHERE story_id = ?",
             (json.dumps(draft_copy), story_id),
         )
-    print(f"[IMG] 图片生成完毕，已更新 story_id={story_id}")
+    print(f"[INFO] IMG generation done story_id={story_id}")
 
 
 @router.get("/{story_id}")
@@ -56,7 +57,9 @@ def story_generate(req: GenerateRequest):
     meal_context = req.meal_context.model_dump()
     story_config = req.story_config.model_dump()
     try:
+        print("[INFO] story_generate LLM start")
         content = generate_story_content(child_profile, meal_context, story_config)
+        print("[INFO] story_generate LLM done")
     except RateLimitError:
         raise HTTPException(429, detail={"error": {"code": "RATE_LIMIT", "message": "AI 生成频率超限，请等待 1 分钟后重试。"}})
     except json.JSONDecodeError as e:
@@ -117,12 +120,14 @@ def story_regenerate(req: RegenerateRequest):
     meal_context["target_food"] = req.target_food
 
     try:
+        print("[INFO] story_regenerate LLM start")
         content = generate_story_content(
             prev_draft.get("child_profile") or {},
             meal_context,
             story_config,
             dissatisfaction_reason=req.dissatisfaction_reason,
         )
+        print("[INFO] story_regenerate LLM done")
     except RateLimitError:
         raise HTTPException(429, detail={"error": {"code": "RATE_LIMIT", "message": "AI 生成频率超限，请等待 1 分钟后重试。"}})
     except json.JSONDecodeError as e:

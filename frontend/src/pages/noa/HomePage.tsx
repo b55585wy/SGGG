@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { clearToken, getToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
 import AvatarEditModal from '@/components/AvatarEditModal'
+import { useTTS } from '@/hooks/useTTS'
 import {
   ClockCounterClockwise,
   Microphone,
@@ -74,6 +75,17 @@ function scoreLabel(s: number): string {
   if (s <= 6) return '还行'
   if (s <= 8) return '比较喜欢'
   return '非常喜欢'
+}
+
+function normalizePreview(preview: string | null | undefined): string | null {
+  if (!preview) return null
+  const trimmed = preview.trim()
+  if (!trimmed) return null
+  if (trimmed.startsWith('data:')) return trimmed
+  if (trimmed.startsWith('<svg')) {
+    return `data:image/svg+xml;utf8,${encodeURIComponent(trimmed)}`
+  }
+  return trimmed
 }
 
 // ─── Regen Modal ─────────────────────────────────────────────────────────────
@@ -380,85 +392,6 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   )
 }
 
-// ─── Food Log Modal ───────────────────────────────────────────────────────────
-
-type FoodLogModalProps = {
-  themeFood: string
-  onClose: () => void
-  onSuccess: (data: FoodLogResponse) => void
-}
-
-function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
-  return (
-    <>
-      {/* Backdrop */}
-      <motion.div
-        key="fl-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(6px)' }}
-        onClick={onClose}
-      />
-
-      {/* Centered floating card */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
-        <motion.div
-          key="fl-dialog"
-          initial={{ opacity: 0, scale: 0.93, y: -10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.93, y: -10 }}
-          transition={spring}
-          className="pointer-events-auto flex flex-col w-full overflow-hidden"
-          style={{
-            maxWidth: 480,
-            maxHeight: '82dvh',
-            background: 'white',
-            borderRadius: '2rem',
-            boxShadow: '0 32px 80px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(231,229,228,0.6)',
-          }}
-        >
-          {/* Header */}
-          <div
-            className="shrink-0 flex items-center justify-between px-6 pt-5 pb-4"
-            style={{ borderBottom: '1px solid var(--color-border-light)' }}
-          >
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <div
-                  className="flex items-center justify-center shrink-0"
-                  style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--color-accent-light)' }}
-                >
-                  <ForkKnife size={10} weight="fill" style={{ color: 'var(--color-accent)' }} />
-                </div>
-                <span className="text-[10px] font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
-                  {themeFood ? `今日食物：${themeFood}` : '进食记录'}
-                </span>
-              </div>
-              <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                今天吃得怎么样？
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full transition-all active:scale-[0.93]"
-              style={{ background: 'var(--color-warm-100)', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
-            >
-              <X size={15} weight="bold" />
-            </button>
-          </div>
-
-          {/* InlineFoodLog fills the rest */}
-          <InlineFoodLog onSuccess={onSuccess} />
-        </motion.div>
-      </div>
-    </>
-  )
-}
-
 // ─── Inline Food Log ──────────────────────────────────────────────────────────
 
 type InlineFoodLogProps = {
@@ -466,6 +399,13 @@ type InlineFoodLogProps = {
 }
 
 function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
+  const [foodName, setFoodName] = useState('')
+  const [foodVoiceLoading, setFoodVoiceLoading] = useState(false)
+  const [foodIsRecording, setFoodIsRecording] = useState(false)
+  const [foodAudioUrl, setFoodAudioUrl] = useState<string | null>(null)
+  const foodRecorderRef = useRef<MediaRecorder | null>(null)
+  const foodStreamRef = useRef<MediaStream | null>(null)
+  const foodChunksRef = useRef<Blob[]>([])
   const [score, setScore] = useState(0)
   const [scoreTouched, setScoreTouched] = useState(false)
   const [content, setContent] = useState('')
@@ -479,20 +419,21 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
   const chunksRef = useRef<Blob[]>([])
 
   const canSend = useMemo(
-    () => !!content.trim() && scoreTouched && score > 0 && !sending,
-    [content, scoreTouched, score, sending],
+    () => !!foodName.trim() && !!content.trim() && scoreTouched && score > 0 && !sending,
+    [foodName, content, scoreTouched, score, sending],
   )
   const sliderPct = (score / 10) * 100
   const thumbColor = score > 0 ? scoreColor(score) : undefined
 
   async function onSend() {
     setError('')
+    if (!foodName.trim()) { setError('请输入今日食物'); return }
     if (!scoreTouched || score <= 0) { setError('请先滑动评分条'); return }
     if (!content.trim()) { setError('请输入进食记录'); return }
     setSending(true)
     try {
-      const data = await postJson<FoodLogResponse>('/api/food/log', { score, content: content.trim() })
-      setScore(0); setScoreTouched(false); setContent('')
+      const data = await postJson<FoodLogResponse>('/api/food/log', { foodName: foodName.trim(), score, content: content.trim() })
+      setFoodName(''); setScore(0); setScoreTouched(false); setContent('')
       onSuccess(data)
     } catch (e) {
       const message =
@@ -500,12 +441,17 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
         typeof (e as { message?: unknown }).message === 'string'
           ? (e as { message: string }).message : '提交失败'
       setError(message)
+    } finally {
       setSending(false)
     }
   }
 
-  async function transcribeBlob(blob: Blob) {
-    setVoiceLoading(true)
+  async function transcribeBlob(blob: Blob, target: 'food' | 'content') {
+    if (target === 'food') {
+      setFoodVoiceLoading(true)
+    } else {
+      setVoiceLoading(true)
+    }
     try {
       const token = getToken()
       const form = new FormData()
@@ -520,15 +466,25 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
         throw new Error(msg || '语音转写失败')
       }
       const data = await res.json() as VoiceResponse
-      if (data.text) setContent(data.text)
+      if (data.text) {
+        if (target === 'food') {
+          setFoodName(data.text)
+        } else {
+          setContent(data.text)
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '语音转写失败')
     } finally {
-      setVoiceLoading(false)
+      if (target === 'food') {
+        setFoodVoiceLoading(false)
+      } else {
+        setVoiceLoading(false)
+      }
     }
   }
 
-  async function startRecording() {
+  async function startRecording(target: 'food' | 'content') {
     setError('')
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('当前浏览器不支持录音')
@@ -536,41 +492,73 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-      chunksRef.current = []
-      const recorder = new MediaRecorder(stream)
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      recorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-        setAudioUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev)
-          return URL.createObjectURL(blob)
-        })
-        stream.getTracks().forEach(t => t.stop())
-        await transcribeBlob(blob)
+      if (target === 'food') {
+        foodStreamRef.current = stream
+        foodChunksRef.current = []
+      } else {
+        streamRef.current = stream
+        chunksRef.current = []
       }
-      recorderRef.current = recorder
+      const recorder = new MediaRecorder(stream)
+      recorder.ondataavailable = (e) => {
+        if (e.data.size <= 0) return
+        if (target === 'food') {
+          foodChunksRef.current.push(e.data)
+        } else {
+          chunksRef.current.push(e.data)
+        }
+      }
+      recorder.onstop = async () => {
+        const blob = new Blob(
+          target === 'food' ? foodChunksRef.current : chunksRef.current,
+          { type: recorder.mimeType || 'audio/webm' },
+        )
+        if (target === 'food') {
+          setFoodAudioUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev)
+            return URL.createObjectURL(blob)
+          })
+        } else {
+          setAudioUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev)
+            return URL.createObjectURL(blob)
+          })
+        }
+        stream.getTracks().forEach(t => t.stop())
+        await transcribeBlob(blob, target)
+      }
+      if (target === 'food') {
+        foodRecorderRef.current = recorder
+        setFoodIsRecording(true)
+      } else {
+        recorderRef.current = recorder
+        setIsRecording(true)
+      }
       recorder.start()
-      setIsRecording(true)
     } catch {
       setError('无法访问麦克风，请检查浏览器权限')
     }
   }
 
-  function stopRecording() {
-    const recorder = recorderRef.current
+  function stopRecording(target: 'food' | 'content') {
+    const recorder = target === 'food' ? foodRecorderRef.current : recorderRef.current
     if (recorder && recorder.state !== 'inactive') {
       recorder.stop()
     }
-    setIsRecording(false)
+    if (target === 'food') {
+      setFoodIsRecording(false)
+    } else {
+      setIsRecording(false)
+    }
   }
 
-  function onTranscribe() {
-    if (voiceLoading) return
-    if (isRecording) {
-      stopRecording()
+  function onTranscribe(target: 'food' | 'content') {
+    if (target === 'food' ? foodVoiceLoading : voiceLoading) return
+    const recording = target === 'food' ? foodIsRecording : isRecording
+    if (recording) {
+      stopRecording(target)
     } else {
-      void startRecording()
+      void startRecording(target)
     }
   }
 
@@ -578,6 +566,31 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
     <>
       {/* Scrollable body */}
       <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-6" style={{ scrollbarWidth: 'none' }}>
+
+        {/* Food name */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>今日食物</label>
+          <div className="flex gap-2">
+            <input
+              value={foodName}
+              onChange={(e) => setFoodName(e.target.value)}
+              placeholder="请输入今日尝试的食物"
+              className="form-input flex-1 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => onTranscribe('food')}
+              disabled={foodVoiceLoading}
+              className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
+              style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
+            >
+              <Microphone size={18} weight={foodIsRecording || foodVoiceLoading ? 'fill' : 'regular'} />
+            </button>
+          </div>
+          {foodAudioUrl && (
+            <audio controls src={foodAudioUrl} className="w-full h-8" />
+          )}
+        </div>
 
         {/* Score section */}
         <div className="space-y-3">
@@ -627,7 +640,7 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
             />
             <button
               type="button"
-              onClick={onTranscribe}
+              onClick={() => onTranscribe('content')}
               disabled={voiceLoading}
               className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
               style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
@@ -662,7 +675,7 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
           }}
         >
           <PaperPlaneTilt size={15} weight="bold" />
-          {sending ? '提交中...' : '提交记录，生成绘本 →'}
+          {sending ? '提交中...' : '提交记录'}
         </button>
       </div>
     </>
@@ -702,13 +715,14 @@ function LoadingSkeleton() {
 
 export default function HomePage() {
   const navigate = useNavigate()
+  const tts = useTTS()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [status, setStatus] = useState<HomeStatusResponse | null>(null)
   const [feedbackText, setFeedbackText] = useState('')
   const [showRegenModal, setShowRegenModal] = useState(false)
   const [showAvatarModal, setShowAvatarModal] = useState(false)
-  const [showFoodLogModal, setShowFoodLogModal] = useState(false)
+  const [showFoodLogPanel, setShowFoodLogPanel] = useState(false)
   const [bookGenerating, setBookGenerating] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -721,10 +735,10 @@ export default function HomePage() {
       // While generating, clear any stale book so the animation shows correctly.
       if (data.generating) {
         setStatus((prev) => prev ? ({ ...prev, ...data, book: null } as HomeStatusResponse) : ({ ...data, book: null } as HomeStatusResponse))
-        setBookGenerating(true)
       } else {
         setStatus(data)
       }
+      setBookGenerating(!!data.generating)
     } catch (e) {
       if (e && typeof e === 'object' && 'status' in e) {
         const statusCode = (e as { status?: number }).status
@@ -752,6 +766,7 @@ export default function HomePage() {
     try {
       const data = await getJson<HomeStatusResponse>('/api/home/status')
       setStatus(data)
+      setBookGenerating(!!data.generating)
       return data
     } catch { return null }
   }, [])
@@ -807,6 +822,7 @@ export default function HomePage() {
 
   const avatar = status?.avatar
   const book = status?.book
+  const previewSrc = normalizePreview(book?.preview)
   const regenerateReached = book ? book.regenerateCount >= 2 : false
 
   if (loading) return <LoadingSkeleton />
@@ -859,7 +875,7 @@ export default function HomePage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setShowFoodLogModal(true)}
+            onClick={() => setShowFoodLogPanel((prev) => !prev)}
             className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
             style={{
               borderColor: 'var(--color-accent)',
@@ -868,7 +884,7 @@ export default function HomePage() {
             }}
           >
             <ForkKnife size={13} weight="bold" />
-            记录进食
+            {showFoodLogPanel ? '查看绘本' : '记录进食'}
           </button>
           <button
             onClick={() => navigate('/noa/books/history')}
@@ -925,6 +941,43 @@ export default function HomePage() {
 
           {/* Avatar layers */}
           <div className="relative flex-1 min-h-0">
+            {feedbackText && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!tts.isSupported) return
+                  if (tts.isSpeaking) { tts.stop(); return }
+                  void tts.speak(feedbackText, 'zhimiao')
+                }}
+                className="absolute z-20 left-1/2 -translate-x-1/2 top-4 w-[min(92%,320px)] text-left transition-all active:scale-[0.98]"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
+              >
+                <div
+                  className="relative rounded-[1.25rem] px-4 py-3"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(5,150,105,0.96), rgba(4,120,87,0.96))',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    boxShadow: '0 22px 44px -18px rgba(5,150,105,0.55)',
+                  }}
+                >
+                  <p className="text-sm font-semibold leading-relaxed line-clamp-3" style={{ color: 'rgba(255,255,255,0.98)' }}>
+                    {feedbackText}
+                  </p>
+                  <div
+                    className="absolute -bottom-2 left-1/2 -translate-x-1/2"
+                    style={{
+                      width: 0,
+                      height: 0,
+                      borderLeft: '9px solid transparent',
+                      borderRight: '9px solid transparent',
+                      borderTop: '10px solid rgba(4,120,87,0.96)',
+                      filter: 'drop-shadow(0 10px 14px rgba(5,150,105,0.28))',
+                    }}
+                  />
+                </div>
+              </button>
+            )}
             {avatar?.baseImage && <img src={avatar.baseImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
             {avatar?.topImage && <img src={avatar.topImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
             {avatar?.bottomImage && <img src={avatar.bottomImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
@@ -938,7 +991,7 @@ export default function HomePage() {
           </div>
 
           {/* Avatar info + feedback bubble */}
-          <div className="relative z-10 shrink-0 px-5 pb-5 space-y-3">
+          <div className="relative z-10 shrink-0 px-5 pb-5">
             {/* Name row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -960,43 +1013,12 @@ export default function HomePage() {
                 编辑
               </button>
             </div>
-
-            {/* Speech bubble */}
-            {feedbackText ? (
-              <div className="relative">
-                {/* Bubble tail */}
-                <div
-                  className="absolute -top-2 left-6"
-                  style={{
-                    width: 0, height: 0,
-                    borderLeft: '7px solid transparent',
-                    borderRight: '7px solid transparent',
-                    borderBottom: '8px solid #d1fae5',
-                  }}
-                />
-                <div
-                  className="rounded-2xl px-4 py-3"
-                  style={{ background: 'var(--color-accent-light)' }}
-                >
-                  <p className="text-xs leading-relaxed line-clamp-3" style={{ color: 'var(--color-accent-hover)' }}>
-                    {feedbackText}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div
-                className="rounded-2xl px-4 py-2.5"
-                style={{ background: 'var(--color-warm-100)' }}
-              >
-                <p className="text-xs" style={{ color: 'var(--color-muted)' }}>今天心情平静 😊</p>
-              </div>
-            )}
           </div>
         </motion.div>
 
         {/* ── Right: conditional two-state panel ── */}
         <AnimatePresence mode="wait">
-          {book || bookGenerating ? (
+          {!showFoodLogPanel ? (
 
             /* ── State B: Book card ── */
             <motion.div
@@ -1036,18 +1058,18 @@ export default function HomePage() {
                       <span className="book-gen-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-accent)', opacity: 0.7, animationDelay: '400ms' }} />
                     </div>
                   </div>
-                ) : book?.preview ? (
+                ) : previewSrc ? (
                   <>
                     <img
-                      src={book.preview}
-                      alt={book.title}
+                      src={previewSrc}
+                      alt={book?.title ?? ''}
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                     <div
                       className="absolute inset-0 pointer-events-none"
                       style={{ background: 'linear-gradient(to right, transparent 60%, rgba(255,255,255,0.12))' }}
                     />
-                    {book.confirmed && (
+                    {book?.confirmed && (
                       <span
                         className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white"
                         style={{ background: 'var(--color-accent)', boxShadow: '0 2px 8px rgba(5,150,105,0.4)' }}
@@ -1065,8 +1087,8 @@ export default function HomePage() {
                     >
                       <BookOpenText size={28} weight="light" style={{ color: 'var(--color-accent)', opacity: 0.7 }} />
                     </div>
-                    <span className="text-[11px] font-medium text-center px-4" style={{ color: 'var(--color-muted)' }}>
-                      提交后生成
+                  <span className="text-[11px] font-medium text-center px-4" style={{ color: 'var(--color-muted)' }}>
+                      暂无绘本
                     </span>
                   </div>
                 )}
@@ -1162,14 +1184,21 @@ export default function HomePage() {
                         重新生成 ({book.regenerateCount}/2)
                       </button>
                     </div>
-                  ) : (
-                    /* Generating state — disabled placeholder */
+                  ) : bookGenerating ? (
                     <div
                       className="w-full py-4 rounded-full font-bold text-sm flex items-center justify-center gap-2"
                       style={{ background: 'var(--color-warm-100)', color: 'var(--color-muted)' }}
                     >
                       <BookOpenText size={16} weight="light" />
                       绘本生成中…
+                    </div>
+                  ) : (
+                    <div
+                      className="w-full py-4 rounded-full font-bold text-sm flex items-center justify-center gap-2"
+                      style={{ background: 'var(--color-warm-100)', color: 'var(--color-muted)' }}
+                    >
+                      <BookOpenText size={16} weight="light" />
+                      暂无绘本
                     </div>
                   )}
                 </div>
@@ -1201,25 +1230,22 @@ export default function HomePage() {
                     <ForkKnife size={11} weight="fill" style={{ color: 'var(--color-accent)' }} />
                   </div>
                   <span className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
-                    {status?.themeFood ? `今日食物：${status.themeFood}` : '进食记录'}
+                    进食记录
                   </span>
                 </div>
                 <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
                   今天吃得怎么样？
                 </h2>
                 <p className="text-sm mt-1" style={{ color: 'var(--color-muted)' }}>
-                  完成记录，系统将为你生成专属绘本 📖
+                  记录进食情况，帮助我们了解你的尝试进度
                 </p>
               </div>
 
               {/* Food log content */}
               <InlineFoodLog
                 onSuccess={(data) => {
-                  localStorage.removeItem('pending_meal_reminder')
                   setFeedbackText(data.feedbackText)
                   sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-                  setStatus((prev) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
-                  setBookGenerating(true)
                 }}
               />
             </motion.div>
@@ -1227,24 +1253,6 @@ export default function HomePage() {
           )}
         </AnimatePresence>
       </div>
-
-      {/* ── Food Log Modal ── */}
-      <AnimatePresence>
-        {showFoodLogModal && (
-          <FoodLogModal
-            themeFood={status?.themeFood ?? ''}
-            onClose={() => setShowFoodLogModal(false)}
-            onSuccess={(data) => {
-              localStorage.removeItem('pending_meal_reminder')
-              setShowFoodLogModal(false)
-              setFeedbackText(data.feedbackText)
-              sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-              setStatus((prev) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
-              setBookGenerating(true)
-            }}
-          />
-        )}
-      </AnimatePresence>
 
       {/* ── Regen Modal ── */}
       <AnimatePresence>

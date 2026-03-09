@@ -84,12 +84,19 @@ cd frontend && npm run dev
 |------|------|----------|
 | `/noa/login` | 登录页（两栏：左侧"食育绘本"装饰，右侧登录表单） | 否 |
 | `/noa/avatar` | 虚拟形象创建页 | 是 |
-| `/noa/home` | 主页面（State A：内嵌进食录入表单；State B：绘本卡片 + "记录进食"Modal 入口） | 是 |
+| `/noa/home` | 主页面（右侧面板可切换：绘本预览 / 进食记录，默认绘本预览） | 是 |
 | `/noa/books/create` | 绘本重新生成表单（已废弃，功能已移至主页面 RegenModal） | 是 |
 | `/noa/books/history` | 历史绘本列表 | 是 |
 | `/noa/books/:bookId` | 绘本桥接页（解析 draft、可选创建 session，跳转至 `/reader`） | 是 |
 | `/noa/admin/users` | 管理员后台（统计 + 用户管理） | `x-admin-key` |
 | `/reader` | 故事阅读器（交互式阅读、TTS、互动层、反馈与 SUS 问卷） | 是 |
+
+## 关键流程
+
+- 绘本生成：读完已确认绘本 → 自动生成新绘本（无需录入进食触发）
+- 进食记录：主页面随时提交（今日食物/打分/描述必填），仅写入进食日志与反馈
+- 主页面切换：头部按钮在“绘本预览 / 进食记录”之间切换
+- 绘本预览图：默认 SVG 占位；插图生成后可展示第一页插图 URL
 
 ## API Endpoints
 
@@ -105,7 +112,7 @@ cd frontend && npm run dev
 | GET | `/api/avatar/component` | 单个组件图片（`?type=&id=`） | 无 |
 | POST | `/api/avatar/save` | 保存用户形象 | Bearer |
 | GET | `/api/home/status` | 主页聚合数据（含 `generating` 字段，刷新后恢复生成状态） | Bearer |
-| POST | `/api/food/log` | 提交进食记录 | Bearer |
+| POST | `/api/food/log` | 提交进食记录（`foodName/score/content` 必填，不触发绘本生成） | Bearer |
 | POST | `/api/book/confirm` | 确认临时绘本 | Bearer |
 | POST | `/api/book/regenerate` | 重新生成临时绘本（转发 pages/difficulty/interaction_density 给 FastAPI） | Bearer |
 | GET | `/api/books/history` | 历史绘本列表 | Bearer |
