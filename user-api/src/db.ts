@@ -157,6 +157,9 @@ function ensureUserAvatarColumns(db: Database) {
     if (!columns.has("generating_since")) {
       db.run("ALTER TABLE users ADD COLUMN generating_since TEXT DEFAULT NULL;");
     }
+    if (!columns.has("generate_error")) {
+      db.run("ALTER TABLE users ADD COLUMN generate_error TEXT DEFAULT NULL;");
+    }
   }
 
   // reading_sessions table migration — add session_type column
@@ -1472,6 +1475,31 @@ export async function clearUserGenerating(userID: string) {
   const db = await getDb();
   db.run("UPDATE users SET generating_since = NULL WHERE user_id = $uid;", { $uid: userID });
   await persistDb(db);
+}
+
+export async function setGenerateError(userID: string, error: string) {
+  const db = await getDb();
+  db.run("UPDATE users SET generate_error = $err WHERE user_id = $uid;", { $uid: userID, $err: error });
+  await persistDb(db);
+}
+
+export async function clearGenerateError(userID: string) {
+  const db = await getDb();
+  db.run("UPDATE users SET generate_error = NULL WHERE user_id = $uid;", { $uid: userID });
+  await persistDb(db);
+}
+
+export async function getGenerateError(userID: string): Promise<string | null> {
+  const db = await getDb();
+  const stmt = db.prepare("SELECT generate_error FROM users WHERE user_id = $uid;");
+  stmt.bind({ $uid: userID });
+  try {
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as { generate_error: string | null };
+    return row.generate_error || null;
+  } finally {
+    stmt.free();
+  }
 }
 
 export async function isUserGenerating(userID: string): Promise<boolean> {

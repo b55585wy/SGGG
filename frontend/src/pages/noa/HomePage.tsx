@@ -24,6 +24,7 @@ import {
   Palette,
   CaretDown,
   CaretUp,
+  WarningCircle,
 } from '@phosphor-icons/react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ type HomeStatusResponse = {
   feedbackText: string
   themeFood: string
   generating?: boolean
+  generateError?: string | null
   book: {
     bookID: string
     title: string
@@ -411,6 +413,9 @@ export default function HomePage() {
         setBookGenerating(true)
       } else {
         setStatus(data)
+        if (data.generateError) {
+          setError(`绘本生成失败：${data.generateError}`)
+        }
       }
     } catch (e) {
       if (e && typeof e === 'object' && 'status' in e) {
@@ -450,10 +455,13 @@ export default function HomePage() {
     pollRef.current = setInterval(async () => {
       try {
         const data = await getJson<HomeStatusResponse>('/api/home/status')
-        // Stop polling once server confirms generation is complete
+        // Stop polling once generation is complete or failed
         if (!data.generating) {
           setStatus(data)
           setBookGenerating(false)
+          if (data.generateError) {
+            setError(`绘本生成失败：${data.generateError}`)
+          }
         }
       } catch { /* ignore */ }
     }, 3000)
@@ -872,35 +880,69 @@ export default function HomePage() {
                 boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
               }}
             >
-              <div
-                className="flex h-16 w-16 items-center justify-center rounded-2xl"
-                style={{ background: 'var(--color-accent-light)', boxShadow: '0 4px 16px rgba(5,150,105,0.12)' }}
-              >
-                <ForkKnife size={28} weight="duotone" style={{ color: 'var(--color-accent)' }} />
-              </div>
-              <div className="space-y-1.5">
-                <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                  记录一次进食
-                </h2>
-                <p className="text-sm leading-relaxed" style={{ color: 'var(--color-muted)', maxWidth: '28ch', margin: '0 auto' }}>
-                  {status?.themeFood
-                    ? `记录今天吃「${status.themeFood}」的情况，生成你的专属绘本`
-                    : '记录今天的进食情况，生成你的专属绘本'}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowFoodLogModal(true)}
-                className="inline-flex items-center gap-2 rounded-full px-8 py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98]"
-                style={{
-                  background: 'linear-gradient(135deg, #059669, #047857)',
-                  border: 'none',
-                  cursor: 'pointer',
-                  boxShadow: '0 8px 24px -4px rgba(5,150,105,0.38)',
-                }}
-              >
-                <ForkKnife size={15} weight="bold" />
-                开始记录 →
-              </button>
+              {error ? (
+                <>
+                  <div
+                    className="flex h-16 w-16 items-center justify-center rounded-2xl"
+                    style={{ background: 'rgba(239,68,68,0.08)', boxShadow: '0 4px 16px rgba(239,68,68,0.10)' }}
+                  >
+                    <WarningCircle size={28} weight="duotone" style={{ color: '#ef4444' }} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                      生成失败
+                    </h2>
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--color-muted)', maxWidth: '32ch', margin: '0 auto' }}>
+                      绘本生成遇到问题，请重新记录进食
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setError(''); setShowFoodLogModal(true) }}
+                    className="inline-flex items-center gap-2 rounded-full px-8 py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98]"
+                    style={{
+                      background: 'linear-gradient(135deg, #059669, #047857)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: '0 8px 24px -4px rgba(5,150,105,0.38)',
+                    }}
+                  >
+                    <ArrowsClockwise size={15} weight="bold" />
+                    重新记录
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div
+                    className="flex h-16 w-16 items-center justify-center rounded-2xl"
+                    style={{ background: 'var(--color-accent-light)', boxShadow: '0 4px 16px rgba(5,150,105,0.12)' }}
+                  >
+                    <ForkKnife size={28} weight="duotone" style={{ color: 'var(--color-accent)' }} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                      记录一次进食
+                    </h2>
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--color-muted)', maxWidth: '28ch', margin: '0 auto' }}>
+                      {status?.themeFood
+                        ? `记录今天吃「${status.themeFood}」的情况，生成你的专属绘本`
+                        : '记录今天的进食情况，生成你的专属绘本'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowFoodLogModal(true)}
+                    className="inline-flex items-center gap-2 rounded-full px-8 py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98]"
+                    style={{
+                      background: 'linear-gradient(135deg, #059669, #047857)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: '0 8px 24px -4px rgba(5,150,105,0.38)',
+                    }}
+                  >
+                    <ForkKnife size={15} weight="bold" />
+                    开始记录 →
+                  </button>
+                </>
+              )}
             </motion.div>
 
           )}

@@ -36,6 +36,9 @@ import {
   setUserGenerating,
   clearUserGenerating,
   isUserGenerating,
+  setGenerateError,
+  clearGenerateError,
+  getGenerateError,
   exportAllUsers,
   exportAllFoodLogs,
   exportAllReadingSessions,
@@ -316,6 +319,7 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
     // Fire-and-forget story generation
     generatingUsers.add(userID);
     setUserGenerating(userID).catch(() => {});
+    clearGenerateError(userID).catch(() => {});
     generateTempBookForUser({
       userID,
       nickname,
@@ -329,7 +333,11 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
       age,
       customPrompt: customPrompt || undefined,
     })
-      .catch((err) => console.error("[ADMIN-BOOK] 默认绘本生成失败:", err))
+      .catch(async (err) => {
+        console.error("[ADMIN-BOOK] 默认绘本生成失败:", err);
+        const msg = err instanceof Error ? err.message : "绘本生成失败";
+        await setGenerateError(userID, msg).catch(() => {});
+      })
       .finally(async () => {
         generatingUsers.delete(userID);
         await clearUserGenerating(userID).catch(() => {});
@@ -497,10 +505,12 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
 
   const tempBook = await getTempBook(req.user.userID);
   const generating = generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID);
+  const generateError = generating ? null : await getGenerateError(req.user.userID);
   if (tempBook) {
     res.json({
       ...base,
       generating,
+      generateError,
       book: {
         bookID: tempBook.bookID,
         title: tempBook.title,
@@ -518,6 +528,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     res.json({
       ...base,
       generating,
+      generateError,
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
@@ -530,7 +541,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  res.json({ ...base, generating, book: null });
+  res.json({ ...base, generating, generateError, book: null });
 });
 
 app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -595,6 +606,7 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     const readingSummary = await getReadingSummary(req.user.userID);
     generatingUsers.add(req.user.userID);
     setUserGenerating(req.user.userID).catch(() => {});
+    clearGenerateError(req.user.userID).catch(() => {});
     generateTempBookForUser({
       userID: req.user.userID,
       nickname: avatar.nickname,
@@ -605,7 +617,11 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       regenerateCount: 0,
       recentHistory: historyBeforeInsert,
       readingSummary,
-    }).catch((err) => console.error("[BOOK] 绘本生成失败:", err))
+    }).catch(async (err) => {
+        console.error("[BOOK] 绘本生成失败:", err);
+        const msg = err instanceof Error ? err.message : "绘本生成失败";
+        await setGenerateError(req.user!.userID, msg).catch(() => {});
+      })
       .finally(async () => {
         generatingUsers.delete(req.user!.userID);
         await clearUserGenerating(req.user!.userID).catch(() => {});
