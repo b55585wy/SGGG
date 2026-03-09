@@ -32,7 +32,7 @@ async function mockHomeStatusNoBook(page: Page, themeFood = '西兰花') {
   );
 }
 
-/** Mock home status with a book (State B). */
+/** Mock home status with a confirmed book (State B, confirmed=true for 记录进食 button). */
 async function mockHomeStatusWithBook(page: Page, themeFood = '胡萝卜') {
   await page.route('**/api/user/home/status', (route) =>
     route.fulfill({
@@ -55,7 +55,7 @@ async function mockHomeStatusWithBook(page: Page, themeFood = '胡萝卜') {
           title: '胡萝卜故事',
           preview: '预览',
           description: '描述',
-          confirmed: false,
+          confirmed: true,
           regenerateCount: 0,
         },
       }),
@@ -179,9 +179,11 @@ test.describe('首页 FoodLogForm 弹窗（State A → CTA → Modal）', () => 
     await expect(btn).toBeDisabled();
   });
 
-  test('评分 + 描述后提交按钮启用', async ({ page }) => {
+  test('评分 + 描述 + 尝试程度后提交按钮启用', async ({ page }) => {
     await clickStar(page, 4, 'right');
     await page.locator('textarea').fill('吃了一小口');
+    // tryLevel is now required since modal is unified
+    await page.locator('button', { hasText: '咬一口' }).click();
     const btn = page.locator('button', { hasText: '提交记录，生成绘本' });
     await expect(btn).toBeEnabled();
   });
@@ -195,6 +197,7 @@ test.describe('首页 FoodLogForm 弹窗（State A → CTA → Modal）', () => 
 
     await clickStar(page, 2, 'left'); // score = 3
     await page.locator('textarea').fill('尝了一口');
+    await page.locator('button', { hasText: '咬一口' }).click(); // tryLevel required
     await page.locator('button', { hasText: '提交记录，生成绘本' }).click();
 
     await page.waitForTimeout(1_500);
@@ -205,13 +208,13 @@ test.describe('首页 FoodLogForm 弹窗（State A → CTA → Modal）', () => 
     expect(capture.body!.skipBookGeneration).toBeUndefined();
   });
 
-  test('不显示尝试程度和跳过按钮', async ({ page }) => {
-    await expect(page.locator('text=尝试程度')).not.toBeVisible();
-    await expect(page.locator('text=还没吃，先跳过')).not.toBeVisible();
+  test('显示尝试程度和跳过按钮（统一弹窗）', async ({ page }) => {
+    await expect(page.locator('text=尝试程度')).toBeVisible();
+    await expect(page.locator('text=还没吃，先跳过')).toBeVisible();
   });
 
-  test('不显示补充说明', async ({ page }) => {
-    await expect(page.locator('text=补充说明')).not.toBeVisible();
+  test('显示补充说明（统一弹窗）', async ({ page }) => {
+    await expect(page.locator('text=补充说明')).toBeVisible();
   });
 });
 
@@ -243,6 +246,7 @@ test.describe('首页弹窗 FoodLogForm（State B → 右上角按钮）', () =>
   test('提交后弹窗关闭', async ({ page }) => {
     await clickStar(page, 3, 'right');
     await page.locator('.fixed textarea').first().fill('吃了一些');
+    await page.locator('button', { hasText: '咬一口' }).click(); // tryLevel required
     await page.locator('.fixed button', { hasText: '提交记录，生成绘本' }).click();
     await expect(page.locator('.fixed >> text=用餐怎么样？')).not.toBeVisible({ timeout: 5_000 });
   });
@@ -465,6 +469,7 @@ test.describe('pending_meal_reminder 已移除', () => {
 
     await clickStar(page, 3, 'right');
     await page.locator('textarea').fill('测试');
+    await page.locator('button', { hasText: '咬一口' }).click(); // tryLevel required
     await page.locator('button', { hasText: '提交记录，生成绘本' }).click();
     await page.waitForTimeout(1_500);
 

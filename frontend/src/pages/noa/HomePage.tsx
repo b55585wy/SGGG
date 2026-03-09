@@ -553,18 +553,20 @@ export default function HomePage() {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => setShowFoodLogModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
-            style={{
-              borderColor: 'var(--color-accent)',
-              background: 'var(--color-accent-light)',
-              color: 'var(--color-accent)',
-            }}
-          >
-            <ForkKnife size={13} weight="bold" />
-            记录进食
-          </button>
+          {book?.confirmed && (
+            <button
+              onClick={() => setShowFoodLogModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
+              style={{
+                borderColor: 'var(--color-accent)',
+                background: 'var(--color-accent-light)',
+                color: 'var(--color-accent)',
+              }}
+            >
+              <ForkKnife size={13} weight="bold" />
+              记录进食
+            </button>
+          )}
           <button
             onClick={() => navigate('/noa/books/history')}
             className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
@@ -954,6 +956,9 @@ export default function HomePage() {
         {showFoodLogModal && (
           <FoodLogModal
             themeFood={status?.themeFood}
+            showTryLevel
+            showNotes
+            showSkip
             submitLabel="提交记录，生成绘本 →"
             onDone={(result) => {
               setShowFoodLogModal(false)
