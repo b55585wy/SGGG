@@ -43,6 +43,7 @@ class GenerateRequest(BaseModel):
     meal_context: MealContext
     story_config: StoryConfig
     history_context: Optional[HistoryContext] = None
+    custom_prompt: Optional[str] = None
 
 
 # ── Story Regenerate ──────────────────────────────────────────

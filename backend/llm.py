@@ -24,10 +24,11 @@ def generate_story_content(
     meal_context: dict,
     story_config: dict,
     dissatisfaction_reason: str | None = None,
+    custom_prompt: str | None = None,
 ) -> dict:
     """Call DeepSeek and return parsed story dict (book_meta + pages + ending)."""
     client = get_client()
-    user_prompt = build_user_prompt(child_profile, meal_context, story_config, dissatisfaction_reason)
+    user_prompt = build_user_prompt(child_profile, meal_context, story_config, dissatisfaction_reason, custom_prompt)
 
     try:
         response = client.chat.completions.create(

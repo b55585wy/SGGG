@@ -200,6 +200,11 @@ export default function AdminUsersPage() {
   const [newUserID, setNewUserID] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newThemeFood, setNewThemeFood] = useState('胡萝卜')
+  const [newNickname, setNewNickname] = useState('')
+  const [newAge, setNewAge] = useState(5)
+  const [newGender, setNewGender] = useState<'male' | 'female'>('male')
+  const [newCustomPrompt, setNewCustomPrompt] = useState('')
+  const [generateBook, setGenerateBook] = useState(false)
   const [creating, setCreating] = useState(false)
 
   // Stats state
@@ -258,20 +263,33 @@ export default function AdminUsersPage() {
     setError('')
     setCreating(true)
     try {
+      const payload: Record<string, unknown> = {
+        userID: newUserID.trim(),
+        password: newPassword,
+        themeFood: newThemeFood.trim() || '胡萝卜',
+      }
+      if (generateBook) {
+        payload.generateBook = true
+        payload.nickname = newNickname.trim() || newUserID.trim()
+        payload.age = newAge
+        payload.gender = newGender
+        if (newCustomPrompt.trim()) payload.customPrompt = newCustomPrompt.trim()
+      }
       const res = await fetch(`${API_BASE}/admin/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
-        body: JSON.stringify({
-          userID: newUserID.trim(),
-          password: newPassword,
-          themeFood: newThemeFood.trim() || '胡萝卜',
-        }),
+        body: JSON.stringify(payload),
       })
       const data = (await res.json()) as { message?: string }
       if (!res.ok) throw new Error(data.message || '创建失败')
       setNewUserID('')
       setNewPassword('')
       setNewThemeFood('胡萝卜')
+      setNewNickname('')
+      setNewAge(5)
+      setNewGender('male')
+      setNewCustomPrompt('')
+      setGenerateBook(false)
       await loadAll()
     } catch (e) {
       setError(e instanceof Error ? e.message : '创建失败')
@@ -874,6 +892,63 @@ export default function AdminUsersPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Generate default storybook toggle */}
+              <label className="mt-4 flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={generateBook}
+                  onChange={(e) => setGenerateBook(e.target.checked)}
+                  className="h-4 w-4 rounded border-border-light text-accent focus:ring-accent"
+                />
+                <span className="text-xs font-medium text-foreground">同时生成默认绘本</span>
+              </label>
+
+              {generateBook && (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-4 rounded-xl border border-border-light bg-warm-50 p-4">
+                  <label>
+                    <div className="mb-1.5 text-xs text-muted">姓名（昵称）</div>
+                    <input
+                      value={newNickname}
+                      onChange={(e) => setNewNickname(e.target.value)}
+                      placeholder="留空则使用用户ID"
+                      className="form-input w-full"
+                    />
+                  </label>
+                  <label>
+                    <div className="mb-1.5 text-xs text-muted">年龄</div>
+                    <input
+                      type="number"
+                      min={2}
+                      max={12}
+                      value={newAge}
+                      onChange={(e) => setNewAge(Number(e.target.value) || 5)}
+                      className="form-input w-full"
+                    />
+                  </label>
+                  <label>
+                    <div className="mb-1.5 text-xs text-muted">性别</div>
+                    <select
+                      value={newGender}
+                      onChange={(e) => setNewGender(e.target.value as 'male' | 'female')}
+                      className="form-input w-full"
+                    >
+                      <option value="male">男</option>
+                      <option value="female">女</option>
+                    </select>
+                  </label>
+                  <label className="sm:col-span-4">
+                    <div className="mb-1.5 text-xs text-muted">自定义 Prompt（可选，附加到故事生成提示词中）</div>
+                    <textarea
+                      value={newCustomPrompt}
+                      onChange={(e) => setNewCustomPrompt(e.target.value)}
+                      placeholder="例如: 孩子喜欢恐龙主题，请用恐龙角色讲故事"
+                      rows={2}
+                      className="form-input w-full resize-y"
+                    />
+                  </label>
+                </div>
+              )}
             </div>
           </div>
         ) : (

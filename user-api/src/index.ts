@@ -107,6 +107,10 @@ async function generateTempBookForUser(params: {
   recentHistory: Array<{ score: number; content: string; createdAt: string }>;
   /** 阅读行为摘要 */
   readingSummary: { totalSessions: number; lastCompletionRate: number | null; lastCompleted: boolean | null };
+  /** 孩子年龄，默认 5 */
+  age?: number;
+  /** 管理员自定义 prompt（附加到故事生成请求中） */
+  customPrompt?: string;
 }) {
   const allScores = [params.mealScore, ...params.recentHistory.map((h) => h.score)];
   const trend = calcScoreTrend(allScores);
@@ -123,10 +127,10 @@ async function generateTempBookForUser(params: {
     autoDifficulty = "easy";
   }
 
-  const requestBody = {
+  const requestBody: Record<string, unknown> = {
     child_profile: {
       nickname: params.nickname,
-      age: 5,
+      age: params.age ?? 5,
       gender: params.gender,
     },
     meal_context: {
@@ -153,6 +157,9 @@ async function generateTempBookForUser(params: {
       language: "zh-CN",
     },
   };
+  if (params.customPrompt) {
+    requestBody.custom_prompt = params.customPrompt;
+  }
 
   const response = await fetch(`${FASTAPI_URL}/api/v1/story/generate`, {
     method: "POST",
@@ -275,7 +282,6 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
 
   try {
     await insertUser({ userID, password, firstLogin, themeFood });
-    res.status(201).json({ user: { userID }, firstLogin, themeFood });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
     if (message.includes("UNIQUE constraint failed")) {
@@ -283,7 +289,54 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
       return;
     }
     res.status(500).json({ message: "创建用户失败" });
+    return;
   }
+
+  // Optionally generate default storybook
+  const wantBook = (body as { generateBook?: unknown }).generateBook === true;
+  if (wantBook) {
+    const nickname =
+      typeof (body as { nickname?: unknown }).nickname === "string"
+        ? (body as { nickname: string }).nickname.trim() || userID
+        : userID;
+    const gender =
+      (body as { gender?: unknown }).gender === "female" ? "female" : "male";
+    const age =
+      typeof (body as { age?: unknown }).age === "number"
+        ? (body as { age: number }).age
+        : 5;
+    const customPrompt =
+      typeof (body as { customPrompt?: unknown }).customPrompt === "string"
+        ? (body as { customPrompt: string }).customPrompt.trim()
+        : "";
+
+    // Auto-create avatar so the user doesn't need the avatar step
+    await saveUserAvatar({ userID, nickname, gender });
+
+    // Fire-and-forget story generation
+    generatingUsers.add(userID);
+    setUserGenerating(userID).catch(() => {});
+    generateTempBookForUser({
+      userID,
+      nickname,
+      gender,
+      themeFood,
+      mealScore: 5,
+      mealContent: `第一次尝试${themeFood}`,
+      regenerateCount: 0,
+      recentHistory: [],
+      readingSummary: { totalSessions: 0, lastCompletionRate: null, lastCompleted: null },
+      age,
+      customPrompt: customPrompt || undefined,
+    })
+      .catch((err) => console.error("[ADMIN-BOOK] 默认绘本生成失败:", err))
+      .finally(async () => {
+        generatingUsers.delete(userID);
+        await clearUserGenerating(userID).catch(() => {});
+      });
+  }
+
+  res.status(201).json({ user: { userID }, firstLogin, themeFood, bookGenerating: wantBook });
 });
 
 app.get("/api/admin/users", adminRequired, async (_req, res) => {

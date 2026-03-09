@@ -56,7 +56,7 @@ def story_generate(req: GenerateRequest):
     meal_context = req.meal_context.model_dump()
     story_config = req.story_config.model_dump()
     try:
-        content = generate_story_content(child_profile, meal_context, story_config)
+        content = generate_story_content(child_profile, meal_context, story_config, custom_prompt=req.custom_prompt)
     except RateLimitError:
         raise HTTPException(429, detail={"error": {"code": "RATE_LIMIT", "message": "AI 生成频率超限，请等待 1 分钟后重试。"}})
     except json.JSONDecodeError as e:

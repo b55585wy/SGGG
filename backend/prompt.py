@@ -93,6 +93,7 @@ def build_user_prompt(
     meal_context: dict,
     story_config: dict,
     dissatisfaction_reason: str | None = None,
+    custom_prompt: str | None = None,
 ) -> str:
     lang = story_config.get("language", "zh-CN")
     lang_instruction = "Write ALL story text (title, subtitle, summary, design_logic, page text, instructions, choice labels, ending) in Simplified Chinese (zh-CN)." \
@@ -100,6 +101,8 @@ def build_user_prompt(
 
     regen_note = f'\nNote: This is a regeneration. Previous dissatisfaction reason: "{dissatisfaction_reason}". Please address this issue in the new story.' \
         if dissatisfaction_reason else ""
+
+    custom_note = f"\nADDITIONAL INSTRUCTIONS:\n{custom_prompt}" if custom_prompt else ""
 
     return f"""Generate an interactive storybook with these parameters:
 
@@ -123,5 +126,5 @@ STORY CONFIG:
 - Number of pages: {story_config['pages']}
 - Interactive density: {story_config['interactive_density']}
 - Must include positive feedback ending: {story_config.get('must_include_positive_feedback', True)}
-{regen_note}
+{regen_note}{custom_note}
 Return ONLY the JSON object now."""
