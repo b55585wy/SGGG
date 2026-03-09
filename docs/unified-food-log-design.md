@@ -35,131 +35,170 @@
 
 ## 统一方案
 
-### 核心思路：合并为两步，一次完成
+### 核心思路
 
-读完故事后，把 FeedbackModal 和 MealReminderModal **合并成一个流程**，在故事结束时一次性收集所有信息。首页的记录进食保留，但 UI 统一。
+1. 所有入口统一使用**完整版弹窗**（含尝试程度 + 星星评分 + 文字/语音）
+2. 评分统一为 **5 颗星星，支持半星**（0.5 步进 → score 1-10）
+3. 读完故事后一次性收集所有信息，删除 `pending_meal_reminder` 延后机制
 
 ### 统一后的用户流程
 
 ```
 故事完成（COMPLETED）
-  └─→ 统一弹窗
-       ├─ Step 1: 尝试程度（原 FeedbackModal 的 7 个图标）
-       ├─ Step 2: 爱心评分 + 文字/语音描述（原 MealReminder + InlineFoodLog）
+  └─→ 统一弹窗（完整版）
+       ├─ 尝试程度（7 个图标）
+       ├─ 星星评分（半星精度 → 1-10）
+       ├─ 文字/语音描述
        └─ 提交 → 同时写 feedback + food/log
 
 故事中止（ABORTED）
   └─→ 中止原因弹窗（保持不变，不涉及进食记录）
 
 首页主动记录
-  └─→ 记录进食弹窗
-       ├─ 爱心评分
+  └─→ 统一弹窗（完整版，无尝试程度步骤）
+       ├─ 星星评分（半星精度 → 1-10）
        ├─ 文字/语音描述
        └─ 提交 → food/log + 触发绘本生成
 ```
 
-### 统一弹窗 UI 结构
+### 星星评分组件（StarRating）
+
+5 颗星星，支持半星点击/滑动：
 
 ```
-┌──────────────────────────────────┐
-│          用餐怎么样？              │
-│       今日食物：西兰花              │
-│                                  │
-│  ┌─ Step 1: 尝试程度 ──────────┐  │
-│  │                             │  │
-│  │  👁 看了看    🌸 闻了闻       │  │
-│  │  ✋ 摸了摸    💧 舔了舔       │  │
-│  │  🍪 咬一口    😊 嚼了嚼       │  │
-│  │  ⭐ 吞下去了                 │  │
-│  │                             │  │
-│  └─────────────────────────────┘  │
-│                                  │
-│  ┌─ Step 2: 喜欢程度 ──────────┐  │
-│  │                             │  │
-│  │     ♡   ♡   ♥   ♥   ♡      │  │
-│  │         (爱心评分)           │  │
-│  │                             │  │
-│  │  ┌─────────────────┐ 🎤    │  │
-│  │  │ 描述一下吃的情况…  │       │  │
-│  │  │                 │       │  │
-│  │  └─────────────────┘       │  │
-│  └─────────────────────────────┘  │
-│                                  │
-│  补充说明（可选）                   │
-│  ┌─────────────────────────────┐  │
-│  │                             │  │
-│  └─────────────────────────────┘  │
-│                                  │
-│       [ 提交反馈 ]                │
-│                                  │
-│    还没吃，先跳过                  │
-└──────────────────────────────────┘
+评分交互：
+  ☆☆☆☆☆  →  score = 0（未评分）
+  ★☆☆☆☆  →  score = 2（1 星）
+  ★½☆☆☆  →  score = 3（1.5 星）
+  ★★☆☆☆  →  score = 4（2 星）
+  ★★½☆☆  →  score = 5（2.5 星）
+  ★★★☆☆  →  score = 6（3 星）
+  ★★★½☆  →  score = 7（3.5 星）
+  ★★★★☆  →  score = 8（4 星）
+  ★★★★½  →  score = 9（4.5 星）
+  ★★★★★  →  score = 10（5 星）
+
+实现：
+  - 每颗星分左右两半，左半 = n-0.5 星，右半 = n 星
+  - 点击左半区域 → 半星（半填充）
+  - 点击右半区域 → 全星（全填充）
+  - hover 时实时预览填充状态
+  - score = stars × 2（半星 = 奇数分，全星 = 偶数分）
 ```
 
-### 首页记录进食（简化版，无 Step 1）
+### 统一弹窗 UI 结构（完整版）
 
 ```
-┌──────────────────────────────────┐
-│          今天吃得怎么样？           │
-│       今日食物：西兰花              │
-│                                  │
-│       ♡   ♡   ♥   ♥   ♡          │
-│           (爱心评分)               │
-│                                  │
-│  ┌─────────────────────┐ 🎤      │
-│  │ 描述一下吃的情况…      │         │
-│  │                     │         │
-│  └─────────────────────┘         │
-│                                  │
-│    [ 提交记录，生成绘本 → ]        │
-└──────────────────────────────────┘
+┌──────────────────────────────────────┐
+│                                 [✕]  │
+│            用餐怎么样？                │
+│         今日食物：西兰花                │
+│                                      │
+│  ┌─ 尝试程度 ───────────────────────┐ │
+│  │                                  │ │
+│  │  👁看了看  🌸闻了闻  ✋摸了摸      │ │
+│  │  💧舔了舔  🍪咬一口  😊嚼了嚼      │ │
+│  │         ⭐吞下去了                │ │
+│  │                                  │ │
+│  └──────────────────────────────────┘ │
+│                                      │
+│  ┌─ 喜欢程度 ───────────────────────┐ │
+│  │                                  │ │
+│  │      ★  ★  ★½  ☆  ☆             │ │
+│  │           5 / 10                 │ │
+│  │                                  │ │
+│  └──────────────────────────────────┘ │
+│                                      │
+│  ┌─ 描述 ──────────────────────┐ 🎤  │
+│  │ 描述一下吃的情况…              │     │
+│  │                             │     │
+│  │                             │     │
+│  └─────────────────────────────┘     │
+│                                      │
+│  补充说明（可选）                       │
+│  ┌──────────────────────────────────┐ │
+│  │                                  │ │
+│  └──────────────────────────────────┘ │
+│                                      │
+│         [ 提交反馈 ]                  │
+│                                      │
+│       还没吃，先跳过                   │
+└──────────────────────────────────────┘
 ```
+
+说明：
+- 阅读后场景（COMPLETED）：显示尝试程度 + 星星 + 描述 + 补充说明 + 跳过
+- 首页场景：隐藏尝试程度区块和补充说明，其余相同
+- "还没吃，先跳过" 仅阅读后场景显示
 
 ### 组件拆分
 
 ```
+StarRating（星星评分组件）
+├── 5 颗星，支持半星点击
+├── hover 预览
+├── props: { value, onChange }
+└── score 范围 1-10（半星步进）
+
 FoodLogForm（共享表单组件）
-├── HeartRating          — 爱心评分（统一）
+├── StarRating           — 星星评分（统一）
 ├── 文字 textarea        — 进食描述
 ├── 语音按钮             — 转写（统一支持）
 └── props:
     ├── skipBookGeneration: boolean
     ├── onDone: (data) => void
-    └── themeFood?: string
+    ├── themeFood?: string
+    ├── showTryLevel?: boolean      — 是否显示尝试程度（阅读后=true，首页=false）
+    ├── showNotes?: boolean         — 是否显示补充说明（阅读后=true，首页=false）
+    ├── showSkip?: boolean          — 是否显示跳过按钮（阅读后=true，首页=false）
+    ├── sessionId?: string          — 用于 feedback API
+    └── submitLabel?: string        — 按钮文字（"提交反馈" / "提交记录，生成绘本 →"）
 
-PostReadingModal（故事完成后的统一弹窗）
-├── Step 1: TryLevelPicker（尝试程度，从 FeedbackModal 提取）
-├── Step 2: FoodLogForm（爱心 + 文字 + 语音）
-├── "先跳过" 按钮
-└── 提交 → 同时调 feedback + food/log API
+PostReadingModal（故事完成后弹窗）
+└── FoodLogForm({
+      showTryLevel: true,
+      showNotes: true,
+      showSkip: true,
+      skipBookGeneration: true,
+      sessionId,
+      submitLabel: '提交反馈'
+    })
 
-FoodLogModal（首页弹窗，复用 FoodLogForm）
-└── FoodLogForm（skipBookGeneration=false）
+FoodLogModal（首页弹窗）
+└── FoodLogForm({
+      showTryLevel: false,
+      showNotes: false,
+      showSkip: false,
+      skipBookGeneration: false,
+      submitLabel: '提交记录，生成绘本 →'
+    })
 ```
 
 ### 删除的组件
 - `MealReminderModal.tsx` — 功能并入 `PostReadingModal`
 - `FeedbackModal.tsx` 的 COMPLETED 分支 — 并入 `PostReadingModal`
 - `FeedbackModal.tsx` 的 ABORTED 分支 — 保留为独立的 `AbortReasonModal`
-- `InlineFoodLog` 中的滑块 — 替换为 `HeartRating`
-- `pending_meal_reminder` localStorage flag — 不再需要，因为读完立即收集
+- `InlineFoodLog` — 替换为 `FoodLogForm`
+- `HeartRating` — 替换为 `StarRating`
+- `pending_meal_reminder` localStorage flag — 不再需要
 
 ### 评分统一
 
 | 之前 | 之后 |
 |------|------|
-| 滑块 0-10（连续） | 爱心 1-5（hearts × 2 → 2/4/6/8/10） |
-| 爱心 1-5 | 爱心 1-5（不变） |
+| 滑块 0-10（整数，连续拖动） | 星星 1-10（半星步进，点击选择） |
+| 爱心 1-5（hearts × 2 → 偶数分） | 星星 1-10（半星步进，覆盖全部整数） |
 
-选爱心而非滑块的理由：
-- 目标用户是儿童，爱心更直觉
-- 离散选择比连续滑块更容易做决定
-- 5 级足够表达偏好，0-10 精度对儿童没有意义
+选星星半星的理由：
+- 保留 1-10 完整评分范围，后端 API 无需修改
+- 星星比滑块更直觉，儿童容易理解
+- 半星比纯 5 级精度更高，满足研究数据需要
+- 星星评分是广泛认知的 UI 模式，无学习成本
 
 ### API 变更
 
 无需修改后端 API：
-- `POST /api/food/log` 保持 `{ score, content, skipBookGeneration? }`
+- `POST /api/food/log` 保持 `{ score, content, skipBookGeneration? }`，score 范围仍为 1-10
 - `POST /api/feedback` 保持 `{ session_id, status, try_level, notes? }`
 - PostReadingModal 提交时先后调用两个 API
 
@@ -170,10 +209,11 @@ FoodLogModal（首页弹窗，复用 FoodLogForm）
 | 文件 | 变更 |
 |------|------|
 | `components/MealReminderModal.tsx` | 删除，功能并入新组件 |
-| `components/FeedbackModal.tsx` | 拆分：COMPLETED 逻辑移入 PostReadingModal，ABORTED 保留 |
-| `components/FoodLogForm.tsx` | **新建**：共享的爱心 + 文字 + 语音表单 |
-| `components/PostReadingModal.tsx` | **新建**：统一的读后弹窗 |
+| `components/FeedbackModal.tsx` | 拆分：COMPLETED → PostReadingModal，ABORTED → AbortReasonModal |
+| `components/StarRating.tsx` | **新建**：半星评分组件 |
+| `components/FoodLogForm.tsx` | **新建**：共享的统一表单 |
+| `components/PostReadingModal.tsx` | **新建**：阅读后统一弹窗 |
 | `pages/Reader.tsx` | 移除 `pending_meal_reminder` flag，FeedbackModal → PostReadingModal/AbortReasonModal |
 | `pages/noa/BookDetailPage.tsx` | 移除 `pending_meal_reminder` 检测逻辑 |
-| `pages/noa/HomePage.tsx` | InlineFoodLog 改用 HeartRating + 语音，移除 `pending_meal_reminder` 清除 |
-| E2E 测试 | `meal-reminder.spec.ts` 需要重写，`admin.spec.ts` 不受影响 |
+| `pages/noa/HomePage.tsx` | InlineFoodLog → FoodLogForm，移除 `pending_meal_reminder` 清除，删除 FoodLogModal 替换为统一弹窗 |
+| E2E 测试 | `meal-reminder.spec.ts` 需要重写为统一弹窗测试 |
