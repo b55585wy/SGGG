@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clearToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
 import AvatarEditModal from '@/components/AvatarEditModal'
+import { FoodLogForm, type FoodLogFormResult } from '@/components/FoodLogForm'
 import {
   ClockCounterClockwise,
-  Microphone,
-  PaperPlaneTilt,
   BookOpenText,
   ArrowsClockwise,
   CheckCircle,
@@ -49,31 +48,6 @@ type HomeStatusResponse = {
     confirmed: boolean
     regenerateCount: number
   }
-}
-
-type FoodLogResponse = {
-  ok: boolean
-  feedbackText: string
-  expression: string
-  score: number
-}
-
-type VoiceResponse = { text: string }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function scoreColor(s: number): string {
-  if (s <= 3) return '#e11d48'
-  if (s <= 6) return '#f59e0b'
-  return '#059669'
-}
-
-function scoreLabel(s: number): string {
-  if (s <= 2) return '完全拒绝'
-  if (s <= 4) return '不太喜欢'
-  if (s <= 6) return '还行'
-  if (s <= 8) return '比较喜欢'
-  return '非常喜欢'
 }
 
 // ─── Regen Modal ─────────────────────────────────────────────────────────────
@@ -380,228 +354,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   )
 }
 
-// ─── Food Log Modal ───────────────────────────────────────────────────────────
-
-type FoodLogModalProps = {
-  themeFood: string
-  onClose: () => void
-  onSuccess: (data: FoodLogResponse) => void
-}
-
-function FoodLogModal({ themeFood, onClose, onSuccess }: FoodLogModalProps) {
-  return (
-    <>
-      {/* Backdrop */}
-      <motion.div
-        key="fl-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(6px)' }}
-        onClick={onClose}
-      />
-
-      {/* Centered floating card */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
-        <motion.div
-          key="fl-dialog"
-          initial={{ opacity: 0, scale: 0.93, y: -10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.93, y: -10 }}
-          transition={spring}
-          className="pointer-events-auto flex flex-col w-full overflow-hidden"
-          style={{
-            maxWidth: 480,
-            maxHeight: '82dvh',
-            background: 'white',
-            borderRadius: '2rem',
-            boxShadow: '0 32px 80px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(231,229,228,0.6)',
-          }}
-        >
-          {/* Header */}
-          <div
-            className="shrink-0 flex items-center justify-between px-6 pt-5 pb-4"
-            style={{ borderBottom: '1px solid var(--color-border-light)' }}
-          >
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <div
-                  className="flex items-center justify-center shrink-0"
-                  style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--color-accent-light)' }}
-                >
-                  <ForkKnife size={10} weight="fill" style={{ color: 'var(--color-accent)' }} />
-                </div>
-                <span className="text-[10px] font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
-                  {themeFood ? `今日食物：${themeFood}` : '进食记录'}
-                </span>
-              </div>
-              <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                今天吃得怎么样？
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full transition-all active:scale-[0.93]"
-              style={{ background: 'var(--color-warm-100)', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}
-            >
-              <X size={15} weight="bold" />
-            </button>
-          </div>
-
-          {/* InlineFoodLog fills the rest */}
-          <InlineFoodLog themeFood={themeFood} onSuccess={onSuccess} />
-        </motion.div>
-      </div>
-    </>
-  )
-}
-
-// ─── Inline Food Log ──────────────────────────────────────────────────────────
-
-type InlineFoodLogProps = {
-  themeFood: string
-  onSuccess: (data: FoodLogResponse) => void
-}
-
-function InlineFoodLog({ themeFood, onSuccess }: InlineFoodLogProps) {
-  const [score, setScore] = useState(0)
-  const [scoreTouched, setScoreTouched] = useState(false)
-  const [content, setContent] = useState('')
-  const [sending, setSending] = useState(false)
-  const [voiceLoading, setVoiceLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  const canSend = useMemo(
-    () => !!content.trim() && scoreTouched && score > 0 && !sending,
-    [content, scoreTouched, score, sending],
-  )
-  const sliderPct = (score / 10) * 100
-  const thumbColor = score > 0 ? scoreColor(score) : undefined
-
-  async function onSend() {
-    setError('')
-    if (!scoreTouched || score <= 0) { setError('请先滑动评分条'); return }
-    if (!content.trim()) { setError('请输入进食记录'); return }
-    setSending(true)
-    try {
-      const data = await postJson<FoodLogResponse>('/api/food/log', { score, content: content.trim() })
-      setScore(0); setScoreTouched(false); setContent('')
-      onSuccess(data)
-    } catch (e) {
-      const message =
-        e && typeof e === 'object' && 'message' in e &&
-        typeof (e as { message?: unknown }).message === 'string'
-          ? (e as { message: string }).message : '提交失败'
-      setError(message)
-      setSending(false)
-    }
-  }
-
-  async function onTranscribe() {
-    setError('')
-    setVoiceLoading(true)
-    try {
-      const data = await postJson<VoiceResponse>('/api/voice/transcribe', {})
-      setContent(data.text)
-    } catch { /* ignore */ } finally {
-      setVoiceLoading(false)
-    }
-  }
-
-  return (
-    <>
-      {/* Scrollable body */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-6" style={{ scrollbarWidth: 'none' }}>
-
-        {/* Score section */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>喜欢程度</label>
-            <div className="flex items-baseline gap-0.5">
-              <span
-                className="text-xl font-black tabular-nums leading-none transition-colors"
-                style={{ color: score > 0 ? scoreColor(score) : 'var(--color-muted)' }}
-              >
-                {score > 0 ? score : '–'}
-              </span>
-              <span className="text-xs ml-0.5" style={{ color: 'var(--color-muted)' }}>/10</span>
-              {scoreTouched && score > 0 && (
-                <span
-                  className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
-                  style={{ background: scoreColor(score) }}
-                >
-                  {scoreLabel(score)}
-                </span>
-              )}
-            </div>
-          </div>
-          <input
-            type="range" min={0} max={10} value={score}
-            onChange={(e) => { setScore(Number(e.target.value)); setScoreTouched(true) }}
-            className="range-accent w-full"
-            style={{
-              background: score > 0
-                ? `linear-gradient(to right, ${scoreColor(score)} 0%, ${scoreColor(score)} ${sliderPct}%, var(--color-warm-200) ${sliderPct}%, var(--color-warm-200) 100%)`
-                : undefined,
-              ['--range-thumb-color' as string]: thumbColor,
-            }}
-          />
-        </div>
-
-        {/* Text + voice */}
-        <div className="space-y-1.5">
-          <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>进食过程描述</label>
-          <div className="flex gap-2">
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="描述一下进食过程，比如吃了多少、有没有困难…"
-              className="form-input flex-1 resize-none text-sm"
-              rows={5}
-            />
-            <button
-              type="button"
-              onClick={onTranscribe}
-              disabled={voiceLoading}
-              className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
-              style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
-            >
-              <Microphone size={18} weight={voiceLoading ? 'fill' : 'regular'} />
-            </button>
-          </div>
-        </div>
-
-        {/* Error */}
-        {error && (
-          <p className="text-sm" style={{ color: 'var(--color-error)' }}>{error}</p>
-        )}
-      </div>
-
-      {/* Fixed footer */}
-      <div className="shrink-0 px-8 py-5" style={{ borderTop: '1px solid var(--color-border-light)' }}>
-        <button
-          type="button"
-          onClick={onSend}
-          disabled={!canSend}
-          className="w-full py-4 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-          style={{
-            background: canSend ? 'linear-gradient(135deg, #059669, #047857)' : 'var(--color-warm-100)',
-            color: canSend ? 'white' : 'var(--color-muted)',
-            cursor: canSend ? 'pointer' : 'not-allowed',
-            border: 'none',
-            boxShadow: canSend ? '0 8px 24px -4px rgba(5,150,105,0.38)' : 'none',
-          }}
-        >
-          <PaperPlaneTilt size={15} weight="bold" />
-          {sending ? '提交中...' : '提交记录，生成绘本 →'}
-        </button>
-      </div>
-    </>
-  )
-}
+// (FoodLogModal and InlineFoodLog replaced by unified FoodLogForm component)
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
@@ -1119,34 +872,12 @@ export default function HomePage() {
                 boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
               }}
             >
-              {/* Header */}
-              <div className="shrink-0 px-8 pt-7 pb-5" style={{ borderBottom: '1px solid var(--color-border-light)' }}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div
-                    className="flex items-center justify-center shrink-0"
-                    style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--color-accent-light)' }}
-                  >
-                    <ForkKnife size={11} weight="fill" style={{ color: 'var(--color-accent)' }} />
-                  </div>
-                  <span className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
-                    {status?.themeFood ? `今日食物：${status.themeFood}` : '进食记录'}
-                  </span>
-                </div>
-                <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                  今天吃得怎么样？
-                </h2>
-                <p className="text-sm mt-1" style={{ color: 'var(--color-muted)' }}>
-                  完成记录，系统将为你生成专属绘本 📖
-                </p>
-              </div>
-
-              {/* Food log content */}
-              <InlineFoodLog
-                themeFood={status?.themeFood ?? ''}
-                onSuccess={(data) => {
-                  localStorage.removeItem('pending_meal_reminder')
-                  setFeedbackText(data.feedbackText)
-                  sessionStorage.setItem('homeFeedbackText', data.feedbackText)
+              <FoodLogForm
+                themeFood={status?.themeFood}
+                submitLabel="提交记录，生成绘本 →"
+                onDone={(result) => {
+                  setFeedbackText(result.feedbackText)
+                  sessionStorage.setItem('homeFeedbackText', result.feedbackText)
                   setStatus((prev) => (prev ? { ...prev, book: null } : null))
                   setBookGenerating(true)
                 }}
@@ -1160,18 +891,47 @@ export default function HomePage() {
       {/* ── Food Log Modal ── */}
       <AnimatePresence>
         {showFoodLogModal && (
-          <FoodLogModal
-            themeFood={status?.themeFood ?? ''}
-            onClose={() => setShowFoodLogModal(false)}
-            onSuccess={(data) => {
-              localStorage.removeItem('pending_meal_reminder')
-              setShowFoodLogModal(false)
-              setFeedbackText(data.feedbackText)
-              sessionStorage.setItem('homeFeedbackText', data.feedbackText)
-              setStatus((prev) => (prev ? { ...prev, book: null } : null))
-              setBookGenerating(true)
-            }}
-          />
+          <>
+            <motion.div
+              key="fl-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-0 z-40"
+              style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(6px)' }}
+              onClick={() => setShowFoodLogModal(false)}
+            />
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
+              <motion.div
+                key="fl-dialog"
+                initial={{ opacity: 0, scale: 0.93, y: -10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.93, y: -10 }}
+                transition={spring}
+                className="pointer-events-auto w-full overflow-hidden"
+                style={{
+                  maxWidth: 480,
+                  background: 'white',
+                  borderRadius: '2rem',
+                  boxShadow: '0 32px 80px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(231,229,228,0.6)',
+                }}
+              >
+                <FoodLogForm
+                  themeFood={status?.themeFood}
+                  submitLabel="提交记录，生成绘本 →"
+                  onDone={(result) => {
+                    setShowFoodLogModal(false)
+                    setFeedbackText(result.feedbackText)
+                    sessionStorage.setItem('homeFeedbackText', result.feedbackText)
+                    setStatus((prev) => (prev ? { ...prev, book: null } : null))
+                    setBookGenerating(true)
+                  }}
+                  onClose={() => setShowFoodLogModal(false)}
+                />
+              </motion.div>
+            </div>
+          </>
         )}
       </AnimatePresence>
 

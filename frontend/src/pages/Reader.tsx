@@ -3,14 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag, PaintBrush } from '@phosphor-icons/react';
 import { InteractionLayer } from '@/components/InteractionLayer';
-import { FeedbackModal, type FeedbackDoneData } from '@/components/FeedbackModal';
+import { AbortReasonModal, type AbortDoneData } from '@/components/FeedbackModal';
+import { PostReadingModal, type PostReadingDoneData } from '@/components/PostReadingModal';
 import { useSession } from '@/hooks/useSession';
 import { useTelemetry } from '@/hooks/useTelemetry';
 import { useTTS } from '@/hooks/useTTS';
 import { SUSModal } from '@/components/SUSModal';
 import { storyGet } from '@/lib/api';
 import { postJson } from '@/lib/ncApi';
-import type { Draft, FeedbackStatus } from '@/types/story';
+import type { Draft, FeedbackStatus, TryLevel, AbortReason } from '@/types/story';
 
 export default function ReaderPage() {
   const navigate = useNavigate();
@@ -171,7 +172,7 @@ export default function ReaderPage() {
   const TOTAL_SESSIONS = 9;
 
   const logReadingSession = useCallback(async (
-    feedbackData: FeedbackDoneData | null,
+    extra: { tryLevel?: TryLevel | null; abortReason?: AbortReason | null } | null,
     pagesRead: number,
     completed: boolean,
   ) => {
@@ -193,8 +194,8 @@ export default function ReaderPage() {
         interactionCount: interactionCountRef.current,
         completed,
         sessionType,
-        tryLevel: feedbackData?.tryLevel ?? null,
-        abortReason: feedbackData?.abortReason ?? null,
+        tryLevel: extra?.tryLevel ?? null,
+        abortReason: extra?.abortReason ?? null,
       });
     } catch { /* best-effort */ }
   }, [draft, session]);
@@ -203,40 +204,42 @@ export default function ReaderPage() {
     if (session) {
       trackDwell(); flush(); setFeedback('ABORTED');
     } else {
-      // Preview / review mode — log the visit and go home
       void logReadingSession(null, pageIdx + 1, false);
-      clearSession();
-      localStorage.removeItem('storybook_draft');
-      localStorage.removeItem('storybook_book_id');
-      localStorage.removeItem('storybook_source');
-      navigate('/noa/home');
+      goHome();
     }
-  }, [session, trackDwell, flush, clearSession, navigate, logReadingSession, pageIdx]);
+  }, [session, trackDwell, flush, goHome, logReadingSession, pageIdx]);
 
-  const onFeedbackDone = useCallback((data: FeedbackDoneData) => {
-    setFeedback(null);
-    void logReadingSession(data, pageIdx + 1, data.status === 'COMPLETED');
-    if (data.status === 'COMPLETED' && session) {
-      localStorage.setItem('pending_meal_reminder', '1');
-    }
-    if (session && session.session_index >= TOTAL_SESSIONS - 1) {
-      setShowSUS(true);
-    } else {
-      clearSession();
-      localStorage.removeItem('storybook_draft');
-      localStorage.removeItem('storybook_book_id');
-      localStorage.removeItem('storybook_source');
-      navigate('/noa/home');
-    }
-  }, [session, clearSession, navigate, logReadingSession, pageIdx]);
-
-  const onSUSDone = useCallback(() => {
+  const goHome = useCallback(() => {
     clearSession();
     localStorage.removeItem('storybook_draft');
     localStorage.removeItem('storybook_book_id');
     localStorage.removeItem('storybook_source');
     navigate('/noa/home');
   }, [clearSession, navigate]);
+
+  const onPostReadingDone = useCallback((data: PostReadingDoneData) => {
+    setFeedback(null);
+    void logReadingSession({ tryLevel: data.tryLevel }, pageIdx + 1, true);
+    if (session && session.session_index >= TOTAL_SESSIONS - 1) {
+      setShowSUS(true);
+    } else {
+      goHome();
+    }
+  }, [session, goHome, logReadingSession, pageIdx]);
+
+  const onAbortDone = useCallback((data: AbortDoneData) => {
+    setFeedback(null);
+    void logReadingSession({ abortReason: data.abortReason }, pageIdx + 1, false);
+    if (session && session.session_index >= TOTAL_SESSIONS - 1) {
+      setShowSUS(true);
+    } else {
+      goHome();
+    }
+  }, [session, goHome, logReadingSession, pageIdx]);
+
+  const onSUSDone = useCallback(() => {
+    goHome();
+  }, [goHome]);
 
   if (!draft) return (
     <div className="flex items-center justify-center min-h-screen" style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}>
@@ -452,8 +455,15 @@ export default function ReaderPage() {
         </div>
       </div>
 
-      {feedback && session && (
-        <FeedbackModal status={feedback} session_id={session.session_id} onDone={onFeedbackDone} />
+      {feedback === 'COMPLETED' && session && (
+        <PostReadingModal
+          sessionId={session.session_id}
+          themeFood={draft.book_meta.theme_food}
+          onDone={onPostReadingDone}
+        />
+      )}
+      {feedback === 'ABORTED' && session && (
+        <AbortReasonModal session_id={session.session_id} onDone={onAbortDone} />
       )}
       {showSUS && session && (
         <SUSModal session_id={session.session_id} onDone={onSUSDone} />

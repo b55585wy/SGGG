@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { getJson } from '@/lib/ncApi'
 import { sessionStart } from '@/lib/api'
-import { MealReminderModal } from '@/components/MealReminderModal'
 
 type BookDetailResponse = {
   book: {
@@ -15,20 +14,12 @@ type BookDetailResponse = {
   }
 }
 
-type HomeStatusResponse = {
-  themeFood?: string
-  [key: string]: unknown
-}
-
 export default function BookDetailPage() {
   const navigate = useNavigate()
   const { bookId } = useParams()
   const [searchParams] = useSearchParams()
   const isExperiment = searchParams.get('experiment') === '1'
   const [error, setError] = useState('')
-  const [showReminder, setShowReminder] = useState(false)
-  const [themeFood, setThemeFood] = useState('')
-  const [ready, setReady] = useState(false)
 
   const init = useCallback(async (cancelled: { current: boolean }) => {
     try {
@@ -82,35 +73,9 @@ export default function BookDetailPage() {
     }
 
     const cancelled = { current: false }
-
-    if (localStorage.getItem('pending_meal_reminder') === '1') {
-      // Fetch themeFood then show reminder
-      getJson<HomeStatusResponse>('/api/home/status')
-        .then((data) => {
-          if (cancelled.current) return
-          setThemeFood(data.themeFood ?? '')
-          setShowReminder(true)
-          setReady(true)
-        })
-        .catch(() => {
-          if (cancelled.current) return
-          // Even if fetch fails, still show reminder without themeFood
-          setShowReminder(true)
-          setReady(true)
-        })
-    } else {
-      setReady(true)
-      void init(cancelled)
-    }
-
+    void init(cancelled)
     return () => { cancelled.current = true }
   }, [bookId, navigate, init])
-
-  function onReminderDone() {
-    setShowReminder(false)
-    const cancelled = { current: false }
-    void init(cancelled)
-  }
 
   if (error) {
     return (
@@ -133,29 +98,22 @@ export default function BookDetailPage() {
   }
 
   return (
-    <>
-      {showReminder && ready && (
-        <MealReminderModal themeFood={themeFood} onDone={onReminderDone} />
-      )}
-      {!showReminder && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                border: '3px solid #e5e7eb',
-                borderTopColor: '#111827',
-                borderRadius: '50%',
-                animation: 'spin 0.8s linear infinite',
-                margin: '0 auto 12px',
-              }}
-            />
-            <div style={{ fontSize: 14, color: '#6b7280' }}>正在准备阅读...</div>
-          </div>
-          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-        </div>
-      )}
-    </>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            border: '3px solid #e5e7eb',
+            borderTopColor: '#111827',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+            margin: '0 auto 12px',
+          }}
+        />
+        <div style={{ fontSize: 14, color: '#6b7280' }}>正在准备阅读...</div>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+    </div>
   )
 }
