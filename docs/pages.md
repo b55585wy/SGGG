@@ -93,7 +93,7 @@
 
 - **Route**：`/noa/home`
 - **功能**：
-  - **顶部 header**（始终可见）：昵称问候、今日主题食物徽章、面板切换按钮（“查看绘本 / 记录进食”）、"历史绘本"入口、退出登录
+  - **顶部 header**（始终可见）：昵称问候、面板切换按钮（“查看绘本 / 记录进食”）、"历史绘本"入口、退出登录
   - **左侧面板**：虚拟形象合成渲染 + 正反馈文字气泡（显示在虚拟形象图上方，醒目展示；可点击朗读气泡内容）
   - **右侧面板**：通过头部按钮切换“绘本预览 / 进食记录”，互不影响
     - **绘本预览**（默认展示）：绘本卡片，含三种子状态：
@@ -198,17 +198,15 @@
   - **Request**
     ```json
     {
-      "reason": "太长了",
-      "target_food": "西兰花",
-      "title": "新标题（选填）",
-      "note": "偏冒险主题（选填）",
-      "story_type": "冒险",
-      "difficulty": "medium",
+      "reason": "太长了（选填）",
+      "target_food": "西兰花（选填）",
+      "story_type": "interactive（选填）",
+      "difficulty": "medium（选填）",
       "pages": 8,
-      "interaction_density": "medium"
+      "interaction_density": "medium（选填）"
     }
     ```
-  > `target_food` 选填，仅本次生效；`pages`、`difficulty`、`interaction_density` 从 RegenModal 故事设置读取，2026-03-05 起已正确转发给 FastAPI。
+  > 均为选填；缺省时 user-api 会使用默认值：`story_type=interactive`、`difficulty=medium`、`pages=6`、`interaction_density=medium`；`target_food` 缺省时使用用户档案的目标食物。
   - **Response 200**
     ```json
     {
@@ -308,7 +306,7 @@
   - **Header**：
     - "退出"按钮（有 session 时弹出 FeedbackModal；无 session 时直接返回主页）
     - 进度条 + 页码计数器
-    - TTS "朗读"开关（使用 zhimiao 语音；翻页/退出/完成时自动停止上一段朗读；读完故事文字后可续读互动提示）
+    - TTS "朗读"开关（使用 zhimiao 语音；翻页/退出/完成时自动停止上一段朗读；读完故事文字后可续读互动提示；若互动为情节选择，会在读完“选择你更想做的一步：”后继续读出选项文案）
   - **导航**：
     - "上一页" / "下一页"
     - 最后一页时显示"完成 ✓"按钮

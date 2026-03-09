@@ -87,9 +87,13 @@ async function resolvePreviewFromBackend(storyId: string): Promise<string | null
   try {
     const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
     if (!res.ok) return null;
-    const data = (await res.json()) as { draft?: { pages?: Array<{ image_url?: string }> } };
+    const data = (await res.json()) as { draft?: { pages?: Array<{ page_no?: number; image_url?: string }> } };
     const pages = data.draft?.pages ?? [];
-    const first = pages.find((p) => typeof p.image_url === "string" && p.image_url.length > 0);
+    if (pages.length === 0) return null;
+    const allReady = pages.every((p) => typeof p.image_url === "string" && p.image_url.length > 0);
+    if (!allReady) return null;
+    const sorted = [...pages].sort((a, b) => (a.page_no ?? 0) - (b.page_no ?? 0));
+    const first = sorted[0];
     return first?.image_url ?? null;
   } catch {
     return null;

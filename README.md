@@ -41,11 +41,11 @@ cp user-api/.env.example user-api/.env
 # 在 backend/ 目录下创建 .env：
 # STORYTEXT_OPENAI_API_KEY=sk-xxxx
 # STORYTEXT_OPENAI_URI=https://api.openai.com/v1/chat/completions
-# STORYTEXT_OPENAI_MODEL=gpt-4o-mini
+# STORYTEXT_OPENAI_MODEL=gpt-5
 # STORYTEXT_OPENAI_TIMEOUT_SEC=120
 # STORYIMAGE_OPENAI_API_KEY=sk-xxxx
 # STORYIMAGE_OPENAI_URI=https://api.openai.com/v1/images/generations
-# STORYIMAGE_OPENAI_MODEL=gpt-image-1
+# STORYIMAGE_OPENAI_MODEL=gpt-image-1-mini
 # TRANSCIBE_OPENAI_API_KEY=sk-xxxx
 # TRANSCIBE_OPENAI_URI=https://api.openai.com/v1/audio/transcriptions
 # TRANSCIBE_OPENAI_MODEL=gpt-4o-transcribe-diarize
@@ -96,7 +96,7 @@ cd frontend && npm run dev
 - 绘本生成：读完已确认绘本 → 自动生成新绘本（无需录入进食触发）
 - 进食记录：主页面随时提交（今日食物/打分/描述必填），仅写入进食日志与反馈
 - 主页面切换：头部按钮在“绘本预览 / 进食记录”之间切换
-- 绘本预览图：默认 SVG 占位；插图生成后可展示第一页插图 URL
+- 绘本预览图：默认 SVG 占位；全部插图生成后展示第一页插图 URL
 
 ## API Endpoints
 
@@ -114,7 +114,7 @@ cd frontend && npm run dev
 | GET | `/api/home/status` | 主页聚合数据（含 `generating` 字段，刷新后恢复生成状态） | Bearer |
 | POST | `/api/food/log` | 提交进食记录（`foodName/score/content` 必填，不触发绘本生成） | Bearer |
 | POST | `/api/book/confirm` | 确认临时绘本 | Bearer |
-| POST | `/api/book/regenerate` | 重新生成临时绘本（转发 pages/difficulty/interaction_density 给 FastAPI） | Bearer |
+| POST | `/api/book/regenerate` | 重新生成临时绘本（参数均可选，缺省使用默认值） | Bearer |
 | GET | `/api/books/history` | 历史绘本列表 | Bearer |
 | GET | `/api/books/:bookId` | 绘本详情 | Bearer |
 | POST | `/api/voice/transcribe` | 语音转写（multipart 文件上传，转发到 backend） | Bearer |

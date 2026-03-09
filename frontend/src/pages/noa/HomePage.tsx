@@ -15,10 +15,8 @@ import {
   SignOut,
   PencilSimple,
   SmileyWink,
-  Sparkle,
   X,
   ForkKnife,
-  PencilLine,
   SlidersHorizontal,
   GameController,
   Compass,
@@ -130,28 +128,21 @@ type RegenModalProps = {
 function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenModalProps) {
   const [reason, setReason] = useState('')
   const [foodOverride, setFoodOverride] = useState('')
-  const [showHints, setShowHints] = useState(false)
-  const [title, setTitle] = useState('')
-  const [note, setNote] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [storyType, setStoryType] = useState('interactive')
   const [difficulty, setDifficulty] = useState('medium')
   const [pages, setPages] = useState(6)
   const [interactionDensity, setInteractionDensity] = useState('medium')
-  const [error, setError] = useState('')
 
   const reachedLimit = regenerateCount >= 2
-  const canSubmit = !reachedLimit && reason !== ''
+  const canSubmit = !reachedLimit
 
   function onSubmit() {
-    if (!reason) { setError('请选择一个不满意的原因'); return }
     // Close immediately — fire API in background
     onSuccess()
     postJson('/api/book/regenerate', {
-      reason,
+      reason: reason || undefined,
       target_food: foodOverride.trim() || undefined,
-      title: title.trim() || undefined,
-      note: note.trim() || undefined,
       story_type: storyType,
       difficulty,
       pages,
@@ -221,32 +212,31 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
           {/* Scrollable body */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
 
-            {/* Reason (required) */}
+            {/* Story type (required) */}
             <section>
               <div className="flex items-baseline gap-2 mb-3">
                 <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>01</span>
-                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>不满意的原因</span>
-                <span className="text-xs ml-auto" style={{ color: 'var(--color-error)' }}>必填</span>
+                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>故事类型</span>
+                <span className="text-xs ml-auto" style={{ color: 'var(--color-muted)' }}>可选</span>
               </div>
-              <motion.div className="grid grid-cols-2 gap-2" variants={reasonVariants} initial="hidden" animate="show">
-                {REASONS.map((r) => (
-                  <motion.button
-                    key={r.value}
-                    variants={reasonItem}
+              <div className="grid grid-cols-2 gap-2">
+                {STORY_TYPES.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
                     type="button"
-                    onClick={() => setReason(r.value)}
-                    whileTap={{ scale: 0.96 }}
-                    className="py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
+                    onClick={() => setStoryType(value)}
+                    className="flex items-center gap-2 py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
                     style={
-                      reason === r.value
+                      storyType === value
                         ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' }
                         : { borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }
                     }
                   >
-                    {r.label}
-                  </motion.button>
+                    <Icon size={14} weight="duotone" />
+                    {label}
+                  </button>
                 ))}
-              </motion.div>
+              </div>
             </section>
 
             {/* Food override (optional) */}
@@ -272,38 +262,10 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
               </div>
             </section>
 
-            {/* Hints (collapsible) */}
-            <section>
-              <button type="button" onClick={() => setShowHints((v) => !v)} className="flex items-center gap-2 w-full text-left" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>03</span>
-                <PencilLine size={12} weight="bold" style={{ color: 'var(--color-muted)' }} />
-                <span className="text-sm font-bold tracking-tight flex-1" style={{ color: 'var(--color-foreground)' }}>补充说明</span>
-                <span className="text-xs" style={{ color: 'var(--color-muted)' }}>可选</span>
-                {showHints ? <CaretUp size={11} weight="bold" style={{ color: 'var(--color-muted)' }} /> : <CaretDown size={11} weight="bold" style={{ color: 'var(--color-muted)' }} />}
-              </button>
-              <div className="mt-2" style={{ borderTop: '1px solid var(--color-border-light)' }} />
-              <AnimatePresence>
-                {showHints && (
-                  <motion.div key="hints" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={spring} className="overflow-hidden">
-                    <div className="pt-3 space-y-3">
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>标题建议</label>
-                        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="给新故事起个名字" className="form-input" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>更多要求</label>
-                        <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="描述你希望新故事有什么不同…" rows={2} className="form-input resize-none" />
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </section>
-
             {/* Advanced (collapsible) */}
             <section>
-              <button type="button" onClick={() => setShowAdvanced((v) => !v)} className="flex items-center gap-2 w-full text-left" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>04</span>
+              <button type="button" onClick={() => setShowAdvanced((v: boolean) => !v)} className="flex items-center gap-2 w-full text-left" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>03</span>
                 <SlidersHorizontal size={12} weight="bold" style={{ color: 'var(--color-muted)' }} />
                 <span className="text-sm font-bold tracking-tight flex-1" style={{ color: 'var(--color-foreground)' }}>故事设置</span>
                 <span className="text-xs" style={{ color: 'var(--color-muted)' }}>可选</span>
@@ -314,17 +276,6 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                 {showAdvanced && (
                   <motion.div key="advanced" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={spring} className="overflow-hidden">
                     <div className="pt-3 space-y-4">
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>故事类型</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {STORY_TYPES.map(({ value, label, Icon }) => (
-                            <button key={value} type="button" onClick={() => setStoryType(value)} className="flex items-center gap-2 py-2 px-3 rounded-xl text-sm font-medium border transition-colors" style={storyType === value ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' } : { borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}>
-                              <Icon size={13} weight="duotone" />
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                           <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>难度</label>
@@ -352,17 +303,38 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                 )}
               </AnimatePresence>
             </section>
+
+            {/* Reason (optional) */}
+            <section>
+              <div className="flex items-baseline gap-2 mb-3">
+                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>04</span>
+                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>重新生成原因</span>
+                <span className="text-xs ml-auto" style={{ color: 'var(--color-muted)' }}>可选</span>
+              </div>
+              <motion.div className="grid grid-cols-2 gap-2" variants={reasonVariants} initial="hidden" animate="show">
+                {REASONS.map((r) => (
+                  <motion.button
+                    key={r.value}
+                    variants={reasonItem}
+                    type="button"
+                    onClick={() => setReason(r.value)}
+                    whileTap={{ scale: 0.96 }}
+                    className="py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
+                    style={
+                      reason === r.value
+                        ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' }
+                        : { borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }
+                    }
+                  >
+                    {r.label}
+                  </motion.button>
+                ))}
+              </motion.div>
+            </section>
           </div>
 
           {/* Footer */}
-          <div className="shrink-0 px-6 py-4 border-t space-y-3" style={{ borderColor: 'var(--color-border-light)' }}>
-            <AnimatePresence>
-              {error && (
-                <motion.p key="err" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="text-sm px-3 py-2 rounded-xl" style={{ color: 'var(--color-error)', background: 'var(--color-error-light)' }}>
-                  {error}
-                </motion.p>
-              )}
-            </AnimatePresence>
+          <div className="shrink-0 px-6 py-4 border-t" style={{ borderColor: 'var(--color-border-light)' }}>
             {reachedLimit ? (
               <div className="text-center text-sm py-3 rounded-2xl font-medium" style={{ color: 'var(--color-muted)', background: 'var(--color-warm-100)' }}>
                 已达到重新生成上限（2/2）
@@ -734,7 +706,7 @@ export default function HomePage() {
       // Restore generating state from server (survives page refresh).
       // While generating, clear any stale book so the animation shows correctly.
       if (data.generating) {
-        setStatus((prev) => prev ? ({ ...prev, ...data, book: null } as HomeStatusResponse) : ({ ...data, book: null } as HomeStatusResponse))
+        setStatus((prev: HomeStatusResponse | null) => prev ? ({ ...prev, ...data, book: null } as HomeStatusResponse) : ({ ...data, book: null } as HomeStatusResponse))
       } else {
         setStatus(data)
       }
@@ -787,6 +759,22 @@ export default function HomePage() {
     }, 3000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [bookGenerating])
+
+  useEffect(() => {
+    const b = status?.book
+    if (!b || bookGenerating) return
+    if (!b.preview || !b.preview.startsWith('data:image/svg+xml')) return
+    let attempts = 0
+    const timer = setInterval(async () => {
+      if (++attempts > 60) { clearInterval(timer); return }
+      const data = await refreshStatus()
+      const nextPreview = data?.book?.preview
+      if (nextPreview && !nextPreview.startsWith('data:image/svg+xml')) {
+        clearInterval(timer)
+      }
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [status?.book?.bookID, status?.book?.preview, bookGenerating, refreshStatus, status])
 
   useEffect(() => {
     const lastPath = sessionStorage.getItem('lastPath')
@@ -863,19 +851,10 @@ export default function HomePage() {
           <h1 className="font-bold text-base tracking-tight truncate" style={{ color: 'var(--color-foreground)' }}>
             {avatar?.nickname ? `${avatar.nickname}，你好 👋` : '主页面'}
           </h1>
-          {status?.themeFood && (
-            <span
-              className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold"
-              style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}
-            >
-              <Sparkle size={10} weight="fill" />
-              今日：{status.themeFood}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setShowFoodLogPanel((prev) => !prev)}
+            onClick={() => setShowFoodLogPanel((prev: boolean) => !prev)}
             className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold border transition-all active:scale-[0.97]"
             style={{
               borderColor: 'var(--color-accent)',
@@ -1263,7 +1242,7 @@ export default function HomePage() {
             onClose={() => setShowRegenModal(false)}
             onSuccess={() => {
               setShowRegenModal(false)
-              setStatus((prev) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
+              setStatus((prev: HomeStatusResponse | null) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
               setBookGenerating(true)
             }}
           />

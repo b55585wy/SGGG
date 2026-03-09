@@ -93,7 +93,15 @@ export default function ReaderPage() {
   const speakPage = useCallback((p: typeof draft extends null ? never : NonNullable<typeof draft>['pages'][0]) => {
     const onEnd = p.interaction.type !== 'none' && p.interaction.instruction
       ? () => {
-        tts.speak(p.interaction.instruction);
+        const instruction = p.interaction.instruction;
+        if (p.interaction.type === 'choice' && Array.isArray(p.branch_choices) && p.branch_choices.length > 0) {
+          const optionsText = p.branch_choices
+            .map((c, idx) => `选项${idx + 1}：${c.label}`)
+            .join('。');
+          tts.speak(instruction, 'zhimiao', () => tts.speak(`${optionsText}。`, 'zhimiao'));
+          return;
+        }
+        tts.speak(instruction, 'zhimiao');
       }
       : undefined;
     tts.speak(p.text, 'zhimiao', onEnd);
