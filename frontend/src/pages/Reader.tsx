@@ -200,6 +200,14 @@ export default function ReaderPage() {
     } catch { /* best-effort */ }
   }, [draft, session]);
 
+  const goHome = useCallback(() => {
+    clearSession();
+    localStorage.removeItem('storybook_draft');
+    localStorage.removeItem('storybook_book_id');
+    localStorage.removeItem('storybook_source');
+    navigate('/noa/home');
+  }, [clearSession, navigate]);
+
   const onExit = useCallback(() => {
     if (session) {
       trackDwell(); flush(); setFeedback('ABORTED');
@@ -208,14 +216,6 @@ export default function ReaderPage() {
       goHome();
     }
   }, [session, trackDwell, flush, goHome, logReadingSession, pageIdx]);
-
-  const goHome = useCallback(() => {
-    clearSession();
-    localStorage.removeItem('storybook_draft');
-    localStorage.removeItem('storybook_book_id');
-    localStorage.removeItem('storybook_source');
-    navigate('/noa/home');
-  }, [clearSession, navigate]);
 
   const onPostReadingDone = useCallback((data: PostReadingDoneData) => {
     setFeedback(null);
