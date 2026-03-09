@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { clearToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
 import AvatarEditModal from '@/components/AvatarEditModal'
-import { FoodLogForm, type FoodLogFormResult } from '@/components/FoodLogForm'
+import { FoodLogModal } from '@/components/PostReadingModal'
 import {
   ClockCounterClockwise,
   BookOpenText,
@@ -354,7 +354,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   )
 }
 
-// (FoodLogModal and InlineFoodLog replaced by unified FoodLogForm component)
+// (Food log is now modal-only via FoodLogModal)
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
@@ -859,79 +859,69 @@ export default function HomePage() {
 
           ) : (
 
-            /* ── State A: Food log ── */
+            /* ── State A: Empty state — prompt to record food ── */
             <motion.div
               key="state-a"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={spring}
-              className="flex-1 min-h-0 rounded-[2rem] overflow-hidden flex flex-col"
+              className="flex-1 min-h-0 rounded-[2rem] overflow-hidden flex flex-col items-center justify-center gap-5 px-8 text-center"
               style={{
                 background: 'white',
                 boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)',
               }}
             >
-              <FoodLogForm
-                themeFood={status?.themeFood}
-                submitLabel="提交记录，生成绘本 →"
-                onDone={(result) => {
-                  setFeedbackText(result.feedbackText)
-                  sessionStorage.setItem('homeFeedbackText', result.feedbackText)
-                  setStatus((prev) => (prev ? { ...prev, book: null } : null))
-                  setBookGenerating(true)
+              <div
+                className="flex h-16 w-16 items-center justify-center rounded-2xl"
+                style={{ background: 'var(--color-accent-light)', boxShadow: '0 4px 16px rgba(5,150,105,0.12)' }}
+              >
+                <ForkKnife size={28} weight="duotone" style={{ color: 'var(--color-accent)' }} />
+              </div>
+              <div className="space-y-1.5">
+                <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                  记录一次进食
+                </h2>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--color-muted)', maxWidth: '28ch', margin: '0 auto' }}>
+                  {status?.themeFood
+                    ? `记录今天吃「${status.themeFood}」的情况，生成你的专属绘本`
+                    : '记录今天的进食情况，生成你的专属绘本'}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowFoodLogModal(true)}
+                className="inline-flex items-center gap-2 rounded-full px-8 py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98]"
+                style={{
+                  background: 'linear-gradient(135deg, #059669, #047857)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  boxShadow: '0 8px 24px -4px rgba(5,150,105,0.38)',
                 }}
-              />
+              >
+                <ForkKnife size={15} weight="bold" />
+                开始记录 →
+              </button>
             </motion.div>
 
           )}
         </AnimatePresence>
       </div>
 
-      {/* ── Food Log Modal ── */}
+      {/* ── Food Log Modal (unified with post-reading modal) ── */}
       <AnimatePresence>
         {showFoodLogModal && (
-          <>
-            <motion.div
-              key="fl-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              className="fixed inset-0 z-40"
-              style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(6px)' }}
-              onClick={() => setShowFoodLogModal(false)}
-            />
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
-              <motion.div
-                key="fl-dialog"
-                initial={{ opacity: 0, scale: 0.93, y: -10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.93, y: -10 }}
-                transition={spring}
-                className="pointer-events-auto w-full overflow-hidden"
-                style={{
-                  maxWidth: 480,
-                  background: 'white',
-                  borderRadius: '2rem',
-                  boxShadow: '0 32px 80px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(231,229,228,0.6)',
-                }}
-              >
-                <FoodLogForm
-                  themeFood={status?.themeFood}
-                  submitLabel="提交记录，生成绘本 →"
-                  onDone={(result) => {
-                    setShowFoodLogModal(false)
-                    setFeedbackText(result.feedbackText)
-                    sessionStorage.setItem('homeFeedbackText', result.feedbackText)
-                    setStatus((prev) => (prev ? { ...prev, book: null } : null))
-                    setBookGenerating(true)
-                  }}
-                  onClose={() => setShowFoodLogModal(false)}
-                />
-              </motion.div>
-            </div>
-          </>
+          <FoodLogModal
+            themeFood={status?.themeFood}
+            submitLabel="提交记录，生成绘本 →"
+            onDone={(result) => {
+              setShowFoodLogModal(false)
+              setFeedbackText(result.feedbackText)
+              sessionStorage.setItem('homeFeedbackText', result.feedbackText)
+              setStatus((prev) => (prev ? { ...prev, book: null } : null))
+              setBookGenerating(true)
+            }}
+            onClose={() => setShowFoodLogModal(false)}
+          />
         )}
       </AnimatePresence>
 

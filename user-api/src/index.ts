@@ -226,10 +226,10 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   const token = signUserToken({ userID: user.user_id });
-  // firstLogin = true only when the user has not set up their avatar yet
+  // firstLogin based on DB flag so admin-generated accounts still visit /noa/avatar
   const existingAvatar = await getUserAvatar(user.user_id);
-  const firstLogin = !existingAvatar;
-  if (!user.user_id.startsWith("demo") && user.first_login === 1 && existingAvatar) {
+  const firstLogin = user.first_login === 1;
+  if (!user.user_id.startsWith("demo") && firstLogin) {
     await setFirstLoginFlag(user.user_id, false);
   }
 
