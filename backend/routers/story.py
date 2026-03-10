@@ -9,7 +9,7 @@ from openai import RateLimitError
 from models import GenerateRequest, RegenerateRequest
 from database import get_db
 from llm import generate_story_content
-from image_gen import generate_images_for_pages
+from image_gen import generate_images_for_pages, generate_cover_image
 
 router = APIRouter(prefix="/api/v1/story", tags=["story"])
 
@@ -27,9 +27,23 @@ def _build_draft(story_content: dict, story_id: str) -> dict:
 
 
 def _generate_images_bg(story_id: str, draft_copy: dict):
-    """后台线程：并行生成图片后更新数据库。"""
-    global_style = draft_copy.get("book_meta", {}).get("global_visual_style", "")
+    """后台线程：并行生成页面插图 + 封面图后更新数据库。"""
+    book_meta = draft_copy.get("book_meta", {})
+    global_style = book_meta.get("global_visual_style", "")
     generate_images_for_pages(draft_copy["pages"], global_style)
+
+    # 生成封面图
+    cover_url = generate_cover_image(
+        title=book_meta.get("title", ""),
+        theme_food=book_meta.get("theme_food", ""),
+        global_style=global_style,
+    )
+    if cover_url:
+        draft_copy.setdefault("book_meta", {})["cover_image_url"] = cover_url
+        print(f"[COVER] 封面生成成功 story_id={story_id}")
+    else:
+        print(f"[COVER] 封面生成失败 story_id={story_id}")
+
     with get_db() as db:
         db.execute(
             "UPDATE stories SET story_json = ? WHERE story_id = ?",

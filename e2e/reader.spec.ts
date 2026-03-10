@@ -86,8 +86,8 @@ async function login(page: Page) {
   // 已到 home — 无需额外操作
 }
 
-/** 登录后注入 draft 并打开 Reader（只读模式，无 session） */
-async function openReader(page: Page) {
+/** 登录后注入 draft 并打开 Reader 到封面页 */
+async function openReaderAtCover(page: Page) {
   await login(page);
 
   // Mock TTS API：避免测试环境因无 DASHSCOPE_API_KEY 产生网络错误
@@ -101,6 +101,13 @@ async function openReader(page: Page) {
   }, TEST_DRAFT);
 
   await page.goto('/reader');
+  await expect(page.locator('button').filter({ hasText: '开始阅读' })).toBeVisible({ timeout: 8_000 });
+}
+
+/** 登录后注入 draft 并打开 Reader（跳过封面，进入正文第一页） */
+async function openReader(page: Page) {
+  await openReaderAtCover(page);
+  await page.locator('button').filter({ hasText: '开始阅读' }).click();
   await expect(page.locator('text=从前有一只小兔子')).toBeVisible({ timeout: 8_000 });
 }
 
@@ -119,9 +126,11 @@ test.describe('Reader — 基础显示与导航', () => {
     await expect(page.locator('text=1 / 3')).toBeVisible();
   });
 
-  test('第一页时"上一页"按钮禁用', async ({ page }) => {
+  test('第一页点击"上一页"返回封面页', async ({ page }) => {
     const prevBtn = page.locator('button').filter({ hasText: '上一页' });
-    await expect(prevBtn).toBeDisabled();
+    await prevBtn.click();
+    await expect(page.locator('button').filter({ hasText: '开始阅读' })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('text=西兰花的冒险')).toBeVisible();
   });
 
   test('点击"下一页"翻到第二页', async ({ page }) => {
@@ -256,5 +265,58 @@ test.describe('Reader — 互动层', () => {
 
     await page.locator('button').filter({ hasText: '我做到了' }).click();
     await expect(page.locator('button').filter({ hasText: '太棒了' })).toBeVisible({ timeout: 3_000 });
+  });
+});
+
+// ─── 封面页 ─────────────────────────────────────────────────
+
+test.describe('Reader — 封面页', () => {
+  test.beforeEach(async ({ page }) => {
+    await openReaderAtCover(page);
+  });
+
+  test('初始显示封面页：标题、副标题、开始阅读按钮', async ({ page }) => {
+    await expect(page.locator('text=西兰花的冒险')).toBeVisible();
+    await expect(page.locator('text=测试故事')).toBeVisible();
+    await expect(page.locator('button').filter({ hasText: '开始阅读' })).toBeVisible();
+  });
+
+  test('封面页不显示进度条和页码', async ({ page }) => {
+    await expect(page.locator('text=1 / 3')).not.toBeVisible();
+  });
+
+  test('封面页不显示朗读按钮', async ({ page }) => {
+    await expect(page.locator('button').filter({ hasText: '朗读' })).not.toBeVisible();
+  });
+
+  test('封面页退出按钮正常工作', async ({ page }) => {
+    await page.locator('button').filter({ hasText: '退出' }).click();
+    await expect(page).toHaveURL(/\/noa\/home/, { timeout: 8_000 });
+  });
+
+  test('点击"开始阅读"进入正文第一页', async ({ page }) => {
+    await page.locator('button').filter({ hasText: '开始阅读' }).click();
+    await expect(page.locator('text=从前有一只小兔子')).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('text=1 / 3')).toBeVisible();
+  });
+
+  test('无封面图时显示"封面生成中..."占位', async ({ page }) => {
+    // TEST_DRAFT 无 cover_image_url，应显示占位
+    await expect(page.locator('text=封面生成中...')).toBeVisible();
+  });
+
+  test('从第一页返回封面页再进入正文', async ({ page }) => {
+    // 进入正文
+    await page.locator('button').filter({ hasText: '开始阅读' }).click();
+    await expect(page.locator('text=从前有一只小兔子')).toBeVisible({ timeout: 5_000 });
+
+    // 返回封面
+    await page.locator('button').filter({ hasText: '上一页' }).click();
+    await expect(page.locator('button').filter({ hasText: '开始阅读' })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('text=西兰花的冒险')).toBeVisible();
+
+    // 再次进入正文
+    await page.locator('button').filter({ hasText: '开始阅读' }).click();
+    await expect(page.locator('text=1 / 3')).toBeVisible({ timeout: 5_000 });
   });
 });

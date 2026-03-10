@@ -45,6 +45,8 @@ import {
   exportAllReadingSessions,
   exportAllVoiceRecordings,
   exportAllAvatars,
+  updateTempBookCover,
+  updateHistoryBookCover,
 } from "./db";
 import { signUserToken } from "./jwt";
 
@@ -97,6 +99,44 @@ function calcScoreTrend(scores: number[]): "improving" | "declining" | "stable" 
 function daysSinceFirst(firstAt: string): number {
   const first = new Date(firstAt).getTime();
   return Math.round((Date.now() - first) / 86_400_000);
+}
+
+/** 轮询后端等待封面图生成完毕，然后更新 temp_books 的 preview + content。 */
+function pollCoverAndUpdate(userID: string, storyId: string) {
+  let attempts = 0;
+  const timer = setInterval(async () => {
+    if (++attempts > 20) { clearInterval(timer); return; }
+    try {
+      const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { draft: { book_meta: { cover_image_url?: string }; [k: string]: unknown } };
+      const coverUrl = data.draft.book_meta.cover_image_url;
+      if (coverUrl) {
+        clearInterval(timer);
+        await updateTempBookCover(userID, coverUrl, JSON.stringify(data.draft)).catch(() => {});
+        console.log(`[COVER-POLL] 封面已更新 user=${userID} story=${storyId}`);
+      }
+    } catch { /* ignore */ }
+  }, 3000);
+}
+
+/** 轮询后端等待封面图生成完毕，然后更新 history_books 的 preview + content。 */
+function pollCoverAndUpdateHistory(bookId: string) {
+  let attempts = 0;
+  const timer = setInterval(async () => {
+    if (++attempts > 20) { clearInterval(timer); return; }
+    try {
+      const res = await fetch(`${FASTAPI_URL}/api/v1/story/${bookId}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { draft: { book_meta: { cover_image_url?: string }; [k: string]: unknown } };
+      const coverUrl = data.draft.book_meta.cover_image_url;
+      if (coverUrl) {
+        clearInterval(timer);
+        await updateHistoryBookCover(bookId, coverUrl, JSON.stringify(data.draft)).catch(() => {});
+        console.log(`[COVER-POLL-HIST] 历史绘本封面已更新 book=${bookId}`);
+      }
+    } catch { /* ignore */ }
+  }, 3000);
 }
 
 async function generateTempBookForUser(params: {
@@ -334,6 +374,10 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
       age,
       customPrompt: customPrompt || undefined,
     })
+      .then(async () => {
+        const tb = await getTempBook(userID);
+        if (tb) pollCoverAndUpdate(userID, tb.bookID);
+      })
       .catch(async (err) => {
         console.error("[ADMIN-BOOK] 默认绘本生成失败:", err);
         const msg = err instanceof Error ? err.message : "绘本生成失败";
@@ -527,6 +571,14 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   const latestHistory = await getLatestHistoryBook(req.user.userID);
   if (latestHistory) {
     const readCompleted = await hasCompletedReading(req.user.userID, latestHistory.bookID);
+    // 尝试从 content 中提取 AI 封面（防止 confirm 时 cover 尚未就绪的情况）
+    let historyPreview = latestHistory.preview;
+    if (historyPreview.startsWith("data:image/svg+xml") && latestHistory.content) {
+      try {
+        const draft = JSON.parse(latestHistory.content);
+        if (draft.book_meta?.cover_image_url) historyPreview = draft.book_meta.cover_image_url;
+      } catch { /* use existing */ }
+    }
     res.json({
       ...base,
       generating,
@@ -534,7 +586,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
-        preview: latestHistory.preview,
+        preview: historyPreview,
         description: latestHistory.description,
         confirmed: true,
         readCompleted,
@@ -620,7 +672,12 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       regenerateCount: 0,
       recentHistory: historyBeforeInsert,
       readingSummary,
-    }).catch(async (err) => {
+    }).then(() => {
+        // 绘本文本已生成，开始轮询封面图
+        const tempBook = getTempBook(req.user!.userID);
+        tempBook.then(tb => { if (tb) pollCoverAndUpdate(req.user!.userID, tb.bookID); });
+      })
+      .catch(async (err) => {
         console.error("[BOOK] 绘本生成失败:", err);
         const msg = err instanceof Error ? err.message : "绘本生成失败";
         await setGenerateError(req.user!.userID, msg).catch(() => {});
@@ -644,15 +701,35 @@ app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, re
     res.status(404).json({ message: "未找到待确认绘本" });
     return;
   }
+  // 尝试从后端获取最新 draft（可能包含 AI 封面图）
+  let preview = tempBook.preview;
+  let content = tempBook.content;
+  try {
+    const backendRes = await fetch(`${FASTAPI_URL}/api/v1/story/${tempBook.bookID}`);
+    if (backendRes.ok) {
+      const data = (await backendRes.json()) as { draft: { book_meta: { cover_image_url?: string }; [k: string]: unknown } };
+      if (data.draft.book_meta.cover_image_url) {
+        preview = data.draft.book_meta.cover_image_url;
+        content = JSON.stringify(data.draft);
+      }
+    }
+  } catch { /* use existing temp book data */ }
+
   await addHistoryBook({
     bookID: tempBook.bookID,
     userID: tempBook.userID,
     title: tempBook.title,
-    preview: tempBook.preview,
+    preview,
     description: tempBook.description,
-    content: tempBook.content,
+    content,
   });
   await clearTempBook(req.user.userID);
+
+  // 封面还未就绪时，继续轮询更新 history_books
+  if (preview.startsWith("data:image/svg+xml")) {
+    pollCoverAndUpdateHistory(tempBook.bookID);
+  }
+
   res.json({ ok: true });
 });
 
@@ -761,6 +838,9 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     regenerateCount: tempBook.regenerateCount + 1,
   });
 
+  // 开始轮询封面图
+  pollCoverAndUpdate(req.user.userID, draft.story_id);
+
   res.json({
     ok: true,
     book: {
@@ -796,13 +876,23 @@ app.get("/api/books/history", authRequired, async (req: AuthenticatedRequest, re
   }
   const items = await listHistoryBooks(req.user.userID);
   res.json({
-    items: items.map((item) => ({
-      bookID: item.bookID,
-      title: item.title,
-      preview: item.preview,
-      description: item.description,
-      confirmedAt: item.confirmedAt,
-    })),
+    items: items.map((item) => {
+      let preview = item.preview;
+      // 尝试从 content 中提取 AI 封面
+      if (preview.startsWith("data:image/svg+xml") && item.content) {
+        try {
+          const draft = JSON.parse(item.content);
+          if (draft.book_meta?.cover_image_url) preview = draft.book_meta.cover_image_url;
+        } catch { /* use existing */ }
+      }
+      return {
+        bookID: item.bookID,
+        title: item.title,
+        preview,
+        description: item.description,
+        confirmedAt: item.confirmedAt,
+      };
+    }),
   });
 });
 

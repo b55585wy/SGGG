@@ -74,6 +74,55 @@ def generate_page_image(prompt: str, global_style: str = "") -> str | None:
     return None
 
 
+def generate_cover_image(title: str, theme_food: str, global_style: str = "") -> str | None:
+    """生成绘本封面图（竖版 576x1024），带重试。返回本地永久 URL，失败返回 None。"""
+    api_key = os.getenv("DASHSCOPE_API_KEY")
+    if not api_key:
+        return None
+
+    prompt = (
+        f"Children's picture book cover illustration, featuring {theme_food}, "
+        f"colorful and whimsical, no text, no letters, no words. "
+        f"{global_style}" if global_style else
+        f"Children's picture book cover illustration, featuring {theme_food}, "
+        f"colorful and whimsical, no text, no letters, no words."
+    )
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            rsp = ImageSynthesis.call(
+                api_key=api_key,
+                model="wanx2.1-t2i-turbo",
+                prompt=prompt,
+                n=1,
+                size="576*1024",
+            )
+            if rsp.status_code == HTTPStatus.OK:
+                results = rsp.output.get("results", [])
+                if results:
+                    dash_url = results[0].get("url")
+                    if dash_url:
+                        return _save_locally(dash_url)
+                print(f"[COVER] attempt {attempt+1}: OK but empty results")
+            else:
+                code = rsp.status_code
+                msg = getattr(rsp, 'message', '') or str(rsp.output) if hasattr(rsp, 'output') else ''
+                print(f"[COVER] attempt {attempt+1}: status={code} msg={msg}")
+                if code in (429, 500, 502, 503):
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(RETRY_DELAYS[attempt])
+                        continue
+                return None
+        except Exception as e:
+            print(f"[COVER] attempt {attempt+1} exception: {e}")
+
+        if attempt < MAX_RETRIES - 1:
+            time.sleep(RETRY_DELAYS[attempt])
+
+    print(f"[COVER] all {MAX_RETRIES} attempts failed for title: {title}")
+    return None
+
+
 def generate_images_for_pages(pages: list, global_style: str) -> None:
     """为所有页面生成插图（最多 2 个并发），失败页面重试后仍跳过。"""
     if not os.getenv("DASHSCOPE_API_KEY"):

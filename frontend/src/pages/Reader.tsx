@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag, PaintBrush } from '@phosphor-icons/react';
+import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag, PaintBrush, BookOpen } from '@phosphor-icons/react';
 import { InteractionLayer } from '@/components/InteractionLayer';
 import { AbortReasonModal, type AbortDoneData } from '@/components/FeedbackModal';
 import { PostReadingModal, type PostReadingDoneData } from '@/components/PostReadingModal';
@@ -20,6 +20,7 @@ export default function ReaderPage() {
   const tts = useTTS();
 
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [showCover, setShowCover] = useState(true);
   const [pageIdx, setPageIdx] = useState(0);
   const [feedback, setFeedback] = useState<FeedbackStatus | null>(null);
   const [showSUS, setShowSUS] = useState(false);
@@ -41,16 +42,20 @@ export default function ReaderPage() {
   // 轮询图片：后台生成完成后自动刷新（最多 10 次，每 3 秒一次）
   useEffect(() => {
     if (!draft) return;
-    if (draft.pages.every(p => p.image_url)) return;
+    const allPagesReady = draft.pages.every(p => p.image_url);
+    const coverReady = !!draft.book_meta.cover_image_url;
+    if (allPagesReady && coverReady) return;
     let attempts = 0;
     const timer = setInterval(async () => {
       if (++attempts > 10) { clearInterval(timer); return; }
       try {
         const res = await storyGet(draft.story_id);
-        if (res.draft.pages.some(p => p.image_url)) {
+        const newPagesReady = res.draft.pages.every(p => p.image_url);
+        const newCoverReady = !!res.draft.book_meta.cover_image_url;
+        if (res.draft.pages.some(p => p.image_url) || newCoverReady) {
           setDraft(res.draft);
           localStorage.setItem('storybook_draft', JSON.stringify(res.draft));
-          if (res.draft.pages.every(p => p.image_url)) clearInterval(timer);
+          if (newPagesReady && newCoverReady) clearInterval(timer);
         }
       } catch { /* ignore */ }
     }, 3000);
@@ -76,9 +81,9 @@ export default function ReaderPage() {
     return () => document.removeEventListener('visibilitychange', handler);
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // track page_view
+  // track page_view (skip on cover page)
   useEffect(() => {
-    if (!draft || !session) return;
+    if (!draft || !session || showCover) return;
     const p = draft.pages[pageIdx];
     if (!p || trackedRef.current) return;
     track('page_view', { behavior_anchor: p.behavior_anchor }, p.page_id);
@@ -86,7 +91,7 @@ export default function ReaderPage() {
     enterRef.current = Date.now();
     return () => { trackedRef.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageIdx, draft, session]);
+  }, [pageIdx, draft, session, showCover]);
 
   // 翻页后自动续读：故事文字读完后接续朗读互动提示
   const speakPage = useCallback((p: typeof draft extends null ? never : NonNullable<typeof draft>['pages'][0]) => {
@@ -112,6 +117,11 @@ export default function ReaderPage() {
   const goTo = useCallback((next: number) => {
     if (!draft) return;
     tts.stop();
+    // Going back from page 0 → show cover
+    if (next < 0) {
+      setShowCover(true);
+      return;
+    }
     const fromPage = draft.pages[pageIdx]?.page_no ?? pageIdx + 1;
     trackDwell();
     if (next < pageIdx) {
@@ -249,8 +259,7 @@ export default function ReaderPage() {
 
   const page = draft.pages[pageIdx];
   const isLast = pageIdx === draft.pages.length - 1;
-  const isFirst = pageIdx === 0;
-  const progress = ((pageIdx + 1) / draft.pages.length) * 100;
+  const progress = showCover ? 0 : ((pageIdx + 1) / draft.pages.length) * 100;
 
   return (
     <div
@@ -277,28 +286,30 @@ export default function ReaderPage() {
         </button>
 
         {/* 进度条 + 页码（绝对居中） */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
-          <div
-            className="w-52 rounded-full overflow-hidden"
-            style={{ height: 6, background: 'var(--color-warm-200)' }}
-          >
-            <motion.div
-              className="h-full rounded-full"
-              style={{ background: 'linear-gradient(90deg, #059669, #34d399)' }}
-              animate={{ width: `${progress}%` }}
-              transition={{ type: 'spring', stiffness: 100, damping: 20 }}
-            />
+        {!showCover && (
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
+            <div
+              className="w-52 rounded-full overflow-hidden"
+              style={{ height: 6, background: 'var(--color-warm-200)' }}
+            >
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: 'linear-gradient(90deg, #059669, #34d399)' }}
+                animate={{ width: `${progress}%` }}
+                transition={{ type: 'spring', stiffness: 100, damping: 20 }}
+              />
+            </div>
+            <span
+              className="text-xs font-mono font-semibold tabular-nums rounded-full px-2.5 py-0.5"
+              style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}
+            >
+              {pageIdx + 1} / {draft.pages.length}
+            </span>
           </div>
-          <span
-            className="text-xs font-mono font-semibold tabular-nums rounded-full px-2.5 py-0.5"
-            style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}
-          >
-            {pageIdx + 1} / {draft.pages.length}
-          </span>
-        </div>
+        )}
 
         {/* TTS */}
-        {tts.isSupported ? (
+        {!showCover && tts.isSupported ? (
           <button
             onClick={onTTS}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all active:scale-[0.97]"
@@ -310,14 +321,75 @@ export default function ReaderPage() {
             {autoReadEnabled ? <SpeakerHigh size={13} weight="fill" /> : <SpeakerSlash size={13} weight="light" />}
             {autoReadEnabled ? '朗读中' : '朗读'}
           </button>
-        ) : (
+        ) : !showCover ? (
           <span className="flex items-center gap-1 text-xs rounded-full px-3 py-1.5" style={{ color: 'var(--color-muted)', background: 'var(--color-warm-100)' }}>
             <Warning size={12} weight="fill" />朗读不可用
           </span>
-        )}
+        ) : <span />}
       </header>
 
-      {/* ── 主区域：左图 + 右文 ── */}
+      {/* ── 封面页 ── */}
+      {showCover ? (
+        <div className="flex flex-1 overflow-hidden p-3 pt-3 gap-3">
+          {/* 左栏：封面图（竖版） */}
+          <div
+            className="relative w-[42%] flex-shrink-0 overflow-hidden rounded-[2rem]"
+            style={{ background: 'linear-gradient(160deg, #ecfdf5 0%, #f0fdf4 40%, #f8fdf9 100%)' }}
+          >
+            {draft.book_meta.cover_image_url ? (
+              <img
+                src={draft.book_meta.cover_image_url}
+                alt={`${draft.book_meta.title} 封面`}
+                className="w-full h-full object-cover rounded-[2rem]"
+              />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+                  style={{ background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(8px)' }}
+                >
+                  <PaintBrush size={32} weight="light" style={{ color: 'var(--color-accent)' }} />
+                </div>
+                <p className="text-sm" style={{ color: 'var(--color-muted)' }}>封面生成中...</p>
+              </div>
+            )}
+          </div>
+
+          {/* 右栏：标题 + 副标题 + 开始阅读 */}
+          <div
+            className="flex-1 flex flex-col overflow-hidden rounded-[2rem]"
+            style={{ background: 'white', boxShadow: '0 8px 28px -8px rgba(0,0,0,0.06), 0 0 0 1px rgba(231,229,228,0.6)' }}
+          >
+            <div className="flex-1 flex flex-col items-center justify-center px-9 py-7">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 150, damping: 20 }}
+                className="text-center"
+              >
+                <h1 className="text-3xl font-bold leading-snug mb-3" style={{ color: 'var(--color-foreground)' }}>
+                  {draft.book_meta.title}
+                </h1>
+                <p className="text-lg mb-8" style={{ color: 'var(--color-muted)' }}>
+                  {draft.book_meta.subtitle}
+                </p>
+                <button
+                  onClick={() => setShowCover(false)}
+                  className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full text-base font-bold text-white transition-all active:scale-[0.97]"
+                  style={{
+                    background: 'linear-gradient(135deg, #059669, #047857)',
+                    boxShadow: '0 6px 18px -4px rgba(5,150,105,0.4)',
+                  }}
+                >
+                  <BookOpen size={18} weight="bold" />
+                  开始阅读
+                </button>
+              </motion.div>
+            </div>
+          </div>
+        </div>
+      ) : (
+      /* ── 主区域：左图 + 右文 ── */
       <div className="flex flex-1 overflow-hidden p-3 pt-3 gap-3">
 
         {/* 左栏 58%：插图 */}
@@ -433,8 +505,7 @@ export default function ReaderPage() {
           >
             <button
               onClick={() => goTo(pageIdx - 1)}
-              disabled={isFirst}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold border transition-all active:scale-[0.97] disabled:opacity-30"
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold border transition-all active:scale-[0.97]"
               style={{ borderColor: 'var(--color-border-light)', background: 'white', color: 'var(--color-foreground)' }}
             >
               <CaretLeft size={14} weight="bold" />上一页
@@ -454,6 +525,7 @@ export default function ReaderPage() {
 
         </div>
       </div>
+      )}
 
       {feedback === 'COMPLETED' && session && (
         <PostReadingModal

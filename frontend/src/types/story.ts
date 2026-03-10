@@ -79,6 +79,7 @@ export interface BookMeta {
   summary: string;
   design_logic: string;
   global_visual_style: string;
+  cover_image_url?: string;
 }
 
 export interface Ending {

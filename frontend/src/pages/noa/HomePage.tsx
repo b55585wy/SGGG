@@ -469,6 +469,27 @@ export default function HomePage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [bookGenerating])
 
+  // 轮询封面更新：绘本生成完毕后，AI 封面图可能还在后台生成
+  useEffect(() => {
+    const book = status?.book
+    if (!book || bookGenerating) return
+    // 静态 SVG 占位图以 data:image/svg+xml 开头
+    if (!book.preview?.startsWith('data:image/svg+xml')) return
+    let attempts = 0
+    const timer = setInterval(async () => {
+      if (++attempts > 20) { clearInterval(timer); return }
+      try {
+        const data = await getJson<HomeStatusResponse>('/api/home/status')
+        if (data.book?.preview && !data.book.preview.startsWith('data:image/svg+xml')) {
+          setStatus(data)
+          clearInterval(timer)
+        }
+      } catch { /* ignore */ }
+    }, 3000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.book?.bookID, bookGenerating])
+
   useEffect(() => {
     const lastPath = sessionStorage.getItem('lastPath')
     if (lastPath && lastPath !== '/noa/home') {

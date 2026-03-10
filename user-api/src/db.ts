@@ -916,6 +916,24 @@ export async function saveTempBook(params: {
   await persistDb(db);
 }
 
+export async function updateTempBookCover(userID: string, preview: string, content: string) {
+  const db = await getDb();
+  db.run(
+    `UPDATE temp_books SET preview = $preview, content = $content, updated_at = $updated_at WHERE user_id = $user_id;`,
+    { $user_id: userID, $preview: preview, $content: content, $updated_at: new Date().toISOString() },
+  );
+  await persistDb(db);
+}
+
+export async function updateHistoryBookCover(bookID: string, preview: string, content: string) {
+  const db = await getDb();
+  db.run(
+    `UPDATE history_books SET preview = $preview, content = $content WHERE book_id = $book_id;`,
+    { $book_id: bookID, $preview: preview, $content: content },
+  );
+  await persistDb(db);
+}
+
 export async function clearTempBook(userID: string) {
   const db = await getDb();
   db.run("DELETE FROM temp_books WHERE user_id = $user_id;", { $user_id: userID });
