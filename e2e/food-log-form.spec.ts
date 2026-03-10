@@ -181,7 +181,7 @@ test.describe('首页 FoodLogForm 弹窗（State A → CTA → Modal）', () => 
 
   test('评分 + 描述 + 尝试程度后提交按钮启用', async ({ page }) => {
     await clickStar(page, 4, 'right');
-    await page.locator('textarea').fill('吃了一小口');
+    await page.locator('textarea').first().fill('吃了一小口');
     // tryLevel is now required since modal is unified
     await page.locator('button', { hasText: '咬一口' }).click();
     const btn = page.locator('button', { hasText: '提交记录，生成绘本' });
@@ -196,7 +196,7 @@ test.describe('首页 FoodLogForm 弹窗（State A → CTA → Modal）', () => 
     await goToHomeFoodLog(page);
 
     await clickStar(page, 2, 'left'); // score = 3
-    await page.locator('textarea').fill('尝了一口');
+    await page.locator('textarea').first().fill('尝了一口');
     await page.locator('button', { hasText: '咬一口' }).click(); // tryLevel required
     await page.locator('button', { hasText: '提交记录，生成绘本' }).click();
 
@@ -262,12 +262,12 @@ test.describe('语音转写', () => {
     await mockVoiceTranscribe(page, '语音识别的内容');
     await goToHomeFoodLog(page);
 
-    // Find the voice button (adjacent to textarea)
-    const voiceBtn = page.locator('textarea ~ button').first();
+    // Find the voice button (adjacent to first textarea)
+    const voiceBtn = page.locator('textarea').first().locator('~ button').first();
     await expect(voiceBtn).toBeVisible();
     await voiceBtn.click();
 
-    await expect(page.locator('textarea')).toHaveValue('语音识别的内容', { timeout: 5_000 });
+    await expect(page.locator('textarea').first()).toHaveValue('语音识别的内容', { timeout: 5_000 });
   });
 });
 
@@ -468,7 +468,7 @@ test.describe('pending_meal_reminder 已移除', () => {
     await goToHomeFoodLog(page);
 
     await clickStar(page, 3, 'right');
-    await page.locator('textarea').fill('测试');
+    await page.locator('textarea').first().fill('测试');
     await page.locator('button', { hasText: '咬一口' }).click(); // tryLevel required
     await page.locator('button', { hasText: '提交记录，生成绘本' }).click();
     await page.waitForTimeout(1_500);
