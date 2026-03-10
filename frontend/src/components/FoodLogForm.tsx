@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Microphone, PaperPlaneTilt, X, ForkKnife } from '@phosphor-icons/react';
+import { useState, useMemo, useRef, useCallback } from 'react';
+import { Microphone, MicrophoneSlash, PaperPlaneTilt, X, ForkKnife } from '@phosphor-icons/react';
 import { Eye, Flower, Hand, Drop, Cookie, Smiley, Star } from '@phosphor-icons/react';
 // framer-motion not needed here — animation handled by parent modal wrappers
 import { StarRating } from './StarRating';
@@ -69,8 +69,9 @@ export function FoodLogForm({
   const [content, setContent] = useState('');
   const [notes, setNotes] = useState('');
   const [sending, setSending] = useState(false);
-  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [recording, setRecording] = useState(false);
   const [error, setError] = useState('');
+  const recognitionRef = useRef<any>(null);
 
   const canSend = useMemo(() => {
     if (showTryLevel && !tryLevel) return false;
@@ -134,16 +135,48 @@ export function FoodLogForm({
     }
   }
 
-  async function onTranscribe() {
-    setError('');
-    setVoiceLoading(true);
-    try {
-      const data = await postJson<VoiceResponse>('/api/voice/transcribe', {});
-      setContent(data.text);
-    } catch { /* ignore */ } finally {
-      setVoiceLoading(false);
+  const stopRecognition = useCallback(() => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch { /* ignore */ }
+      recognitionRef.current = null;
     }
-  }
+    setRecording(false);
+  }, []);
+
+  const toggleVoice = useCallback(() => {
+    if (recording) {
+      stopRecognition();
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('当前浏览器不支持语音识别，请使用 Chrome 或 Edge');
+      return;
+    }
+
+    setError('');
+    const sr = new SpeechRecognition();
+    sr.lang = 'zh-CN';
+    sr.continuous = true;
+    sr.interimResults = false;
+    recognitionRef.current = sr;
+
+    sr.onresult = (event: any) => {
+      let text = '';
+      for (let i = 0; i < event.results.length; i++) {
+        if (event.results[i].isFinal) text += event.results[i][0].transcript;
+      }
+      if (text) {
+        setContent((prev) => prev ? `${prev}${text}` : text);
+      }
+    };
+    sr.onerror = () => stopRecognition();
+    sr.onend = () => setRecording(false);
+
+    sr.start();
+    setRecording(true);
+  }, [recording, stopRecognition]);
 
   return (
     <div className="flex flex-col max-h-[80dvh]">
@@ -230,12 +263,17 @@ export function FoodLogForm({
             />
             <button
               type="button"
-              onClick={onTranscribe}
-              disabled={voiceLoading}
-              className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
-              style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
+              onClick={toggleVoice}
+              className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95]"
+              style={{
+                borderColor: recording ? 'var(--color-error)' : 'var(--color-border-light)',
+                background: recording ? 'var(--color-error-light)' : '#fafaf9',
+                color: recording ? 'var(--color-error)' : 'var(--color-foreground)',
+              }}
             >
-              <Microphone size={18} weight={voiceLoading ? 'fill' : 'regular'} />
+              {recording
+                ? <MicrophoneSlash size={18} weight="fill" />
+                : <Microphone size={18} weight="regular" />}
             </button>
           </div>
         </div>

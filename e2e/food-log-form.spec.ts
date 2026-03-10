@@ -78,15 +78,37 @@ async function mockFoodLogSuccess(page: Page, capture?: { body: Record<string, u
   });
 }
 
-/** Mock voice transcribe API. */
-async function mockVoiceTranscribe(page: Page, text = '我吃了一小口西兰花') {
-  await page.route('**/api/user/voice/transcribe', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ text }),
-    }),
-  );
+/** Inject a mock SpeechRecognition into the page. */
+async function mockSpeechRecognition(page: Page, text = '我吃了一小口西兰花') {
+  await page.evaluate((mockText) => {
+    class MockSpeechRecognition {
+      lang = '';
+      continuous = false;
+      interimResults = false;
+      onresult: ((event: any) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onend: (() => void) | null = null;
+      start() {
+        // Simulate result after 100ms
+        setTimeout(() => {
+          if (this.onresult) {
+            this.onresult({
+              results: [{
+                0: { transcript: mockText },
+                isFinal: true,
+                length: 1,
+              }],
+              length: 1,
+            } as any);
+          }
+          setTimeout(() => this.onend?.(), 50);
+        }, 100);
+      }
+      stop() { this.onend?.(); }
+    }
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+    (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+  }, text);
 }
 
 /** Navigate to home (State A = empty CTA), click CTA to open food log modal. */
@@ -255,20 +277,62 @@ test.describe('首页弹窗 FoodLogForm（State B → 右上角按钮）', () =>
 
 // ─── Tests: 语音转写 ─────────────────────────────────────────────────────────
 
-test.describe('语音转写', () => {
-  test('点击麦克风按钮填充文本', async ({ page }) => {
+test.describe('语音转写（Web Speech API）', () => {
+  test('点击麦克风按钮追加文本（不覆盖已有内容）', async ({ page }) => {
     await setAuthToken(page);
     await mockHomeStatusNoBook(page);
     await mockFoodLogSuccess(page);
-    await mockVoiceTranscribe(page, '语音识别的内容');
     await goToHomeFoodLog(page);
 
-    // Find the voice button (adjacent to first textarea)
+    // Pre-fill some text
+    await page.locator('textarea').first().fill('已有内容');
+
+    // Inject mock SpeechRecognition
+    await mockSpeechRecognition(page, '语音追加');
+
+    // Click voice button
     const voiceBtn = page.locator('textarea').first().locator('~ button').first();
     await expect(voiceBtn).toBeVisible();
     await voiceBtn.click();
 
+    // Should append, not replace
+    await expect(page.locator('textarea').first()).toHaveValue('已有内容语音追加', { timeout: 5_000 });
+  });
+
+  test('空输入框时语音直接填入', async ({ page }) => {
+    await setAuthToken(page);
+    await mockHomeStatusNoBook(page);
+    await mockFoodLogSuccess(page);
+    await goToHomeFoodLog(page);
+
+    await mockSpeechRecognition(page, '语音识别的内容');
+
+    const voiceBtn = page.locator('textarea').first().locator('~ button').first();
+    await voiceBtn.click();
+
     await expect(page.locator('textarea').first()).toHaveValue('语音识别的内容', { timeout: 5_000 });
+  });
+
+  test('多次录音持续追加', async ({ page }) => {
+    await setAuthToken(page);
+    await mockHomeStatusNoBook(page);
+    await mockFoodLogSuccess(page);
+    await goToHomeFoodLog(page);
+
+    const voiceBtn = page.locator('textarea').first().locator('~ button').first();
+
+    // First recording
+    await mockSpeechRecognition(page, '第一段');
+    await voiceBtn.click();
+    await expect(page.locator('textarea').first()).toHaveValue('第一段', { timeout: 5_000 });
+
+    // Wait for recording to end
+    await page.waitForTimeout(300);
+
+    // Second recording
+    await mockSpeechRecognition(page, '第二段');
+    await voiceBtn.click();
+    await expect(page.locator('textarea').first()).toHaveValue('第一段第二段', { timeout: 5_000 });
   });
 });
 
