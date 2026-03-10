@@ -25,6 +25,7 @@ export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const zhVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
 
   useEffect(() => {
@@ -47,6 +48,8 @@ export function useTTS() {
   };
 
   const stop = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -57,13 +60,17 @@ export function useTTS() {
   }, []);
 
   const speak = useCallback(async (text: string, voice = 'zhimiao', onEnd?: () => void) => {
-    // 停止当前播放
+    // 停止当前播放 & 取消进行中的请求
+    abortRef.current?.abort();
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
     _revokeUrl();
     window.speechSynthesis?.cancel();
+
+    const ac = new AbortController();
+    abortRef.current = ac;
     setIsSpeaking(true);
 
     // 优先使用后端 edge-tts（自然人声）
@@ -72,9 +79,12 @@ export function useTTS() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, voice }),
+        signal: ac.signal,
       });
+      if (ac.signal.aborted) return;
       if (res.ok) {
         const blob = await res.blob();
+        if (ac.signal.aborted) return;
         const url = URL.createObjectURL(blob);
         objectUrlRef.current = url;
         const audio = new Audio(url);
@@ -88,7 +98,8 @@ export function useTTS() {
         await audio.play();
         return;
       }
-    } catch {
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
       // 降级到浏览器 TTS
     }
 
@@ -109,6 +120,7 @@ export function useTTS() {
 
   // 组件卸载时清理
   useEffect(() => () => {
+    abortRef.current?.abort();
     if (audioRef.current) audioRef.current.pause();
     _revokeUrl();
     window.speechSynthesis?.cancel();
