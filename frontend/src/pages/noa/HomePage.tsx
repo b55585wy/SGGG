@@ -962,6 +962,7 @@ export default function HomePage() {
             submitLabel="提交记录，生成绘本 →"
             onDone={(result) => {
               setShowFoodLogModal(false)
+              if (result.skipped) return
               setFeedbackText(result.feedbackText)
               sessionStorage.setItem('homeFeedbackText', result.feedbackText)
               setStatus((prev) => (prev ? { ...prev, book: null } : null))

@@ -29,6 +29,7 @@ type VoiceResponse = { text: string };
 export type FoodLogFormResult = {
   feedbackText: string;
   tryLevel: TryLevel | null;
+  skipped?: boolean;
 };
 
 export interface FoodLogFormProps {
@@ -88,7 +89,7 @@ export function FoodLogForm({
         try_level: tryLevel,
       }).catch(() => { /* best-effort */ });
     }
-    onDone({ feedbackText: '', tryLevel });
+    onDone({ feedbackText: '', tryLevel, skipped: true });
   }
 
   function handleClose() {
