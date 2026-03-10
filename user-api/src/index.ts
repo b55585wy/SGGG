@@ -934,8 +934,21 @@ function checkAdminKey(req: express.Request, res: express.Response): boolean {
   return true;
 }
 
-function toCsv(rows: Record<string, unknown>[]): string {
-  if (rows.length === 0) return "";
+/** Column headers for each export table — used when query returns 0 rows. */
+const CSV_HEADERS: Record<string, string[]> = {
+  "users.csv": ["user_id","first_login","theme_food","nickname","gender","hair_style","glasses","top_color","bottom_color","avatar_created_at"],
+  "food_logs.csv": ["log_id","user_id","score","content","created_at"],
+  "reading_sessions.csv": ["id","user_id","book_id","started_at","ended_at","duration_ms","total_pages","pages_read","interaction_count","completed","session_type","try_level","abort_reason","created_at"],
+  "voice_recordings.csv": ["id","user_id","source","context_id","page_id","transcript","duration_ms","created_at"],
+  "avatars.csv": ["user_id","nickname","gender","hair_style","glasses","top_color","bottom_color","theme_food","created_at","updated_at"],
+};
+
+function toCsv(rows: Record<string, unknown>[], filename?: string): string {
+  if (rows.length === 0) {
+    // Return header-only CSV so the downloaded file is never blank
+    const fallback = filename && CSV_HEADERS[filename];
+    return fallback ? fallback.join(",") : "";
+  }
   const headers = Object.keys(rows[0]);
   const lines = [headers.join(",")];
   for (const row of rows) {
@@ -957,7 +970,7 @@ function csvRoute(
     if (!checkAdminKey(req, res)) return;
     try {
       const rows = await fetcher();
-      const csv = toCsv(rows);
+      const csv = toCsv(rows, filename);
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(csv);

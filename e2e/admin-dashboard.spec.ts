@@ -19,7 +19,7 @@ test.describe('管理员后台 — 统计面板', () => {
     await expect(page.locator('text=用户总数')).toBeVisible();
     await expect(page.locator('text=会话总数')).toBeVisible();
     await expect(page.locator('text=SUS 均分')).toBeVisible();
-    await expect(page.locator('text=数据完整度')).toBeVisible();
+    await expect(page.locator('div').filter({ hasText: /^数据完整度$/ }).first()).toBeVisible();
   });
 
   test('加载后显示今日统计卡片', async ({ page }) => {

@@ -17,6 +17,15 @@ def _check_admin(x_admin_key: str | None = None, key: str | None = None):
         raise HTTPException(403, detail="forbidden")
 
 
+_CSV_HEADERS: dict[str, list[str]] = {
+    "sessions.csv": ["session_id","story_id","child_id","session_index","client_session_token","status","created_at"],
+    "telemetry.csv": ["event_id","session_id","story_id","page_id","event_type","payload","ts_client_ms","created_at"],
+    "feedback.csv": ["id","session_id","status","try_level","abort_reason","notes","created_at"],
+    "sus.csv": ["id","session_id","answers","sus_score","created_at"],
+    "stories.csv": ["story_id","parent_story_id","child_id","regen_count","title","summary","theme_food","story_type","page_count","created_at"],
+}
+
+
 def _rows_to_csv(rows, filename: str) -> StreamingResponse:
     output = io.StringIO()
     writer = csv.writer(output)
@@ -24,6 +33,11 @@ def _rows_to_csv(rows, filename: str) -> StreamingResponse:
         writer.writerow(rows[0].keys())
         for r in rows:
             writer.writerow(r)
+    else:
+        # Write header-only CSV so the file is never blank
+        fallback = _CSV_HEADERS.get(filename)
+        if fallback:
+            writer.writerow(fallback)
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
