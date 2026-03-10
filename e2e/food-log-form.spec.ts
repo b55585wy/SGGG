@@ -32,7 +32,7 @@ async function mockHomeStatusNoBook(page: Page, themeFood = '西兰花') {
   );
 }
 
-/** Mock home status with a confirmed book (State B, confirmed=true for 记录进食 button). */
+/** Mock home status with a read-completed book (State B, readCompleted=true for 记录进食 button). */
 async function mockHomeStatusWithBook(page: Page, themeFood = '胡萝卜') {
   await page.route('**/api/user/home/status', (route) =>
     route.fulfill({
@@ -56,6 +56,7 @@ async function mockHomeStatusWithBook(page: Page, themeFood = '胡萝卜') {
           preview: '预览',
           description: '描述',
           confirmed: true,
+          readCompleted: true,
           regenerateCount: 0,
         },
       }),

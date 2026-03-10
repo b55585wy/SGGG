@@ -1026,6 +1026,21 @@ export async function getLatestHistoryBook(userID: string): Promise<HistoryBook 
   }
 }
 
+export async function hasCompletedReading(userID: string, bookID: string): Promise<boolean> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `SELECT 1 FROM reading_sessions
+     WHERE user_id = $user_id AND book_id = $book_id AND completed = 1
+     LIMIT 1;`,
+  );
+  try {
+    stmt.bind({ $user_id: userID, $book_id: bookID });
+    return stmt.step();
+  } finally {
+    stmt.free();
+  }
+}
+
 export async function deleteUser(userID: string): Promise<boolean> {
   const db = await getDb();
   const existsStmt = db.prepare(

@@ -39,6 +39,7 @@ import {
   setGenerateError,
   clearGenerateError,
   getGenerateError,
+  hasCompletedReading,
   exportAllUsers,
   exportAllFoodLogs,
   exportAllReadingSessions,
@@ -525,6 +526,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
 
   const latestHistory = await getLatestHistoryBook(req.user.userID);
   if (latestHistory) {
+    const readCompleted = await hasCompletedReading(req.user.userID, latestHistory.bookID);
     res.json({
       ...base,
       generating,
@@ -535,6 +537,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
         preview: latestHistory.preview,
         description: latestHistory.description,
         confirmed: true,
+        readCompleted,
         regenerateCount: 0,
       },
     });

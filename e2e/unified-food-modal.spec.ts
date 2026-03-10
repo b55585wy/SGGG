@@ -30,7 +30,12 @@ async function mockHomeStatusNoBook(page: Page, themeFood = '西兰花') {
   );
 }
 
-async function mockHomeStatusWithBook(page: Page, themeFood = '胡萝卜', confirmed = false) {
+async function mockHomeStatusWithBook(
+  page: Page,
+  themeFood = '胡萝卜',
+  opts: { confirmed?: boolean; readCompleted?: boolean } = {},
+) {
+  const { confirmed = false, readCompleted = false } = opts;
   await page.route('**/api/user/home/status', (route) =>
     route.fulfill({
       status: 200,
@@ -53,6 +58,7 @@ async function mockHomeStatusWithBook(page: Page, themeFood = '胡萝卜', confi
           preview: '',
           description: '一个关于胡萝卜的故事',
           confirmed,
+          readCompleted,
           regenerateCount: 0,
         },
       }),
@@ -168,28 +174,40 @@ test.describe('首页空状态 CTA（无绘本时）', () => {
 test.describe('首页弹窗（State B → 右上角记录进食按钮）', () => {
   test('有绘本（未确认）时不显示记录进食按钮', async ({ page }) => {
     await setAuthToken(page);
-    await mockHomeStatusWithBook(page, '胡萝卜', false);
+    await mockHomeStatusWithBook(page, '胡萝卜', { confirmed: false });
     await page.goto('/noa/home');
     await expect(page.locator('text=当前绘本')).toBeVisible({ timeout: 8_000 });
     await expect(page.locator('text=记录一次进食')).not.toBeVisible();
-    // 未确认的绘本不显示记录进食按钮
     await expect(page.locator('button').filter({ hasText: '记录进食' })).not.toBeVisible();
 
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/state-b-book-card.png`, fullPage: true });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/state-b-unconfirmed.png`, fullPage: true });
   });
 
-  test('有绘本（已确认）时显示记录进食按钮', async ({ page }) => {
+  test('已确认但未阅读完时不显示记录进食按钮', async ({ page }) => {
     await setAuthToken(page);
-    await mockHomeStatusWithBook(page, '胡萝卜', true);
+    await mockHomeStatusWithBook(page, '胡萝卜', { confirmed: true, readCompleted: false });
+    await page.goto('/noa/home');
+    await expect(page.locator('text=当前绘本')).toBeVisible({ timeout: 8_000 });
+    // 仅确认预览，未阅读完毕 → 不显示记录进食按钮
+    await expect(page.locator('button').filter({ hasText: '记录进食' })).not.toBeVisible();
+
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/state-b-confirmed-not-read.png`, fullPage: true });
+  });
+
+  test('阅读完毕后显示记录进食按钮', async ({ page }) => {
+    await setAuthToken(page);
+    await mockHomeStatusWithBook(page, '胡萝卜', { confirmed: true, readCompleted: true });
     await mockFoodLogSuccess(page);
     await page.goto('/noa/home');
     const btn = page.locator('button').filter({ hasText: '记录进食' });
     await expect(btn).toBeVisible({ timeout: 8_000 });
+
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/state-b-read-completed.png`, fullPage: true });
   });
 
   test('右上角按钮打开统一弹窗（含尝试程度/跳过）', async ({ page }) => {
     await setAuthToken(page);
-    await mockHomeStatusWithBook(page, '胡萝卜', true);
+    await mockHomeStatusWithBook(page, '胡萝卜', { confirmed: true, readCompleted: true });
     await mockFoodLogSuccess(page);
     await page.goto('/noa/home');
     const btn = page.locator('button').filter({ hasText: '记录进食' });
@@ -197,7 +215,6 @@ test.describe('首页弹窗（State B → 右上角记录进食按钮）', () =>
     await btn.click();
 
     await expect(page.locator('text=用餐怎么样？')).toBeVisible({ timeout: 5_000 });
-    // 统一弹窗显示尝试程度和跳过
     await expect(page.locator('text=尝试程度')).toBeVisible();
     await expect(page.locator('text=还没吃，先跳过')).toBeVisible();
     await expect(page.locator('text=补充说明')).toBeVisible();
