@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from database import init_db
 from routers import story, session, telemetry, feedback, tts
+from routers import feedback_words as feedback_words_router
 from routers import export as export_router
 from routers import sus as sus_router
 from routers import admin_stats as admin_stats_router
@@ -45,6 +46,7 @@ app.include_router(session.router)
 app.include_router(telemetry.router)
 app.include_router(feedback.router)
 app.include_router(tts.router)
+app.include_router(feedback_words_router.router)
 app.include_router(export_router.router)
 app.include_router(sus_router.router)
 app.include_router(admin_stats_router.router)

@@ -89,6 +89,15 @@ function normalizePreview(preview: string | null | undefined): string | null {
   return trimmed
 }
 
+function feedbackFontSize(text: string): number {
+  const len = text.trim().length
+  if (len <= 40) return 14
+  if (len <= 55) return 13
+  if (len <= 70) return 12
+  if (len <= 85) return 11
+  return 10
+}
+
 // ─── Regen Modal ─────────────────────────────────────────────────────────────
 
 const REASONS = [
@@ -814,6 +823,7 @@ export default function HomePage() {
   const avatar = status?.avatar
   const book = status?.book
   const previewSrc = normalizePreview(book?.preview)
+  const confirmDisabled = !book || book.confirmed || !previewSrc || previewSrc.startsWith('data:image/svg+xml') || bookGenerating
   const regenerateReached = book ? book.regenerateCount >= 2 : false
 
   if (loading) return <LoadingSkeleton />
@@ -943,7 +953,10 @@ export default function HomePage() {
                     boxShadow: '0 22px 44px -18px rgba(5,150,105,0.55)',
                   }}
                 >
-                  <p className="text-sm font-semibold leading-relaxed line-clamp-3" style={{ color: 'rgba(255,255,255,0.98)' }}>
+                  <p
+                    className="font-semibold leading-relaxed"
+                    style={{ color: 'rgba(255,255,255,0.98)', fontSize: feedbackFontSize(feedbackText) }}
+                  >
                     {feedbackText}
                   </p>
                   <div
@@ -1155,16 +1168,18 @@ export default function HomePage() {
                     <div className="space-y-2.5">
                       <button
                         onClick={onConfirmBook}
+                        disabled={confirmDisabled}
                         className="w-full py-4 rounded-full font-bold text-sm text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                         style={{
-                          background: 'linear-gradient(135deg, #059669, #047857)',
+                          background: confirmDisabled ? 'var(--color-warm-200)' : 'linear-gradient(135deg, #059669, #047857)',
                           border: 'none',
-                          boxShadow: '0 8px 24px -4px rgba(5,150,105,0.45)',
-                          cursor: 'pointer',
+                          boxShadow: confirmDisabled ? 'none' : '0 8px 24px -4px rgba(5,150,105,0.45)',
+                          cursor: confirmDisabled ? 'not-allowed' : 'pointer',
+                          opacity: confirmDisabled ? 0.55 : 1,
                         }}
                       >
                         <CheckCircle size={16} weight="bold" />
-                        确认绘本，开始阅读
+                        {previewSrc && previewSrc.startsWith('data:image/svg+xml') ? '插图生成中…' : '确认绘本，开始阅读'}
                       </button>
                       <button
                         onClick={() => setShowRegenModal(true)}

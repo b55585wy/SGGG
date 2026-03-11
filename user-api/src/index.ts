@@ -18,6 +18,7 @@ import {
   getLastFoodScore,
   getFoodLogHistory,
   getFoodLogHeatmapData,
+  getRecentAvatarFeedbackTexts,
   getLatestCompletedReadingForUser,
   getReadingSummary,
   insertUser,
@@ -623,36 +624,68 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       ? (body as { voiceData: string }).voiceData
       : null;
 
+  const avatar = await getUserAvatar(req.user.userID);
+  if (!avatar) {
+    res.status(404).json({ message: "未找到虚拟形象" });
+    return;
+  }
+  const recentPhrases = await getRecentAvatarFeedbackTexts(req.user.userID, 2);
+
   const latestReading = await getLatestCompletedReadingForUser(req.user.userID);
 
+  let feedbackText = "";
+  try {
+    const seed = Date.now();
+    const r = await fetch(`${FASTAPI_URL}/api/v1/feedback_words/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        nickname: avatar.nickname,
+        picky_food: foodName,
+        self_rating: score,
+        self_description: content,
+        recent_phrases: recentPhrases,
+        seed,
+      }),
+    });
+    if (r.ok) {
+      const data = (await r.json()) as { text?: unknown };
+      if (typeof data.text === "string") feedbackText = data.text.trim();
+    }
+  } catch {
+    // ignore
+  }
+  if (!feedbackText) {
+    feedbackText =
+      score >= 9
+        ? "哇，你今天表现太棒了！继续保持！"
+        : score >= 7
+          ? "很好的尝试，继续加油！"
+          : score >= 5
+            ? "不错的进步，慢慢来！"
+            : score >= 3
+              ? "没关系，每一小步都是进步。"
+              : "谢谢你的尝试，下次我们再试试看。";
+  }
+  const expression =
+    score >= 7 ? "happy" : score >= 5 ? "encouraging" : score >= 3 ? "gentle" : "neutral";
+
+  const emotion = mapScoreToEmotion(score);
   await insertFoodLog({
     userID: req.user.userID,
     foodName,
     score,
     content,
     voiceData,
+    feedbackText,
+    emotion,
     relatedBookID: latestReading?.bookId ?? null,
     relatedReadingSessionID: latestReading?.sessionId ?? null,
     relatedReadingEndedAt: latestReading?.endedAt ?? null,
   });
 
-  // Immediate feedback (score-based); LLM feedback comes async via story generation
-  const feedbackText =
-    score >= 9
-      ? "哇，你今天表现太棒了！继续保持！"
-      : score >= 7
-        ? "很好的尝试，继续加油！"
-        : score >= 5
-          ? "不错的进步，慢慢来！"
-          : score >= 3
-            ? "没关系，每一小步都是进步。"
-            : "谢谢你的尝试，下次我们再试试看。";
-  const expression =
-    score >= 7 ? "happy" : score >= 5 ? "encouraging" : score >= 3 ? "gentle" : "neutral";
-
   await insertAvatarState({ userID: req.user.userID, feedbackText });
 
-  const emotion = mapScoreToEmotion(score);
   await setUserAvatarEmotion(req.user.userID, emotion);
 
   res.json({ ok: true, feedbackText, expression, score, emotion });
@@ -668,16 +701,43 @@ app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, re
     res.status(404).json({ message: "未找到待确认绘本" });
     return;
   }
-  await addHistoryBook({
-    bookID: tempBook.bookID,
-    userID: tempBook.userID,
-    title: tempBook.title,
-    preview: tempBook.preview,
-    description: tempBook.description,
-    content: tempBook.content,
-  });
-  await clearTempBook(req.user.userID);
-  res.json({ ok: true });
+
+  try {
+    const storyId = tempBook.bookID;
+    const r = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
+    if (!r.ok) {
+      res.status(503).json({ message: "图片状态检查失败" });
+      return;
+    }
+    const data = (await r.json()) as { draft?: { pages?: Array<{ page_no?: number; image_url?: unknown }>; book_meta?: { title?: string; summary?: string } } };
+    const pages = data.draft?.pages ?? [];
+    const allReady = pages.length > 0 && pages.every((p) => typeof p.image_url === "string" && p.image_url.length > 0);
+    if (!allReady) {
+      res.status(400).json({ message: "插图生成中，请稍后再确认绘本" });
+      return;
+    }
+    const sorted = [...pages].sort((a, b) => (a.page_no ?? 0) - (b.page_no ?? 0));
+    const firstUrl = typeof sorted[0]?.image_url === "string" ? (sorted[0].image_url as string) : null;
+    const nextPreview = firstUrl || tempBook.preview;
+    const nextTitle = data.draft?.book_meta?.title || tempBook.title;
+    const nextDesc = data.draft?.book_meta?.summary || tempBook.description;
+    const nextContent = data.draft ? JSON.stringify(data.draft) : tempBook.content;
+
+    await addHistoryBook({
+      bookID: tempBook.bookID,
+      userID: tempBook.userID,
+      title: nextTitle,
+      preview: nextPreview,
+      description: nextDesc,
+      content: nextContent,
+    });
+    await clearTempBook(req.user.userID);
+    res.json({ ok: true });
+    return;
+  } catch {
+    res.status(503).json({ message: "图片状态检查失败" });
+    return;
+  }
 });
 
 app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest, res) => {

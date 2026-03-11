@@ -1,4 +1,4 @@
-# SGGG - 食光故事馆
+# SGGS - 食个故事
 
 三服务架构的儿童挑食干预互动绘本系统。
 
@@ -49,6 +49,10 @@ cp user-api/.env.example user-api/.env
 # TRANSCIBE_OPENAI_API_KEY=sk-xxxx
 # TRANSCIBE_OPENAI_URI=https://api.openai.com/v1/audio/transcriptions
 # TRANSCIBE_OPENAI_MODEL=gpt-4o-transcribe-diarize
+# FEEDBACK_OPENAI_API_KEY=sk-xxxx
+# FEEDBACK_OPENAI_URI=https://api.openai.com/v1/chat/completions
+# FEEDBACK_OPENAI_MODEL=gpt-4o-mini
+# FEEDBACK_OPENAI_TIMEOUT_SEC=60
 #
 # 如需替换 OpenAI 兼容服务：
 # 1) 修改 backend/.env 中的 *_OPENAI_URI 与 *_OPENAI_MODEL
@@ -96,6 +100,7 @@ cd frontend && npm run dev
 ```text
 SGGG/
   backend/                 FastAPI 服务（故事生成/图片生成/TTS/转写）
+    prompts/               反馈语 LLM Prompt 模板
   user-api/                Express 服务（用户/头像/进食/绘本）
   frontend/                React + Vite 前端
     public/                前端静态资源（运行时通过 / 访问）
@@ -106,9 +111,6 @@ SGGG/
     src/                   前端业务代码
   docs/                    设计与接口说明
   e2e/                     Playwright E2E 测试
-  basic/                   头像组合图源文件（PNG）
-  emotion/                 头像情绪图源文件（PNG）
-  icon/                    头像选项 icon 源文件（PNG）
 ```
 
 ## 关键流程
@@ -158,6 +160,7 @@ SGGG/
 | POST | `/api/v1/feedback/submit` | 提交反馈 |
 | POST | `/api/v1/sus/submit` | 提交 SUS 问卷 |
 | POST | `/api/v1/telemetry/report` | 遥测上报 |
+| POST | `/api/v1/feedback_words/generate` | 生成进食反馈语 |
 | POST | `/api/v1/tts` | 文本转语音 |
 | POST | `/api/v1/voice/transcribe` | 语音转写 |
 | GET | `/api/v1/export/child/{id}` | 导出儿童数据 |

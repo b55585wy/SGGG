@@ -71,6 +71,8 @@ function ensureSchema(db: Database) {
       score INTEGER NOT NULL,
       content TEXT NOT NULL,
       voice_data TEXT,
+      feedback_text TEXT,
+      emotion INTEGER,
       related_book_id TEXT,
       related_reading_session_id TEXT,
       related_reading_ended_at TEXT,
@@ -227,6 +229,12 @@ function ensureFoodLogColumns(db: Database) {
   }
   if (!columns.has("related_reading_ended_at")) {
     db.run("ALTER TABLE user_food_logs ADD COLUMN related_reading_ended_at TEXT;");
+  }
+  if (!columns.has("feedback_text")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN feedback_text TEXT;");
+  }
+  if (!columns.has("emotion")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN emotion INTEGER;");
   }
 }
 
@@ -632,6 +640,8 @@ export async function insertFoodLog(params: {
   score: number;
   content: string;
   voiceData?: string | null;
+  feedbackText?: string | null;
+  emotion?: number | null;
   relatedBookID?: string | null;
   relatedReadingSessionID?: string | null;
   relatedReadingEndedAt?: string | null;
@@ -647,6 +657,8 @@ export async function insertFoodLog(params: {
       score,
       content,
       voice_data,
+      feedback_text,
+      emotion,
       related_book_id,
       related_reading_session_id,
       related_reading_ended_at,
@@ -659,6 +671,8 @@ export async function insertFoodLog(params: {
       $score,
       $content,
       $voice_data,
+      $feedback_text,
+      $emotion,
       $related_book_id,
       $related_reading_session_id,
       $related_reading_ended_at,
@@ -672,6 +686,8 @@ export async function insertFoodLog(params: {
       $score: params.score,
       $content: params.content,
       $voice_data: params.voiceData ?? null,
+      $feedback_text: params.feedbackText ?? null,
+      $emotion: params.emotion ?? null,
       $related_book_id: params.relatedBookID ?? null,
       $related_reading_session_id: params.relatedReadingSessionID ?? null,
       $related_reading_ended_at: params.relatedReadingEndedAt ?? null,
@@ -771,6 +787,30 @@ export async function getLatestAvatarState(userID: string): Promise<{
     if (!stmt.step()) return null;
     const row = stmt.getAsObject() as unknown as { feedback_text: string | null };
     return { feedbackText: row.feedback_text ?? null };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function getRecentAvatarFeedbackTexts(userID: string, limit = 2): Promise<string[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT feedback_text
+    FROM user_avatar_states
+    WHERE user_id = $user_id AND feedback_text IS NOT NULL AND feedback_text != ''
+    ORDER BY created_at DESC
+    LIMIT $limit;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID, $limit: limit });
+    const items: string[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as { feedback_text: string | null };
+      if (row.feedback_text) items.push(row.feedback_text);
+    }
+    return items;
   } finally {
     stmt.free();
   }
@@ -1662,7 +1702,7 @@ export async function exportAllUsers(): Promise<Record<string, unknown>[]> {
 export async function exportAllFoodLogs(): Promise<Record<string, unknown>[]> {
   const db = await getDb();
   return execRows(db, `
-    SELECT log_id, user_id, food_name, score, content, related_book_id, related_reading_session_id, related_reading_ended_at, created_at
+    SELECT log_id, user_id, food_name, score, content, feedback_text, emotion, related_book_id, related_reading_session_id, related_reading_ended_at, created_at
     FROM user_food_logs
     ORDER BY created_at DESC;
   `);

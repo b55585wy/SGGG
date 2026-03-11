@@ -42,6 +42,7 @@ basic/
 child01_temp_book_content.json
 代码阅读.md
 功能梳理.md
+debug.md
 
 # sqlite wal/shm
 *.db-wal

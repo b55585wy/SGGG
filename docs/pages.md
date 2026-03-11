@@ -90,6 +90,7 @@
 - **功能**：
   - **顶部 header**（始终可见）：昵称问候、面板切换按钮（“查看绘本 / 记录进食”）、"历史绘本"入口、退出登录
   - **左侧面板**：虚拟形象合成渲染 + 正反馈文字气泡（显示在虚拟形象图上方，醒目展示；可点击朗读气泡内容）
+  - 反馈语：进食记录提交后通过 backend LLM 生成（使用 `backend/prompts/feedback_words_prompt*.md`）
   - **右侧面板**：通过头部按钮切换“绘本预览 / 进食记录”，互不影响
     - **绘本预览**（默认展示）：绘本卡片，含三种子状态：
       - 生成中（`bookGenerating=true && !book`）：封面区域显示 `.book-gen-shimmer` 动画 + 标题/描述区显示 `.skeleton-shimmer` 占位；底部显示"绘本生成中…"占位文字
@@ -175,6 +176,7 @@
     { "ok": true, "feedbackText": "太棒了！你又进步了一点点。", "expression": "happy", "score": 8, "emotion": 2 }
     ```
   - **emotion 映射**：`1-3 → 0`、`4-6 → 1`、`7-8 → 2`、`9-10 → 3`；会写入用户数据库，直到下一次进食记录提交前保持不变。
+  - **反馈语来源**：调用 backend `/api/v1/feedback_words/generate`，并写入本次进食记录条目（`user_food_logs.feedback_text`）
 
 - `POST /api/voice/transcribe`
   - **Headers**：`Authorization: Bearer <token>`
