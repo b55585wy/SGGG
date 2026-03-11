@@ -53,6 +53,10 @@ function ensureSchema(db: Database) {
       glasses TEXT,
       top_color TEXT,
       bottom_color TEXT,
+      avatar_color TEXT NOT NULL DEFAULT 'blue',
+      avatar_shirt TEXT NOT NULL DEFAULT 'short',
+      avatar_underdress TEXT NOT NULL DEFAULT 'short',
+      avatar_glasses TEXT NOT NULL DEFAULT 'no',
       theme_food TEXT DEFAULT '胡萝卜',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -187,6 +191,18 @@ function ensureUserAvatarColumns(db: Database) {
   }
   if (!columns.has("theme_food")) {
     db.run("ALTER TABLE user_avatars ADD COLUMN theme_food TEXT DEFAULT '胡萝卜';");
+  }
+  if (!columns.has("avatar_color")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_color TEXT NOT NULL DEFAULT 'blue';");
+  }
+  if (!columns.has("avatar_shirt")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_shirt TEXT NOT NULL DEFAULT 'short';");
+  }
+  if (!columns.has("avatar_underdress")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_underdress TEXT NOT NULL DEFAULT 'short';");
+  }
+  if (!columns.has("avatar_glasses")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_glasses TEXT NOT NULL DEFAULT 'no';");
   }
 }
 
@@ -482,10 +498,10 @@ export async function saveUserAvatar(params: {
   userID: string;
   nickname: string;
   gender: string;
-  hairStyle?: string | null;
-  glasses?: string | null;
-  topColor?: string | null;
-  bottomColor?: string | null;
+  avatarColor?: string | null;
+  avatarShirt?: string | null;
+  avatarUnderdress?: string | null;
+  avatarGlasses?: string | null;
 }) {
   const db = await getDb();
   const now = new Date().toISOString();
@@ -494,23 +510,23 @@ export async function saveUserAvatar(params: {
     `
     INSERT INTO user_avatars (
       user_id, nickname, gender,
-      hair_style, glasses, top_color, bottom_color,
+      avatar_color, avatar_shirt, avatar_underdress, avatar_glasses,
       theme_food,
       created_at, updated_at
     )
     VALUES (
       $user_id, $nickname, $gender,
-      $hair_style, $glasses, $top_color, $bottom_color,
+      $avatar_color, $avatar_shirt, $avatar_underdress, $avatar_glasses,
       $theme_food,
       $created_at, $updated_at
     )
     ON CONFLICT(user_id) DO UPDATE SET
       nickname = $nickname,
       gender = $gender,
-      hair_style = $hair_style,
-      glasses = $glasses,
-      top_color = $top_color,
-      bottom_color = $bottom_color,
+      avatar_color = $avatar_color,
+      avatar_shirt = $avatar_shirt,
+      avatar_underdress = $avatar_underdress,
+      avatar_glasses = $avatar_glasses,
       theme_food = $theme_food,
       updated_at = $updated_at;
     `,
@@ -518,10 +534,10 @@ export async function saveUserAvatar(params: {
       $user_id: params.userID,
       $nickname: params.nickname,
       $gender: params.gender,
-      $hair_style: params.hairStyle ?? null,
-      $glasses: params.glasses ?? null,
-      $top_color: params.topColor ?? null,
-      $bottom_color: params.bottomColor ?? null,
+      $avatar_color: params.avatarColor ?? "blue",
+      $avatar_shirt: params.avatarShirt ?? "short",
+      $avatar_underdress: params.avatarUnderdress ?? "short",
+      $avatar_glasses: params.avatarGlasses ?? "no",
       $theme_food: themeFood,
       $created_at: now,
       $updated_at: now,
@@ -534,10 +550,10 @@ export type UserAvatar = {
   userID: string;
   nickname: string;
   gender: string;
-  hairStyle: string | null;
-  glasses: string | null;
-  topColor: string | null;
-  bottomColor: string | null;
+  avatarColor: string;
+  avatarShirt: string;
+  avatarUnderdress: string;
+  avatarGlasses: string;
   themeFood: string;
   createdAt: string;
   updatedAt: string;
@@ -547,7 +563,7 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
   const db = await getDb();
   const stmt = db.prepare(
     `
-    SELECT user_id, nickname, gender, hair_style, glasses, top_color, bottom_color, theme_food, created_at, updated_at
+    SELECT user_id, nickname, gender, avatar_color, avatar_shirt, avatar_underdress, avatar_glasses, theme_food, created_at, updated_at
     FROM user_avatars
     WHERE user_id = $user_id
     LIMIT 1;
@@ -560,10 +576,10 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
       user_id: string;
       nickname: string;
       gender: string;
-      hair_style: string | null;
-      glasses: string | null;
-      top_color: string | null;
-      bottom_color: string | null;
+      avatar_color: string | null;
+      avatar_shirt: string | null;
+      avatar_underdress: string | null;
+      avatar_glasses: string | null;
       theme_food: string | null;
       created_at: string;
       updated_at: string;
@@ -572,10 +588,10 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
       userID: row.user_id,
       nickname: row.nickname,
       gender: row.gender,
-      hairStyle: row.hair_style ?? null,
-      glasses: row.glasses ?? null,
-      topColor: row.top_color ?? null,
-      bottomColor: row.bottom_color ?? null,
+      avatarColor: row.avatar_color || "blue",
+      avatarShirt: row.avatar_shirt || "short",
+      avatarUnderdress: row.avatar_underdress || "short",
+      avatarGlasses: row.avatar_glasses || "no",
       themeFood: row.theme_food || "胡萝卜",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -1650,8 +1666,9 @@ export async function exportAllVoiceRecordings(): Promise<Record<string, unknown
 export async function exportAllAvatars(): Promise<Record<string, unknown>[]> {
   const db = await getDb();
   return execRows(db, `
-    SELECT user_id, nickname, gender, hair_style, glasses,
-           top_color, bottom_color, theme_food, created_at, updated_at
+    SELECT user_id, nickname, gender,
+           avatar_color, avatar_shirt, avatar_underdress, avatar_glasses,
+           theme_food, created_at, updated_at
     FROM user_avatars
     ORDER BY user_id;
   `);

@@ -5,6 +5,7 @@ import { clearToken, getToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
 import AvatarEditModal from '@/components/AvatarEditModal'
 import { useTTS } from '@/hooks/useTTS'
+import { buildBasicAvatarImageSrc, basicAvatarDefaults, type BasicAvatarColor, type BasicAvatarGender, type BasicAvatarGlasses, type BasicAvatarShirt, type BasicAvatarUnderdress } from '@/lib/basicAvatar'
 import {
   ClockCounterClockwise,
   Microphone,
@@ -31,11 +32,11 @@ import {
 type HomeStatusResponse = {
   avatar: {
     nickname: string
-    baseImage: string | null
-    hairImage: string
-    glassesImage: string
-    topImage: string
-    bottomImage: string
+    gender: BasicAvatarGender
+    color: BasicAvatarColor
+    shirt: BasicAvatarShirt
+    underdress: BasicAvatarUnderdress
+    glasses: BasicAvatarGlasses
   }
   feedbackText: string
   themeFood: string
@@ -957,15 +958,16 @@ export default function HomePage() {
                 </div>
               </button>
             )}
-            {avatar?.baseImage && <img src={avatar.baseImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {avatar?.topImage && <img src={avatar.topImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {avatar?.bottomImage && <img src={avatar.bottomImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {avatar?.hairImage && <img src={avatar.hairImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {avatar?.glassesImage && <img src={avatar.glassesImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {/* Bottom fade */}
-            <div
-              className="absolute bottom-0 inset-x-0 h-40 pointer-events-none"
-              style={{ background: 'linear-gradient(to top, white 10%, transparent)' }}
+            <img
+              src={buildBasicAvatarImageSrc({
+                gender: avatar?.gender ?? basicAvatarDefaults.gender,
+                color: avatar?.color ?? basicAvatarDefaults.color,
+                shirt: avatar?.shirt ?? basicAvatarDefaults.shirt,
+                underdress: avatar?.underdress ?? basicAvatarDefaults.underdress,
+                glasses: avatar?.glasses ?? basicAvatarDefaults.glasses,
+              })}
+              alt=""
+              className="absolute inset-0 w-full h-full object-contain"
             />
           </div>
 

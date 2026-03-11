@@ -390,10 +390,10 @@ app.get("/api/avatar/current", authRequired, async (req: AuthenticatedRequest, r
   res.json({
     nickname: avatar.nickname,
     gender: avatar.gender,
-    hairStyle: avatar.hairStyle,
-    glasses: avatar.glasses,
-    topColor: avatar.topColor,
-    bottomColor: avatar.bottomColor,
+    color: avatar.avatarColor,
+    shirt: avatar.avatarShirt,
+    underdress: avatar.avatarUnderdress,
+    glasses: avatar.avatarGlasses,
   });
 });
 
@@ -444,28 +444,36 @@ app.post("/api/avatar/save", authRequired, async (req: AuthenticatedRequest, res
     typeof (body as { nickname?: unknown }).nickname === "string"
       ? (body as { nickname: string }).nickname.trim()
       : "";
-  const gender =
-    typeof (body as { gender?: unknown }).gender === "string"
-      ? (body as { gender: string }).gender
-      : "";
-  if (!nickname || (gender !== "male" && gender !== "female")) {
-    res.status(400).json({ message: "昵称和性别不能为空" });
+  if (!nickname) {
+    res.status(400).json({ message: "昵称不能为空" });
     return;
   }
 
-  const str = (key: string) =>
+  const pick = (key: string) =>
     typeof (body as Record<string, unknown>)[key] === "string"
       ? (body as Record<string, string>)[key]
-      : null;
+      : "";
+
+  const gender = pick("gender") || "male";
+  const color = pick("color") || "blue";
+  const shirt = pick("shirt") || "short";
+  const underdress = pick("underdress") || "short";
+  const glasses = pick("glasses") || "no";
+
+  if (gender !== "male" && gender !== "female") { res.status(400).json({ message: "性别参数错误" }); return; }
+  if (color !== "blue" && color !== "red" && color !== "yellow") { res.status(400).json({ message: "颜色参数错误" }); return; }
+  if (shirt !== "short" && shirt !== "long") { res.status(400).json({ message: "上衣参数错误" }); return; }
+  if (underdress !== "short" && underdress !== "long") { res.status(400).json({ message: "下装参数错误" }); return; }
+  if (glasses !== "no" && glasses !== "yes") { res.status(400).json({ message: "眼镜参数错误" }); return; }
 
   await saveUserAvatar({
     userID: req.user.userID,
     nickname,
     gender,
-    hairStyle: str("hairStyle"),
-    glasses: str("glasses"),
-    topColor: str("topColor"),
-    bottomColor: str("bottomColor"),
+    avatarColor: color,
+    avatarShirt: shirt,
+    avatarUnderdress: underdress,
+    avatarGlasses: glasses,
   });
   res.json({ ok: true });
 });
@@ -481,23 +489,15 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  const [baseImage, hairImage, glassesImage, topImage, bottomImage, latestState] =
-    await Promise.all([
-      getAvatarBase(),
-      avatar.hairStyle ? getAvatarComponent("hair", avatar.hairStyle) : Promise.resolve(null),
-      avatar.glasses ? getAvatarComponent("glasses", avatar.glasses) : Promise.resolve(null),
-      avatar.topColor ? getAvatarComponent("top", avatar.topColor) : Promise.resolve(null),
-      avatar.bottomColor ? getAvatarComponent("bottom", avatar.bottomColor) : Promise.resolve(null),
-      getLatestAvatarState(req.user.userID),
-    ]);
+  const latestState = await getLatestAvatarState(req.user.userID);
 
   const avatarData = {
     nickname: avatar.nickname,
-    baseImage,
-    hairImage: hairImage || "",
-    glassesImage: glassesImage || "",
-    topImage: topImage || "",
-    bottomImage: bottomImage || "",
+    gender: avatar.gender,
+    color: avatar.avatarColor,
+    shirt: avatar.avatarShirt,
+    underdress: avatar.avatarUnderdress,
+    glasses: avatar.avatarGlasses,
   };
 
   const base = {
