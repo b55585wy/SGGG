@@ -43,6 +43,7 @@ import {
   exportAllReadingSessions,
   exportAllVoiceRecordings,
   exportAllAvatars,
+  setUserAvatarEmotion,
 } from "./db";
 import { signUserToken } from "./jwt";
 
@@ -109,6 +110,13 @@ function mapScore(score: number): number {
   if (score <= 6) return 3;
   if (score <= 8) return 4;
   return 5;
+}
+
+function mapScoreToEmotion(score: number): 0 | 1 | 2 | 3 {
+  if (score <= 3) return 0;
+  if (score <= 6) return 1;
+  if (score <= 8) return 2;
+  return 3;
 }
 
 /** 根据最近得分列表计算趋势（improving / declining / stable） */
@@ -394,6 +402,7 @@ app.get("/api/avatar/current", authRequired, async (req: AuthenticatedRequest, r
     shirt: avatar.avatarShirt,
     underdress: avatar.avatarUnderdress,
     glasses: avatar.avatarGlasses,
+    emotion: avatar.avatarEmotion,
   });
 });
 
@@ -498,6 +507,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     shirt: avatar.avatarShirt,
     underdress: avatar.avatarUnderdress,
     glasses: avatar.avatarGlasses,
+    emotion: avatar.avatarEmotion,
   };
 
   const base = {
@@ -642,7 +652,10 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
 
   await insertAvatarState({ userID: req.user.userID, feedbackText });
 
-  res.json({ ok: true, feedbackText, expression, score });
+  const emotion = mapScoreToEmotion(score);
+  await setUserAvatarEmotion(req.user.userID, emotion);
+
+  res.json({ ok: true, feedbackText, expression, score, emotion });
 });
 
 app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, res) => {

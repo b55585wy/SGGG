@@ -31,38 +31,33 @@
 
 - **Route**：`/noa/avatar`
 - **功能**：
-  - 左侧预览合成：底图 + 发型 + 眼镜 + 上衣颜色 + 下装颜色（Kenney Modular Character 图层叠加）
-  - 右侧填写昵称、选择性别和形象选项
-  - 昵称与性别必填，提交后保存形象数据并跳转主页面
+  - 左侧预览：根据“性别/颜色/上衣/下装/眼镜”五个选项拼接图片文件名，直接展示预渲染好的完整 PNG（保持等比例缩放）
+  - 右侧填写昵称、选择选项（中文展示），并使用英文值映射拼接图片名
+  - 昵称必填；选项有默认值（`male + blue + short + short + no`）；提交后保存到数据库并跳转主页面
+- **静态资源**：
+  - basic：`/basic/{gender}_{color}_{shirt}_{underdress}_{glasses}.png`
+  - emotion：`/emotion/emotion_{0|1|2|3}/{gender}_{color}_{shirt}_{underdress}_{glasses}_{0|1|2|3}.png`
 - **关键实现**：`frontend/src/pages/noa/AvatarPage.tsx`
 
 **API**
 
-- `GET /api/avatar/base`
-  - **Response 200**
-    ```json
-    { "image": "data:image/svg+xml;utf8,..." }
-    ```
-
-- `GET /api/avatar/options`
+- `GET /api/avatar/current`
+  - **Headers**：`Authorization: Bearer <token>`
   - **Response 200**
     ```json
     {
-      "hair": [{ "id": "short", "label": "短发", "image": "data:image/svg+xml;utf8,..." }],
-      "glasses": [{ "id": "none", "label": "无眼镜", "image": "data:image/svg+xml;utf8,..." }],
-      "topColors": [{ "id": "blue", "label": "蓝色", "image": "data:image/svg+xml;utf8,..." }],
-      "bottomColors": [{ "id": "black", "label": "黑色", "image": "data:image/svg+xml;utf8,..." }]
+      "nickname": "小宇",
+      "gender": "male",
+      "color": "blue",
+      "shirt": "short",
+      "underdress": "short",
+      "glasses": "no",
+      "emotion": 1
     }
     ```
-
-- `GET /api/avatar/component?type=hair&id=short`
-  - **Response 200**
+  - **Response 404**
     ```json
-    { "image": "data:image/svg+xml;utf8,..." }
-    ```
-  - **Response 400** / **404**
-    ```json
-    { "message": "参数错误" }
+    { "message": "未找到虚拟形象" }
     ```
 
 - `POST /api/avatar/save`
@@ -72,10 +67,10 @@
     {
       "nickname": "小宇",
       "gender": "male",
-      "hairStyle": "short",
-      "glasses": "none",
-      "topColor": "blue",
-      "bottomColor": "black"
+      "color": "blue",
+      "shirt": "short",
+      "underdress": "short",
+      "glasses": "no"
     }
     ```
   - **Response 200**
@@ -119,11 +114,12 @@
     {
       "avatar": {
         "nickname": "小宇",
-        "baseImage": "data:image/svg+xml;utf8,...",
-        "hairImage": "data:image/svg+xml;utf8,...",
-        "glassesImage": "data:image/svg+xml;utf8,...",
-        "topImage": "data:image/svg+xml;utf8,...",
-        "bottomImage": "data:image/svg+xml;utf8,..."
+        "gender": "male",
+        "color": "blue",
+        "shirt": "short",
+        "underdress": "short",
+        "glasses": "no",
+        "emotion": 1
       },
       "feedbackText": "太棒了！你又进步了一点点。",
       "themeFood": "胡萝卜",
@@ -176,8 +172,9 @@
   - **说明**：仅记录进食，不触发绘本生成
   - **Response 200**
     ```json
-    { "ok": true, "feedbackText": "太棒了！你又进步了一点点。", "expression": "happy", "score": 8 }
+    { "ok": true, "feedbackText": "太棒了！你又进步了一点点。", "expression": "happy", "score": 8, "emotion": 2 }
     ```
+  - **emotion 映射**：`1-3 → 0`、`4-6 → 1`、`7-8 → 2`、`9-10 → 3`；会写入用户数据库，直到下一次进食记录提交前保持不变。
 
 - `POST /api/voice/transcribe`
   - **Headers**：`Authorization: Bearer <token>`

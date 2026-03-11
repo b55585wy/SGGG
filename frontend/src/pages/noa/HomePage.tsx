@@ -5,7 +5,7 @@ import { clearToken, getToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
 import AvatarEditModal from '@/components/AvatarEditModal'
 import { useTTS } from '@/hooks/useTTS'
-import { buildBasicAvatarImageSrc, basicAvatarDefaults, type BasicAvatarColor, type BasicAvatarGender, type BasicAvatarGlasses, type BasicAvatarShirt, type BasicAvatarUnderdress } from '@/lib/basicAvatar'
+import { buildEmotionAvatarImageSrc, buildBasicAvatarImageSrc, basicAvatarDefaults, type BasicAvatarColor, type BasicAvatarEmotion, type BasicAvatarGender, type BasicAvatarGlasses, type BasicAvatarShirt, type BasicAvatarUnderdress } from '@/lib/basicAvatar'
 import {
   ClockCounterClockwise,
   Microphone,
@@ -37,6 +37,7 @@ type HomeStatusResponse = {
     shirt: BasicAvatarShirt
     underdress: BasicAvatarUnderdress
     glasses: BasicAvatarGlasses
+    emotion?: BasicAvatarEmotion | null
   }
   feedbackText: string
   themeFood: string
@@ -56,6 +57,7 @@ type FoodLogResponse = {
   feedbackText: string
   expression: string
   score: number
+  emotion?: BasicAvatarEmotion
 }
 
 type VoiceResponse = { text: string }
@@ -958,17 +960,32 @@ export default function HomePage() {
                 </div>
               </button>
             )}
-            <img
-              src={buildBasicAvatarImageSrc({
+            {(() => {
+              const combo = {
                 gender: avatar?.gender ?? basicAvatarDefaults.gender,
                 color: avatar?.color ?? basicAvatarDefaults.color,
                 shirt: avatar?.shirt ?? basicAvatarDefaults.shirt,
                 underdress: avatar?.underdress ?? basicAvatarDefaults.underdress,
                 glasses: avatar?.glasses ?? basicAvatarDefaults.glasses,
-              })}
-              alt=""
-              className="absolute inset-0 w-full h-full object-contain"
-            />
+              }
+              const emotion = avatar?.emotion
+              const src = typeof emotion === 'number'
+                ? buildEmotionAvatarImageSrc(combo, emotion)
+                : buildBasicAvatarImageSrc(combo)
+              return (
+                <img
+                  src={src}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-contain"
+                  onError={(e) => {
+                    const el = e.currentTarget
+                    const fallback = buildBasicAvatarImageSrc(combo)
+                    if (el.src.endsWith(fallback)) return
+                    el.src = fallback
+                  }}
+                />
+              )
+            })()}
           </div>
 
           {/* Avatar info + feedback bubble */}
@@ -1227,6 +1244,7 @@ export default function HomePage() {
                 onSuccess={(data) => {
                   setFeedbackText(data.feedbackText)
                   sessionStorage.setItem('homeFeedbackText', data.feedbackText)
+                  void refreshStatus()
                 }}
               />
             </motion.div>

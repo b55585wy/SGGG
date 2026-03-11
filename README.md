@@ -95,8 +95,14 @@ cd frontend && npm run dev
 
 - 绘本生成：读完已确认绘本 → 自动生成新绘本（无需录入进食触发）
 - 进食记录：主页面随时提交（今日食物/打分/描述必填），仅写入进食日志与反馈
+- 形象情绪：进食记录提交后按分数映射 emotion（0-3），主页面展示对应情绪形象（直到下次进食）
 - 主页面切换：头部按钮在“绘本预览 / 进食记录”之间切换
 - 绘本预览图：默认 SVG 占位；全部插图生成后展示第一页插图 URL
+
+## 形象资源
+
+- basic：`frontend/public/basic/{gender}_{color}_{shirt}_{underdress}_{glasses}.png`
+- emotion：`frontend/public/emotion/emotion_{0|1|2|3}/{gender}_{color}_{shirt}_{underdress}_{glasses}_{0|1|2|3}.png`
 
 ## API Endpoints
 
@@ -107,9 +113,7 @@ cd frontend && npm run dev
 | GET | `/api/health` | 健康检查 | 无 |
 | POST | `/api/auth/login` | 登录 | 无 |
 | GET | `/api/auth/me` | 当前用户信息 | Bearer |
-| GET | `/api/avatar/base` | 形象底图 | 无 |
-| GET | `/api/avatar/options` | 形象选项列表 | 无 |
-| GET | `/api/avatar/component` | 单个组件图片（`?type=&id=`） | 无 |
+| GET | `/api/avatar/current` | 当前用户形象组合（含 emotion） | Bearer |
 | POST | `/api/avatar/save` | 保存用户形象 | Bearer |
 | GET | `/api/home/status` | 主页聚合数据（含 `generating` 字段，刷新后恢复生成状态） | Bearer |
 | POST | `/api/food/log` | 提交进食记录（`foodName/score/content` 必填，不触发绘本生成） | Bearer |

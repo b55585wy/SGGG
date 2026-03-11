@@ -32,6 +32,7 @@ claude-scientific-skills/
 # root
 node_modules/
 noa_child.zip
+sample.png
 
 .DS_Store
 .dbg/

@@ -3,6 +3,7 @@ export type BasicAvatarColor = 'blue' | 'red' | 'yellow'
 export type BasicAvatarShirt = 'short' | 'long'
 export type BasicAvatarUnderdress = 'short' | 'long'
 export type BasicAvatarGlasses = 'no' | 'yes'
+export type BasicAvatarEmotion = 0 | 1 | 2 | 3
 
 export type BasicAvatarCombo = {
   gender: BasicAvatarGender
@@ -14,6 +15,17 @@ export type BasicAvatarCombo = {
 
 export function buildBasicAvatarImageSrc(combo: BasicAvatarCombo) {
   return `/basic/${combo.gender}_${combo.color}_${combo.shirt}_${combo.underdress}_${combo.glasses}.png`
+}
+
+export function buildEmotionAvatarImageSrc(combo: BasicAvatarCombo, emotion: BasicAvatarEmotion) {
+  return `/emotion/emotion_${emotion}/${combo.gender}_${combo.color}_${combo.shirt}_${combo.underdress}_${combo.glasses}_${emotion}.png`
+}
+
+export function mapFoodScoreToEmotion(score: number): BasicAvatarEmotion {
+  if (score <= 3) return 0
+  if (score <= 6) return 1
+  if (score <= 8) return 2
+  return 3
 }
 
 export const basicAvatarDefaults: BasicAvatarCombo = {
@@ -47,4 +59,3 @@ export const basicAvatarOptions = {
     { value: 'yes' as const, label: '有', icon: '/icon/glasses/有眼镜.png' },
   ],
 }
-

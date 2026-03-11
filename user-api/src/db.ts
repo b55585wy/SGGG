@@ -57,6 +57,7 @@ function ensureSchema(db: Database) {
       avatar_shirt TEXT NOT NULL DEFAULT 'short',
       avatar_underdress TEXT NOT NULL DEFAULT 'short',
       avatar_glasses TEXT NOT NULL DEFAULT 'no',
+      avatar_emotion INTEGER DEFAULT NULL,
       theme_food TEXT DEFAULT '胡萝卜',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -203,6 +204,9 @@ function ensureUserAvatarColumns(db: Database) {
   }
   if (!columns.has("avatar_glasses")) {
     db.run("ALTER TABLE user_avatars ADD COLUMN avatar_glasses TEXT NOT NULL DEFAULT 'no';");
+  }
+  if (!columns.has("avatar_emotion")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_emotion INTEGER DEFAULT NULL;");
   }
 }
 
@@ -554,6 +558,7 @@ export type UserAvatar = {
   avatarShirt: string;
   avatarUnderdress: string;
   avatarGlasses: string;
+  avatarEmotion: number | null;
   themeFood: string;
   createdAt: string;
   updatedAt: string;
@@ -563,7 +568,7 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
   const db = await getDb();
   const stmt = db.prepare(
     `
-    SELECT user_id, nickname, gender, avatar_color, avatar_shirt, avatar_underdress, avatar_glasses, theme_food, created_at, updated_at
+    SELECT user_id, nickname, gender, avatar_color, avatar_shirt, avatar_underdress, avatar_glasses, avatar_emotion, theme_food, created_at, updated_at
     FROM user_avatars
     WHERE user_id = $user_id
     LIMIT 1;
@@ -580,6 +585,7 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
       avatar_shirt: string | null;
       avatar_underdress: string | null;
       avatar_glasses: string | null;
+      avatar_emotion: number | null;
       theme_food: string | null;
       created_at: string;
       updated_at: string;
@@ -592,6 +598,7 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
       avatarShirt: row.avatar_shirt || "short",
       avatarUnderdress: row.avatar_underdress || "short",
       avatarGlasses: row.avatar_glasses || "no",
+      avatarEmotion: typeof row.avatar_emotion === "number" ? row.avatar_emotion : null,
       themeFood: row.theme_food || "胡萝卜",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -599,6 +606,24 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
   } finally {
     stmt.free();
   }
+}
+
+export async function setUserAvatarEmotion(userID: string, emotion: number | null) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    UPDATE user_avatars
+    SET avatar_emotion = $emotion, updated_at = $updated_at
+    WHERE user_id = $user_id;
+    `,
+    {
+      $user_id: userID,
+      $emotion: emotion == null ? null : emotion,
+      $updated_at: now,
+    },
+  );
+  await persistDb(db);
 }
 
 export async function insertFoodLog(params: {
