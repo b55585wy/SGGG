@@ -91,6 +91,26 @@ cd frontend && npm run dev
 | `/noa/admin/users` | 管理员后台（统计 + 用户管理） | `x-admin-key` |
 | `/reader` | 故事阅读器（交互式阅读、TTS、互动层、反馈与 SUS 问卷） | 是 |
 
+## 项目目录结构
+
+```text
+SGGG/
+  backend/                 FastAPI 服务（故事生成/图片生成/TTS/转写）
+  user-api/                Express 服务（用户/头像/进食/绘本）
+  frontend/                React + Vite 前端
+    public/                前端静态资源（运行时通过 / 访问）
+      basic/               头像组合图（PNG）
+      emotion/             头像情绪图（PNG，按 emotion_0..3 分目录）
+      icon/                头像选项 icon（PNG）
+      sample.png           示例图片
+    src/                   前端业务代码
+  docs/                    设计与接口说明
+  e2e/                     Playwright E2E 测试
+  basic/                   头像组合图源文件（PNG）
+  emotion/                 头像情绪图源文件（PNG）
+  icon/                    头像选项 icon 源文件（PNG）
+```
+
 ## 关键流程
 
 - 绘本生成：读完已确认绘本 → 自动生成新绘本（无需录入进食触发）
