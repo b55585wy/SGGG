@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import multer from "multer";
 import { adminRequired, authRequired, type AuthenticatedRequest } from "./auth";
 import {
   addHistoryBook,
@@ -62,6 +63,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 function svgDataUri(svg: string) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
@@ -244,6 +246,48 @@ async function generateTempBookForUser(params: {
     content: JSON.stringify(draft),
     regenerateCount: params.regenerateCount,
   });
+}
+
+async function triggerAutoBookGeneration(userID: string, avatar: { nickname: string; gender: string; themeFood: string }) {
+  if (generatingUsers.has(userID) || await isUserGenerating(userID)) return;
+  const existingTemp = await getTempBook(userID);
+  if (existingTemp) return;
+
+  const history = await getFoodLogHistory(userID, 10);
+  const latest = history[0] ?? null;
+  const mealScore = latest?.score ?? 5;
+  const mealContent = latest?.content ?? "暂无进食记录";
+  const recentHistory = history.length > 1 ? history.slice(1) : [];
+  const readingSummary = await getReadingSummary(userID);
+
+  generatingUsers.add(userID);
+  setUserGenerating(userID).catch(() => {});
+  clearGenerateError(userID).catch(() => {});
+
+  generateTempBookForUser({
+    userID,
+    nickname: avatar.nickname,
+    gender: avatar.gender,
+    themeFood: avatar.themeFood,
+    mealScore,
+    mealContent,
+    regenerateCount: 0,
+    recentHistory,
+    readingSummary,
+  })
+    .then(async () => {
+      const tb = await getTempBook(userID);
+      if (tb) pollCoverAndUpdate(userID, tb.bookID);
+    })
+    .catch(async (err) => {
+      console.error("[BOOK] 自动生成绘本失败:", err);
+      const msg = err instanceof Error ? err.message : "绘本生成失败";
+      await setGenerateError(userID, msg).catch(() => {});
+    })
+    .finally(async () => {
+      generatingUsers.delete(userID);
+      await clearUserGenerating(userID).catch(() => {});
+    });
 }
 
 app.get("/api/health", (_req, res) => {
@@ -627,12 +671,6 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       ? (body as { voiceData: string }).voiceData
       : null;
 
-  // 在插入本次记录前先取历史，确保历史不含本次（计算 attempt_number / trend 准确）
-  const [historyBeforeInsert, avatar] = await Promise.all([
-    getFoodLogHistory(req.user.userID, 10),
-    getUserAvatar(req.user.userID),
-  ]);
-
   await insertFoodLog({
     userID: req.user.userID,
     score,
@@ -655,38 +693,6 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     score >= 7 ? "happy" : score >= 5 ? "encouraging" : score >= 3 ? "gentle" : "neutral";
 
   await insertAvatarState({ userID: req.user.userID, feedbackText });
-
-  const skipGen = (body as { skipBookGeneration?: unknown }).skipBookGeneration === true;
-  if (avatar && !skipGen) {
-    const readingSummary = await getReadingSummary(req.user.userID);
-    generatingUsers.add(req.user.userID);
-    setUserGenerating(req.user.userID).catch(() => {});
-    clearGenerateError(req.user.userID).catch(() => {});
-    generateTempBookForUser({
-      userID: req.user.userID,
-      nickname: avatar.nickname,
-      gender: avatar.gender,
-      themeFood: avatar.themeFood,
-      mealScore: score,
-      mealContent: content,
-      regenerateCount: 0,
-      recentHistory: historyBeforeInsert,
-      readingSummary,
-    }).then(() => {
-        // 绘本文本已生成，开始轮询封面图
-        const tempBook = getTempBook(req.user!.userID);
-        tempBook.then(tb => { if (tb) pollCoverAndUpdate(req.user!.userID, tb.bookID); });
-      })
-      .catch(async (err) => {
-        console.error("[BOOK] 绘本生成失败:", err);
-        const msg = err instanceof Error ? err.message : "绘本生成失败";
-        await setGenerateError(req.user!.userID, msg).catch(() => {});
-      })
-      .finally(async () => {
-        generatingUsers.delete(req.user!.userID);
-        await clearUserGenerating(req.user!.userID).catch(() => {});
-      });
-  }
 
   res.json({ ok: true, feedbackText, expression, score });
 });
@@ -964,9 +970,40 @@ app.post("/api/voice/record", authRequired, async (req: AuthenticatedRequest, re
   res.json({ ok: true, recordingId, transcript });
 });
 
-// Legacy transcribe stub — kept for backward compat with food log button
-app.post("/api/voice/transcribe", authRequired, (_req: AuthenticatedRequest, res) => {
-  res.json({ text: "" });
+app.post("/api/voice/transcribe", authRequired, upload.single("file"), async (req: AuthenticatedRequest, res) => {
+  if (!req.user) { res.status(401).json({ message: "未登录" }); return; }
+  const file = (req as typeof req & { file?: { buffer: Buffer; mimetype?: string; originalname?: string } }).file;
+  if (!file?.buffer) {
+    res.status(400).json({ message: "未收到录音文件" });
+    return;
+  }
+
+  const form = new FormData();
+  const mime = file.mimetype || "audio/webm";
+  const filename = file.originalname || "recording.webm";
+  form.append("file", new Blob([new Uint8Array(file.buffer)], { type: mime }), filename);
+
+  const endpoint = FASTAPI_URL.replace(/\/$/, "") + "/api/v1/voice/transcribe";
+  let resp: Response;
+  try {
+    resp = await fetch(endpoint, {
+      method: "POST",
+      body: form,
+    });
+  } catch (e) {
+    res.status(502).json({ message: `语音转写失败: 无法连接到 ${endpoint}（${e instanceof Error ? e.message : "fetch failed"}）` });
+    return;
+  }
+
+  const text = await resp.text();
+  if (!resp.ok) {
+    res.status(502).json({ message: `语音转写失败: ${text || resp.status}` });
+    return;
+  }
+
+  let payload: { text?: string } | null = null;
+  try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
+  res.json({ text: payload?.text || "" });
 });
 
 app.get("/api/auth/me", authRequired, (req: AuthenticatedRequest, res) => {
@@ -1008,6 +1045,18 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     tryLevel: typeof body.tryLevel === "string" ? body.tryLevel : null,
     abortReason: typeof body.abortReason === "string" ? body.abortReason : null,
   });
+
+  const bookId = typeof body.bookId === "string" ? body.bookId : null;
+  if (body.completed === true && bookId) {
+    const history = await getHistoryBookById(req.user.userID, bookId);
+    if (history) {
+      const avatar = await getUserAvatar(req.user.userID);
+      if (avatar) {
+        void triggerAutoBookGeneration(req.user.userID, avatar);
+      }
+    }
+  }
+
   // Return daily count for today for this user
   const daily = await getDailyReadingStats(1);
   const todayCount = daily[0]?.sessionCount ?? 1;
