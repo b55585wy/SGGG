@@ -155,6 +155,10 @@ async function setupReader(page: Page) {
   }, DRAFT);
 
   await page.goto('/reader');
+  // Dismiss cover page
+  const startBtn = page.locator('button', { hasText: '开始阅读' });
+  await expect(startBtn).toBeVisible({ timeout: 8_000 });
+  await startBtn.click();
   await expect(page.locator('text=第一页的故事内容')).toBeVisible({ timeout: 8_000 });
 }
 
@@ -258,6 +262,10 @@ test.describe('音频不重叠（快速操作场景）', () => {
     }, DRAFT);
 
     await page.goto('/reader');
+    // Dismiss cover page
+    const coverStart = page.locator('button', { hasText: '开始阅读' });
+    await expect(coverStart).toBeVisible({ timeout: 8_000 });
+    await coverStart.click();
     await expect(page.locator('text=第一页的故事内容')).toBeVisible({ timeout: 8_000 });
 
     // Enable auto-read via speaker button (first button with svg in top row)

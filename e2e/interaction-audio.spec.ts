@@ -175,6 +175,10 @@ async function setupReader(page: Page) {
   }, DRAFT);
 
   await page.goto('/reader');
+  // Dismiss cover page
+  const startBtn = page.locator('button', { hasText: '开始阅读' });
+  await expect(startBtn).toBeVisible({ timeout: 8_000 });
+  await startBtn.click();
   await expect(page.locator('text=小兔子看到了一根又大又橙的胡萝卜')).toBeVisible({ timeout: 8_000 });
 }
 
@@ -446,6 +450,8 @@ test.describe('互动边界情况', () => {
     }, DRAFT);
 
     await page.goto('/reader');
+    // Dismiss cover page
+    await page.locator('button', { hasText: '开始阅读' }).click();
     await expect(page.locator('text=小兔子看到了')).toBeVisible({ timeout: 8_000 });
 
     // Tap interaction should still work even if TTS is hanging
@@ -496,6 +502,8 @@ test.describe('互动边界情况', () => {
     }, DRAFT);
 
     await page.goto('/reader');
+    // Dismiss cover page
+    await page.locator('button', { hasText: '开始阅读' }).click();
     await expect(page.locator('text=小兔子看到了')).toBeVisible({ timeout: 8_000 });
 
     // Navigate through all pages — should not crash despite TTS errors

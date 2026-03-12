@@ -3,6 +3,7 @@ import uuid
 import copy
 import threading
 import traceback
+import os
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from openai import RateLimitError
@@ -10,6 +11,7 @@ from models import GenerateRequest, RegenerateRequest
 from database import get_db
 from llm import generate_story_content
 from image_gen import generate_images_for_pages, generate_cover_image
+from audio_gen import generate_audio_for_pages
 
 router = APIRouter(prefix="/api/v1/story", tags=["story"])
 
@@ -26,11 +28,23 @@ def _build_draft(story_content: dict, story_id: str) -> dict:
     }
 
 
-def _generate_images_bg(story_id: str, draft_copy: dict):
-    """后台线程：并行生成页面插图 + 封面图后更新数据库。"""
+def _generate_assets_bg(story_id: str, draft_copy: dict):
+    """后台线程：预生成整本语音 + 页面插图 + 封面图后更新数据库。"""
+    # 预生成整本语音，减少阅读时逐页等待
+    if os.getenv("TTS_PREGENERATE_ON_STORY", "true").lower() not in ("0", "false", "no", "off"):
+        try:
+            voice = os.getenv("TTS_PREGENERATE_VOICE", "zhimiao")
+            generate_audio_for_pages(
+                draft_copy.get("pages", []),
+                voice_key=voice,
+                include_interaction=True,
+            )
+        except Exception as e:
+            print(f"[TTS-PREGEN] 预生成失败 story_id={story_id}: {e}")
+
     book_meta = draft_copy.get("book_meta", {})
     global_style = book_meta.get("global_visual_style", "")
-    generate_images_for_pages(draft_copy["pages"], global_style)
+    generate_images_for_pages(draft_copy.get("pages", []), global_style)
 
     # 生成封面图
     cover_url = generate_cover_image(
@@ -95,7 +109,7 @@ def story_generate(req: GenerateRequest):
 
     # 后台异步生成图片，不阻塞接口返回
     threading.Thread(
-        target=_generate_images_bg,
+        target=_generate_assets_bg,
         args=(story_id, copy.deepcopy(draft)),
         daemon=True,
     ).start()
@@ -165,7 +179,7 @@ def story_regenerate(req: RegenerateRequest):
 
     # 后台异步生成图片，不阻塞接口返回
     threading.Thread(
-        target=_generate_images_bg,
+        target=_generate_assets_bg,
         args=(story_id, copy.deepcopy(draft)),
         daemon=True,
     ).start()

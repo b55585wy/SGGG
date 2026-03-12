@@ -726,7 +726,7 @@ export default function HomePage() {
             >
               {/* Book cover thumbnail */}
               <div
-                className="w-[35%] lg:w-[38%] relative shrink-0 overflow-hidden"
+                className="w-[70%] lg:w-[70%] relative shrink-0 overflow-hidden"
                 style={{
                   background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
                   borderRight: '1px solid rgba(231,229,228,0.4)',

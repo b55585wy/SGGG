@@ -298,6 +298,8 @@ test.describe('弹窗样式一致性', () => {
     }, DRAFT);
 
     await page.goto('/reader');
+    // Dismiss cover page
+    await page.locator('button', { hasText: '开始阅读' }).click();
     await expect(page.locator('text=从前有一朵小西兰花')).toBeVisible({ timeout: 8_000 });
     await page.locator('button', { hasText: '完成' }).click();
     await expect(page.locator('text=用餐怎么样？')).toBeVisible({ timeout: 5_000 });

@@ -97,44 +97,67 @@ export default function ReaderPage() {
 
   // 翻页后自动续读：故事文字读完后接续朗读互动提示
   const speakPage = useCallback((p: typeof draft extends null ? never : NonNullable<typeof draft>['pages'][0]) => {
-    const onEnd = p.interaction.type !== 'none' && p.interaction.instruction
-      ? () => {
-        const instruction = p.interaction.instruction;
-        if (p.interaction.type === 'choice' && Array.isArray(p.branch_choices) && p.branch_choices.length > 0) {
-          const optionsText = p.branch_choices
-            .map((c, idx) => `选项${idx + 1}：${c.label}`)
-            .join('。');
-          tts.speak(instruction, 'zhimiao', () => tts.speak(`${optionsText}。`, 'zhimiao'));
+    const speakInstruction = () => {
+      if (p.interaction.type === 'none' || !p.interaction.instruction) return;
+
+      if (p.interaction.type === 'choice' && Array.isArray(p.branch_choices) && p.branch_choices.length > 0) {
+        const optionsText = p.branch_choices
+          .map((c, idx) => `选项${idx + 1}：${c.label}`)
+          .join('。');
+        const optionsSentence = `${optionsText}。`;
+
+        if (p.interaction_audio_url) {
+          void tts.speakFromUrl(p.interaction_audio_url, () => {
+            if (p.choice_options_audio_url) {
+              void tts.speakFromUrl(p.choice_options_audio_url).catch(() => tts.speak(optionsSentence, 'zhimiao'));
+            } else {
+              tts.speak(optionsSentence, 'zhimiao');
+            }
+          }).catch(() => tts.speak(p.interaction.instruction, 'zhimiao', () => tts.speak(optionsSentence, 'zhimiao')));
           return;
         }
-        tts.speak(instruction, 'zhimiao');
+        tts.speak(p.interaction.instruction, 'zhimiao', () => tts.speak(optionsSentence, 'zhimiao'));
+        return;
       }
-      : undefined;
-    tts.speak(p.text, 'zhimiao', onEnd);
-  }, [tts]);
+
+      if (p.interaction_audio_url) {
+        void tts.speakFromUrl(p.interaction_audio_url).catch(() => tts.speak(p.interaction.instruction, 'zhimiao'));
+        return;
+      }
+      tts.speak(p.interaction.instruction, 'zhimiao');
+    };
+
+    if (p.audio_url) {
+      void tts.speakFromUrl(p.audio_url, speakInstruction).catch(() => tts.speak(p.text, 'zhimiao', speakInstruction));
+      return;
+    }
+    tts.speak(p.text, 'zhimiao', speakInstruction);
+  }, [tts.speak, tts.speakFromUrl]);
 
   useEffect(() => {
     autoReadRef.current = autoReadEnabled;
   }, [autoReadEnabled]);
 
   useEffect(() => {
-    if (!draft || showCover) return;
-    tts.stop();
-    if (!autoReadEnabled) {
+    const p = (!draft || showCover) ? null : draft.pages[pageIdx];
+    if (!p || !autoReadEnabled) {
+      tts.stop();
       lastAutoReadKeyRef.current = null;
       return;
     }
-    const p = draft.pages[pageIdx];
-    if (!p) return;
+
+    // De-dupe auto read by page key to avoid replay/stop loops when draft updates.
     const key = `${autoReadSeqRef.current}:${p.page_id}`;
     if (lastAutoReadKeyRef.current === key) return;
+
+    tts.stop();
     lastAutoReadKeyRef.current = key;
     speakPage(p);
-  }, [pageIdx, draft, showCover, autoReadEnabled, tts, speakPage]);
+  }, [pageIdx, draft?.pages, showCover, autoReadEnabled, tts.stop, speakPage]);
 
   useEffect(() => () => {
     tts.stop();
-  }, [tts]);
+  }, [tts.stop]);
 
   const trackDwell = useCallback(() => {
     if (!draft || !session) return;
@@ -170,13 +193,17 @@ export default function ReaderPage() {
       return;
     }
     setPageIdx(next);
-  }, [draft, pageIdx, session, trackDwell, track, flush, tts, clearSession, navigate]);
+  }, [draft, pageIdx, session, trackDwell, track, flush, tts.stop, clearSession, navigate]);
 
   const onInteractionStart = useCallback((interactionType: string, eventKey: string) => {
     if (!draft) return;
-    tts.stop();
+    // 自动朗读模式下不停止 TTS：InteractionLayer 在翻页时因 event_key 变化
+    // 触发此回调，若此处 stop 会中止 speakPage 刚发起的 TTS fetch
+    if (!autoReadRef.current) {
+      tts.stop();
+    }
     track('interaction_start', { interaction_type: interactionType, event_key: eventKey }, draft.pages[pageIdx].page_id);
-  }, [draft, pageIdx, track, tts]);
+  }, [draft, pageIdx, track, tts.stop]);
 
   const onInteraction = useCallback((key: string, ms: number) => {
     if (!draft) return;
@@ -185,7 +212,7 @@ export default function ReaderPage() {
     }
     interactionCountRef.current += 1;
     track('interaction', { event_key: key, latency_ms: ms }, draft.pages[pageIdx].page_id);
-  }, [draft, pageIdx, track, tts]);
+  }, [draft, pageIdx, track, tts.stop]);
 
   const onBranch = useCallback((choiceId: string, nextPageId: string) => {
     if (!draft) return;
@@ -193,7 +220,7 @@ export default function ReaderPage() {
     track('branch_select', { choice_id: choiceId }, draft.pages[pageIdx].page_id);
     const idx = draft.pages.findIndex(p => p.page_id === nextPageId);
     if (idx >= 0) { trackDwell(); setPageIdx(idx); }
-  }, [draft, pageIdx, track, trackDwell, tts]);
+  }, [draft, pageIdx, track, trackDwell, tts.stop]);
 
   const onTTS = useCallback(() => {
     if (!draft) return;
@@ -215,7 +242,7 @@ export default function ReaderPage() {
       tts.stop();
       track('read_aloud_play', { enabled: true, page_id: p.page_id }, p.page_id);
     }
-  }, [draft, pageIdx, tts, track]);
+  }, [draft, pageIdx, tts.stop, track]);
 
   const TOTAL_SESSIONS = 9;
 
@@ -223,6 +250,7 @@ export default function ReaderPage() {
     extra: { tryLevel?: TryLevel | null; abortReason?: AbortReason | null } | null,
     pagesRead: number,
     completed: boolean,
+    skipAutoBookGeneration?: boolean,
   ) => {
     if (!draft) return;
     const bookId = localStorage.getItem('storybook_book_id') ?? undefined;
@@ -244,6 +272,7 @@ export default function ReaderPage() {
         sessionType,
         tryLevel: extra?.tryLevel ?? null,
         abortReason: extra?.abortReason ?? null,
+        ...(skipAutoBookGeneration ? { skipAutoBookGeneration: true } : {}),
       });
     } catch { /* best-effort */ }
   }, [draft, session]);
@@ -264,18 +293,18 @@ export default function ReaderPage() {
       void logReadingSession(null, pageIdx + 1, false);
       goHome();
     }
-  }, [session, trackDwell, flush, goHome, logReadingSession, pageIdx, tts]);
+  }, [session, trackDwell, flush, goHome, logReadingSession, pageIdx, tts.stop]);
 
   const onPostReadingDone = useCallback((data: PostReadingDoneData) => {
     tts.stop();
     setFeedback(null);
-    void logReadingSession({ tryLevel: data.tryLevel }, pageIdx + 1, true);
+    void logReadingSession({ tryLevel: data.tryLevel }, pageIdx + 1, true, !data.foodLogSubmitted);
     if (session && session.session_index >= TOTAL_SESSIONS - 1) {
       setShowSUS(true);
     } else {
       goHome();
     }
-  }, [session, goHome, logReadingSession, pageIdx, tts]);
+  }, [session, goHome, logReadingSession, pageIdx, tts.stop]);
 
   const onAbortDone = useCallback((data: AbortDoneData) => {
     tts.stop();
@@ -286,12 +315,12 @@ export default function ReaderPage() {
     } else {
       goHome();
     }
-  }, [session, goHome, logReadingSession, pageIdx, tts]);
+  }, [session, goHome, logReadingSession, pageIdx, tts.stop]);
 
   const onSUSDone = useCallback(() => {
     tts.stop();
     goHome();
-  }, [goHome, tts]);
+  }, [goHome, tts.stop]);
 
   if (!draft) return (
     <div className="flex items-center justify-center min-h-screen" style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}>

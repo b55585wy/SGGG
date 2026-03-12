@@ -64,9 +64,12 @@ export interface Page {
   page_id: string;
   behavior_anchor: BehaviorLevel;
   text: string;
+  audio_url?: string;
   image_prompt: string;
   image_url?: string;
   interaction: Interaction;
+  interaction_audio_url?: string;
+  choice_options_audio_url?: string;
   branch_choices: BranchChoice[];
 }
 

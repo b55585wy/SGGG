@@ -103,11 +103,12 @@ function daysSinceFirst(firstAt: string): number {
   return Math.round((Date.now() - first) / 86_400_000);
 }
 
-/** 轮询后端等待封面图生成完毕，然后更新 temp_books 的 preview + content。 */
+/** 轮询后端等待封面图生成完毕，然后更新 temp_books 的 preview + content。
+ *  每 10 秒轮询一次，最多 60 次（10 分钟），因为 DashScope 图片生成较慢。 */
 function pollCoverAndUpdate(userID: string, storyId: string) {
   let attempts = 0;
   const timer = setInterval(async () => {
-    if (++attempts > 20) { clearInterval(timer); return; }
+    if (++attempts > 60) { clearInterval(timer); return; }
     try {
       const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
       if (!res.ok) return;
@@ -119,14 +120,14 @@ function pollCoverAndUpdate(userID: string, storyId: string) {
         console.log(`[COVER-POLL] 封面已更新 user=${userID} story=${storyId}`);
       }
     } catch { /* ignore */ }
-  }, 3000);
+  }, 10_000);
 }
 
 /** 轮询后端等待封面图生成完毕，然后更新 history_books 的 preview + content。 */
 function pollCoverAndUpdateHistory(bookId: string) {
   let attempts = 0;
   const timer = setInterval(async () => {
-    if (++attempts > 20) { clearInterval(timer); return; }
+    if (++attempts > 60) { clearInterval(timer); return; }
     try {
       const res = await fetch(`${FASTAPI_URL}/api/v1/story/${bookId}`);
       if (!res.ok) return;
@@ -138,7 +139,7 @@ function pollCoverAndUpdateHistory(bookId: string) {
         console.log(`[COVER-POLL-HIST] 历史绘本封面已更新 book=${bookId}`);
       }
     } catch { /* ignore */ }
-  }, 3000);
+  }, 10_000);
 }
 
 async function generateTempBookForUser(params: {
@@ -596,6 +597,33 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   const generating = generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID);
   const generateError = generating ? null : await getGenerateError(req.user.userID);
   if (tempBook) {
+    // 如果 preview 还是 SVG 占位，尝试从 content 或 FastAPI 提取 AI 封面
+    let tempPreview = tempBook.preview;
+    if (tempPreview.startsWith("data:image/svg+xml")) {
+      let coverUrl: string | undefined;
+      // 先检查本地 content
+      if (tempBook.content) {
+        try {
+          const draft = JSON.parse(tempBook.content);
+          coverUrl = draft.book_meta?.cover_image_url;
+        } catch { /* ignore */ }
+      }
+      // 本地没有则查 FastAPI
+      if (!coverUrl) {
+        try {
+          const storyRes = await fetch(`${FASTAPI_URL}/api/v1/story/${tempBook.bookID}`);
+          if (storyRes.ok) {
+            const storyData = (await storyRes.json()) as { draft: { book_meta: { cover_image_url?: string }; [k: string]: unknown } };
+            coverUrl = storyData.draft.book_meta.cover_image_url;
+            // 顺便更新 DB，下次不用再查
+            if (coverUrl) {
+              updateTempBookCover(req.user.userID, coverUrl, JSON.stringify(storyData.draft)).catch(() => {});
+            }
+          }
+        } catch { /* ignore */ }
+      }
+      if (coverUrl) tempPreview = coverUrl;
+    }
     res.json({
       ...base,
       generating,
@@ -603,7 +631,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
       book: {
         bookID: tempBook.bookID,
         title: tempBook.title,
-        preview: tempBook.preview,
+        preview: tempPreview,
         description: tempBook.description,
         confirmed: false,
         regenerateCount: tempBook.regenerateCount,
@@ -694,7 +722,52 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
 
   await insertAvatarState({ userID: req.user.userID, feedbackText });
 
+  // Set generating flag BEFORE sending response so immediate polls see it
+  const skipGen = (body as { skipBookGeneration?: unknown }).skipBookGeneration === true;
+  if (!skipGen) {
+    generatingUsers.add(req.user.userID);
+    setUserGenerating(req.user.userID).catch(() => {});
+    clearGenerateError(req.user.userID).catch(() => {});
+  }
+
   res.json({ ok: true, feedbackText, expression, score });
+
+  // Fire-and-forget: generate storybook
+  if (!skipGen) {
+    const avatar = await getUserAvatar(req.user.userID);
+    if (avatar) {
+      const recentHistory = await getFoodLogHistory(req.user.userID, 10);
+      const readingSummary = await getReadingSummary(req.user.userID);
+      generateTempBookForUser({
+        userID: req.user.userID,
+        nickname: avatar.nickname,
+        gender: avatar.gender,
+        themeFood: avatar.themeFood,
+        mealScore: score,
+        mealContent: content,
+        regenerateCount: 0,
+        recentHistory,
+        readingSummary,
+      })
+        .then(() => {
+          const tb = getTempBook(req.user!.userID);
+          tb.then(book => { if (book) pollCoverAndUpdate(req.user!.userID, book.bookID); });
+        })
+        .catch(async (err) => {
+          console.error("[BOOK] 绘本生成失败:", err);
+          const msg = err instanceof Error ? err.message : "绘本生成失败";
+          await setGenerateError(req.user!.userID, msg).catch(() => {});
+        })
+        .finally(async () => {
+          generatingUsers.delete(req.user!.userID);
+          await clearUserGenerating(req.user!.userID).catch(() => {});
+        });
+    } else {
+      // No avatar → clean up generating flag
+      generatingUsers.delete(req.user.userID);
+      clearUserGenerating(req.user.userID).catch(() => {});
+    }
+  }
 });
 
 app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -1026,6 +1099,7 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     sessionType?: unknown;
     tryLevel?: unknown;
     abortReason?: unknown;
+    skipAutoBookGeneration?: unknown;
   };
   const durationMs = typeof body.durationMs === "number" ? body.durationMs : 0;
   const totalPages = typeof body.totalPages === "number" ? body.totalPages : 0;
@@ -1047,7 +1121,7 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
   });
 
   const bookId = typeof body.bookId === "string" ? body.bookId : null;
-  if (body.completed === true && bookId) {
+  if (body.completed === true && bookId && !body.skipAutoBookGeneration) {
     const history = await getHistoryBookById(req.user.userID, bookId);
     if (history) {
       const avatar = await getUserAvatar(req.user.userID);

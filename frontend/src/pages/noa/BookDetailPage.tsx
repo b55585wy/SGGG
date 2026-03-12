@@ -14,6 +14,18 @@ type BookDetailResponse = {
   }
 }
 
+function getFriendlyErrorMessage(error: unknown): string {
+  if (error instanceof TypeError && /Failed to fetch/i.test(error.message)) {
+    return '网络连接失败，请确认前端(5173)、user-api(3001)、backend(8000)已启动'
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  if (error instanceof Error && error.message) return error.message
+  return '加载失败'
+}
+
 export default function BookDetailPage() {
   const navigate = useNavigate()
   const { bookId } = useParams()
@@ -35,21 +47,28 @@ export default function BookDetailPage() {
       if (isExperiment) {
         localStorage.setItem('storybook_source', 'experiment')
         const clientToken = crypto.randomUUID()
-        const sessionRes = await sessionStart({
-          story_id: storyId,
-          client_session_token: clientToken,
-        })
-        if (cancelled.current) return
-
-        localStorage.setItem(
-          'storybook_session',
-          JSON.stringify({
+        try {
+          const sessionRes = await sessionStart({
             story_id: storyId,
-            session_id: sessionRes.session_id,
             client_session_token: clientToken,
-            session_index: (sessionRes as { session_index?: number }).session_index ?? 0,
-          }),
-        )
+          })
+          if (cancelled.current) return
+
+          localStorage.setItem(
+            'storybook_session',
+            JSON.stringify({
+              story_id: storyId,
+              session_id: sessionRes.session_id,
+              client_session_token: clientToken,
+              session_index: (sessionRes as { session_index?: number }).session_index ?? 0,
+            }),
+          )
+        } catch (sessionError) {
+          // Do not block reading when backend session API is temporarily unavailable.
+          console.warn('[BookDetail] session/start failed, fallback to preview mode:', sessionError)
+          localStorage.removeItem('storybook_session')
+          localStorage.setItem('storybook_source', 'preview')
+        }
       } else if (data.book.confirmed) {
         localStorage.removeItem('storybook_session')
         localStorage.setItem('storybook_source', 'review')
@@ -61,8 +80,7 @@ export default function BookDetailPage() {
       navigate('/reader', { replace: true })
     } catch (e) {
       if (cancelled.current) return
-      const message = e instanceof Error ? e.message : '加载失败'
-      setError(message)
+      setError(getFriendlyErrorMessage(e))
     }
   }, [bookId, isExperiment, navigate])
 

@@ -46,8 +46,7 @@ export function useTTS() {
       objectUrlRef.current = null;
     }
   };
-
-  const stop = useCallback(() => {
+  const _resetCurrentPlayback = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
     if (audioRef.current) {
@@ -56,18 +55,16 @@ export function useTTS() {
     }
     _revokeUrl();
     window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
   }, []);
+
+  const stop = useCallback(() => {
+    _resetCurrentPlayback();
+    setIsSpeaking(false);
+  }, [_resetCurrentPlayback]);
 
   const speak = useCallback(async (text: string, voice = 'zhimiao', onEnd?: () => void) => {
     // 停止当前播放 & 取消进行中的请求
-    abortRef.current?.abort();
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    _revokeUrl();
-    window.speechSynthesis?.cancel();
+    _resetCurrentPlayback();
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -116,15 +113,32 @@ export function useTTS() {
     utt.onend = () => { setIsSpeaking(false); onEnd?.(); };
     utt.onerror = () => setIsSpeaking(false);
     window.speechSynthesis.speak(utt);
-  }, []);
+  }, [_resetCurrentPlayback]);
+
+  const speakFromUrl = useCallback(async (audioUrl: string, onEnd?: () => void) => {
+    _resetCurrentPlayback();
+    setIsSpeaking(true);
+
+    const audio = new Audio(audioUrl);
+    audioRef.current = audio;
+    audio.onended = () => {
+      setIsSpeaking(false);
+      onEnd?.();
+    };
+    audio.onerror = () => setIsSpeaking(false);
+
+    try {
+      await audio.play();
+    } catch (e) {
+      setIsSpeaking(false);
+      throw e;
+    }
+  }, [_resetCurrentPlayback]);
 
   // 组件卸载时清理
   useEffect(() => () => {
-    abortRef.current?.abort();
-    if (audioRef.current) audioRef.current.pause();
-    _revokeUrl();
-    window.speechSynthesis?.cancel();
-  }, []);
+    _resetCurrentPlayback();
+  }, [_resetCurrentPlayback]);
 
-  return { isSupported, isSpeaking, speak, stop };
+  return { isSupported, isSpeaking, speak, speakFromUrl, stop };
 }

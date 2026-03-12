@@ -5,6 +5,7 @@ import type { TryLevel } from '@/types/story';
 export type PostReadingDoneData = {
   feedbackText: string;
   tryLevel: TryLevel | null;
+  foodLogSubmitted: boolean;
 };
 
 const spring = { type: 'spring' as const, stiffness: 120, damping: 22 };
@@ -63,10 +64,10 @@ interface PostReadingProps {
 
 export function PostReadingModal({ sessionId, themeFood, onDone }: PostReadingProps) {
   function handleDone(result: FoodLogFormResult) {
-    onDone({ feedbackText: result.feedbackText, tryLevel: result.tryLevel });
+    onDone({ feedbackText: result.feedbackText, tryLevel: result.tryLevel, foodLogSubmitted: !result.skipped });
   }
   function handleClose() {
-    onDone({ feedbackText: '', tryLevel: null });
+    onDone({ feedbackText: '', tryLevel: null, foodLogSubmitted: false });
   }
 
   return (
