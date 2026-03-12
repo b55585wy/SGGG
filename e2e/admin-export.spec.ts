@@ -188,7 +188,7 @@ test.describe('管理员导出 — CSV 内容完整性', () => {
     expect(columns.length).toBe(10);
   });
 
-  test('food_logs.csv 列头完整（5 列）', async ({ page }) => {
+  test('food_logs.csv 列头完整（11 列）', async ({ page }) => {
     await page.goto('/noa/admin/users');
     const res = await page.request.get(
       `/api/user/admin/export/food_logs.csv?key=${encodeURIComponent(ADMIN_KEY)}`,
@@ -197,9 +197,12 @@ test.describe('管理员导出 — CSV 内容完整性', () => {
     const headerLine = body.split('\n')[0];
     const columns = headerLine.split(',');
     expect(columns).toContain('log_id');
+    expect(columns).toContain('food_name');
     expect(columns).toContain('score');
     expect(columns).toContain('content');
-    expect(columns.length).toBe(5);
+    expect(columns).toContain('feedback_text');
+    expect(columns).toContain('emotion');
+    expect(columns.length).toBe(11);
   });
 
   test('reading_sessions.csv 列头完整（14 列）', async ({ page }) => {
@@ -265,8 +268,8 @@ test.describe('管理员导出 — CSV 内容完整性', () => {
       // Data rows exist — score should be a number
       const dataLine = lines[1];
       const cols = dataLine.split(',');
-      // score is 3rd column (index 2)
-      expect(Number(cols[2])).toBeGreaterThan(0);
+      // score is 4th column (index 3)
+      expect(Number(cols[3])).toBeGreaterThan(0);
     }
   });
 
