@@ -28,9 +28,6 @@ def _load_prompt_parts(name: str) -> dict:
         if line.startswith("SYSTEM_PROMPT="):
             start("system", line.split("=", 1)[1])
             continue
-        if line.startswith("DEVELOP_PROMPT="):
-            start("develop", line.split("=", 1)[1])
-            continue
         if line.startswith("USER_PROMPT="):
             start("user_template", line.split("=", 1)[1])
             continue
@@ -47,15 +44,8 @@ def _load_prompt_parts(name: str) -> dict:
 
     return {
         "system": normalize("system"),
-        "develop": normalize("develop"),
         "user_template": normalize("user_template"),
     }
-
-
-def _select_prompt_file(model: str) -> str:
-    if "gpt-4o-mini" in model:
-        return "feedback_words_prompt_4omini.md"
-    return "feedback_words_prompt.md"
 
 
 def _fill_user_template(template: str, params: dict) -> str:
@@ -108,21 +98,13 @@ def generate_feedback_words(params: dict) -> str:
     if not model:
         raise RuntimeError("FEEDBACK_OPENAI_MODEL not set")
 
-    prompt_file = _select_prompt_file(model)
-    parts = _load_prompt_parts(prompt_file)
+    parts = _load_prompt_parts("feedback_words_prompt.md")
     system_prompt = parts.get("system", "")
-    develop_prompt = parts.get("develop", "")
     user_template = parts.get("user_template", "")
     if not system_prompt:
-        raise RuntimeError(f"{prompt_file} invalid")
+        raise RuntimeError("feedback_words_prompt.md invalid")
 
-    if "gpt-4o-mini" in model:
-        system_prompt = f"{system_prompt}\n\n{develop_prompt}".strip()
-        user_content = _fill_user_template(user_template, params)
-    else:
-        if not develop_prompt:
-            raise RuntimeError(f"{prompt_file} invalid")
-        user_content = f"{develop_prompt}\n\n{json.dumps(params, ensure_ascii=False, indent=2)}"
+    user_content = _fill_user_template(user_template, params)
 
     payload: dict = {
         "messages": [
@@ -141,3 +123,4 @@ def generate_feedback_words(params: dict) -> str:
     if not text:
         raise RuntimeError("empty feedback response")
     return text
+
