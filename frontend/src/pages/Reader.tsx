@@ -586,7 +586,7 @@ export default function ReaderPage() {
         />
       )}
       {feedback === 'ABORTED' && session && (
-        <AbortReasonModal session_id={session.session_id} onDone={onAbortDone} />
+        <AbortReasonModal session_id={session.session_id} onDone={onAbortDone} onCancel={() => setFeedback(null)} />
       )}
       {showSUS && session && (
         <SUSModal session_id={session.session_id} onDone={onSUSDone} />

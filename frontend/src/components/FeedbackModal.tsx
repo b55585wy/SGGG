@@ -20,10 +20,11 @@ export type AbortDoneData = {
 interface Props {
   session_id: string;
   onDone: (data: AbortDoneData) => void;
+  onCancel?: () => void;
 }
 
 /** Modal shown when a reading session is aborted early. */
-export function AbortReasonModal({ session_id, onDone }: Props) {
+export function AbortReasonModal({ session_id, onDone, onCancel }: Props) {
   const [abortReason, setAbortReason] = useState<AbortReason | null>(null);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -31,17 +32,13 @@ export function AbortReasonModal({ session_id, onDone }: Props) {
 
   const canSubmit = abortReason !== null;
 
-  // X button: auto-submit with current reason or 'other'
-  const handleClose = async () => {
+  // X button / backdrop: cancel and return to reading (accidental tap)
+  const handleClose = () => {
     if (submitting) return;
+    if (onCancel) { onCancel(); return; }
+    // fallback: auto-submit if no onCancel provided
     const finalReason = abortReason ?? 'other';
-    try {
-      await feedbackSubmit({
-        session_id,
-        status: 'ABORTED',
-        abort_reason: finalReason,
-      });
-    } catch { /* best-effort */ }
+    feedbackSubmit({ session_id, status: 'ABORTED', abort_reason: finalReason }).catch(() => {});
     onDone({ abortReason: finalReason });
   };
 
@@ -67,8 +64,10 @@ export function AbortReasonModal({ session_id, onDone }: Props) {
   return (
     <AnimatePresence>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-foreground)]/30 backdrop-blur-sm px-4">
+        className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-foreground)]/30 backdrop-blur-sm px-4"
+        onClick={handleClose}>
         <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+          onClick={(e) => e.stopPropagation()}
           transition={{ type: 'spring', stiffness: 200, damping: 20 }}
           className="bg-[var(--color-surface)] rounded-2xl p-6 max-w-sm w-full border border-[var(--color-border-light)]"
           style={{ boxShadow: '0 20px 40px -15px rgba(0,0,0,0.1)' }}>
