@@ -528,7 +528,6 @@ export default function ReaderPage() {
                   onBranchSelect={onBranch}
                   onInteractionStart={onInteractionStart}
                   speak={tts.speak}
-                  autoRead={autoReadEnabled}
                   pageId={page.page_id}
                 />
 

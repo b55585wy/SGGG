@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { getJson } from '@/lib/ncApi'
-import { sessionStart } from '@/lib/api'
+import { sessionStart, storyGet } from '@/lib/api'
 
 type BookDetailResponse = {
   book: {
@@ -32,6 +32,46 @@ export default function BookDetailPage() {
   const [searchParams] = useSearchParams()
   const isExperiment = searchParams.get('experiment') === '1'
   const [error, setError] = useState('')
+  const [blocking, setBlocking] = useState(false)
+  const [pendingStoryId, setPendingStoryId] = useState<string | null>(null)
+  const [pendingConfirmed, setPendingConfirmed] = useState(false)
+
+  const startReading = useCallback(async (draft: { story_id: string }, confirmed: boolean, cancelled: { current: boolean }) => {
+    const storyId: string = draft.story_id
+    localStorage.setItem('storybook_draft', JSON.stringify(draft))
+    localStorage.setItem('storybook_book_id', bookId!)
+    if (isExperiment) {
+      localStorage.setItem('storybook_source', 'experiment')
+      const clientToken = crypto.randomUUID()
+      try {
+        const sessionRes = await sessionStart({
+          story_id: storyId,
+          client_session_token: clientToken,
+        })
+        if (cancelled.current) return
+        localStorage.setItem(
+          'storybook_session',
+          JSON.stringify({
+            story_id: storyId,
+            session_id: sessionRes.session_id,
+            client_session_token: clientToken,
+            session_index: (sessionRes as { session_index?: number }).session_index ?? 0,
+          }),
+        )
+      } catch (sessionError) {
+        console.warn('[BookDetail] session/start failed, fallback to preview mode:', sessionError)
+        localStorage.removeItem('storybook_session')
+        localStorage.setItem('storybook_source', 'preview')
+      }
+    } else if (confirmed) {
+      localStorage.removeItem('storybook_session')
+      localStorage.setItem('storybook_source', 'review')
+    } else {
+      localStorage.removeItem('storybook_session')
+      localStorage.setItem('storybook_source', 'preview')
+    }
+    navigate('/reader', { replace: true })
+  }, [bookId, isExperiment, navigate])
 
   const init = useCallback(async (cancelled: { current: boolean }) => {
     try {
@@ -39,50 +79,34 @@ export default function BookDetailPage() {
       if (cancelled.current) return
 
       const draft = JSON.parse(data.book.content)
-      const storyId: string = draft.story_id
+      const imagesReady = Array.isArray(draft.pages) && draft.pages.every((p: { image_url?: string }) => !!p.image_url)
+      if (imagesReady) {
+        await startReading(draft, data.book.confirmed, cancelled)
+        return
+      }
+
+      try {
+        const latest = await storyGet(draft.story_id)
+        if (cancelled.current) return
+        const ready = Array.isArray(latest.draft.pages) && latest.draft.pages.every((p: { image_url?: string }) => !!p.image_url)
+        if (ready) {
+          await startReading(latest.draft, data.book.confirmed, cancelled)
+          return
+        }
+      } catch (e) {
+        void e
+      }
 
       localStorage.setItem('storybook_draft', JSON.stringify(draft))
       localStorage.setItem('storybook_book_id', bookId!)
-
-      if (isExperiment) {
-        localStorage.setItem('storybook_source', 'experiment')
-        const clientToken = crypto.randomUUID()
-        try {
-          const sessionRes = await sessionStart({
-            story_id: storyId,
-            client_session_token: clientToken,
-          })
-          if (cancelled.current) return
-
-          localStorage.setItem(
-            'storybook_session',
-            JSON.stringify({
-              story_id: storyId,
-              session_id: sessionRes.session_id,
-              client_session_token: clientToken,
-              session_index: (sessionRes as { session_index?: number }).session_index ?? 0,
-            }),
-          )
-        } catch (sessionError) {
-          // Do not block reading when backend session API is temporarily unavailable.
-          console.warn('[BookDetail] session/start failed, fallback to preview mode:', sessionError)
-          localStorage.removeItem('storybook_session')
-          localStorage.setItem('storybook_source', 'preview')
-        }
-      } else if (data.book.confirmed) {
-        localStorage.removeItem('storybook_session')
-        localStorage.setItem('storybook_source', 'review')
-      } else {
-        localStorage.removeItem('storybook_session')
-        localStorage.setItem('storybook_source', 'preview')
-      }
-
-      navigate('/reader', { replace: true })
+      setPendingConfirmed(data.book.confirmed)
+      setPendingStoryId(draft.story_id)
+      setBlocking(true)
     } catch (e) {
       if (cancelled.current) return
       setError(getFriendlyErrorMessage(e))
     }
-  }, [bookId, isExperiment, navigate])
+  }, [bookId, startReading])
 
   useEffect(() => {
     if (!bookId) {
@@ -91,9 +115,31 @@ export default function BookDetailPage() {
     }
 
     const cancelled = { current: false }
-    void init(cancelled)
-    return () => { cancelled.current = true }
+    const timer = setTimeout(() => { void init(cancelled) }, 0)
+
+    return () => { cancelled.current = true; clearTimeout(timer) }
   }, [bookId, navigate, init])
+
+  useEffect(() => {
+    if (!pendingStoryId) return
+    let cancelled = false
+    const timer = setInterval(async () => {
+      try {
+        const latest = await storyGet(pendingStoryId)
+        const ready = Array.isArray(latest.draft.pages) && latest.draft.pages.every((p: { image_url?: string }) => !!p.image_url)
+        if (ready) {
+          clearInterval(timer)
+          if (cancelled) return
+          setBlocking(false)
+          setPendingStoryId(null)
+          await startReading(latest.draft, pendingConfirmed, { current: false })
+        }
+      } catch (e) {
+        void e
+      }
+    }, 3000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [pendingStoryId, pendingConfirmed, startReading])
 
   if (error) {
     return (
@@ -116,22 +162,68 @@ export default function BookDetailPage() {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-      <div style={{ textAlign: 'center' }}>
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              border: '3px solid #e5e7eb',
+              borderTopColor: '#111827',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite',
+              margin: '0 auto 12px',
+            }}
+          />
+          <div style={{ fontSize: 14, color: '#6b7280' }}>正在准备阅读...</div>
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+      {blocking && (
         <div
           style={{
-            width: 32,
-            height: 32,
-            border: '3px solid #e5e7eb',
-            borderTopColor: '#111827',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-            margin: '0 auto 12px',
+            position: 'fixed',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(15,23,42,0.35)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 50,
           }}
-        />
-        <div style={{ fontSize: 14, color: '#6b7280' }}>正在准备阅读...</div>
-      </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-    </div>
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: 20,
+              padding: '20px 22px',
+              width: 320,
+              textAlign: 'center',
+              boxShadow: '0 18px 40px -12px rgba(15,23,42,0.25)',
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>插图生成中</div>
+            <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>请稍候，完成后自动进入阅读</div>
+            <button
+              onClick={() => navigate('/noa/home')}
+              style={{
+                marginTop: 14,
+                border: '1px solid #e2e8f0',
+                padding: '6px 12px',
+                borderRadius: 999,
+                background: 'white',
+                cursor: 'pointer',
+                color: '#334155',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              返回首页
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

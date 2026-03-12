@@ -31,38 +31,33 @@
 
 - **Route**：`/noa/avatar`
 - **功能**：
-  - 左侧预览合成：底图 + 发型 + 眼镜 + 上衣颜色 + 下装颜色（Kenney Modular Character 图层叠加）
-  - 右侧填写昵称、选择性别和形象选项
-  - 昵称与性别必填，提交后保存形象数据并跳转主页面
+  - 左侧预览：根据“性别/颜色/上衣/下装/眼镜”五个选项拼接图片文件名，直接展示预渲染好的完整 PNG（保持等比例缩放）
+  - 右侧填写昵称、选择选项（中文展示），并使用英文值映射拼接图片名
+  - 昵称必填；选项有默认值（`male + blue + short + short + no`）；提交后保存到数据库并跳转主页面
+- **静态资源**：
+  - basic：`/basic/{gender}_{color}_{shirt}_{underdress}_{glasses}.png`
+  - emotion：`/emotion/emotion_{0|1|2|3}/{gender}_{color}_{shirt}_{underdress}_{glasses}_{0|1|2|3}.png`
 - **关键实现**：`frontend/src/pages/noa/AvatarPage.tsx`
 
 **API**
 
-- `GET /api/avatar/base`
-  - **Response 200**
-    ```json
-    { "image": "data:image/svg+xml;utf8,..." }
-    ```
-
-- `GET /api/avatar/options`
+- `GET /api/avatar/current`
+  - **Headers**：`Authorization: Bearer <token>`
   - **Response 200**
     ```json
     {
-      "hair": [{ "id": "short", "label": "短发", "image": "data:image/svg+xml;utf8,..." }],
-      "glasses": [{ "id": "none", "label": "无眼镜", "image": "data:image/svg+xml;utf8,..." }],
-      "topColors": [{ "id": "blue", "label": "蓝色", "image": "data:image/svg+xml;utf8,..." }],
-      "bottomColors": [{ "id": "black", "label": "黑色", "image": "data:image/svg+xml;utf8,..." }]
+      "nickname": "小宇",
+      "gender": "male",
+      "color": "blue",
+      "shirt": "short",
+      "underdress": "short",
+      "glasses": "no",
+      "emotion": 1
     }
     ```
-
-- `GET /api/avatar/component?type=hair&id=short`
-  - **Response 200**
+  - **Response 404**
     ```json
-    { "image": "data:image/svg+xml;utf8,..." }
-    ```
-  - **Response 400** / **404**
-    ```json
-    { "message": "参数错误" }
+    { "message": "未找到虚拟形象" }
     ```
 
 - `POST /api/avatar/save`
@@ -72,10 +67,10 @@
     {
       "nickname": "小宇",
       "gender": "male",
-      "hairStyle": "short",
-      "glasses": "none",
-      "topColor": "blue",
-      "bottomColor": "black"
+      "color": "blue",
+      "shirt": "short",
+      "underdress": "short",
+      "glasses": "no"
     }
     ```
   - **Response 200**
@@ -93,17 +88,21 @@
 
 - **Route**：`/noa/home`
 - **功能**：
-  - **顶部 header**（始终可见）：昵称问候、今日主题食物徽章、"记录进食"按钮（打开 FoodLogModal 底部弹层）、"历史绘本"入口、退出登录
-  - **左侧面板**：虚拟形象合成渲染 + 可选正反馈文字气泡
-  - **右侧面板**：两种互斥状态
-    - **State A**（`book === null && !bookGenerating`）：内嵌进食记录表单，含"今天吃得怎么样？"标题、评分滑动条（0–10）、文本输入区域、"提交记录，生成绘本 →"按钮
-    - **State B**（`book !== null || bookGenerating`）：绘本卡片，含三种子状态：
+  - **顶部 header**（始终可见）：昵称问候、面板切换按钮（“查看绘本 / 记录进食”）、"历史绘本"入口、退出登录
+  - **左侧面板**：虚拟形象合成渲染 + 正反馈文字气泡（显示在虚拟形象图上方，醒目展示；可点击朗读气泡内容）
+  - 反馈语：进食记录提交后通过 backend LLM 生成（使用 `backend/prompts/feedback_words_prompt*.md`）
+  - **右侧面板**：通过头部按钮切换“绘本预览 / 进食记录”，互不影响
+    - **绘本预览**（默认展示）：绘本卡片，含三种子状态：
       - 生成中（`bookGenerating=true && !book`）：封面区域显示 `.book-gen-shimmer` 动画 + 标题/描述区显示 `.skeleton-shimmer` 占位；底部显示"绘本生成中…"占位文字
       - 未确认绘本（`book && !book.confirmed`）：封面预览 + "确认绘本，开始阅读"按钮 + "重新生成 (N/2)"按钮
       - 已确认绘本（`book.confirmed`）：封面预览 + "开始阅读"按钮（跳转 `/noa/books/:bookId?experiment=1`）
-  - Header 中的"记录进食"按钮在 State B 下仍可用，打开 FoodLogModal 提交新进食记录
+    - **进食记录**：内嵌进食记录表单，提交条件为“今日食物 / 打分 / 描述”三项均填写：
+      - 今日食物：输入框 + 录音转写回填
+      - 打分：滑动条（0–10）
+      - 描述：文本输入 + 录音转写回填
+  - 头部的“记录进食 / 查看绘本”按钮用于切换右侧面板显示内容
   - "重新生成"按钮打开 RegenModal 底部弹层（在主页面内完成，不再跳转至 `/noa/books/create`）
-  - 进食记录提交或重新生成成功后：`book` → null，`bookGenerating` → true，进入生成中 shimmer 状态
+  - 绘本生成触发从“读完已确认绘本后自动生成”切换为主流程，进食记录不再触发生成
   - 轮询（每 3 秒）`GET /api/home/status`，以 `generating: false` 作为终止条件（不再依赖 book 是否存在），确保刷新后生成状态可恢复
 - **关键实现**：`frontend/src/pages/noa/HomePage.tsx`
 
@@ -116,11 +115,12 @@
     {
       "avatar": {
         "nickname": "小宇",
-        "baseImage": "data:image/svg+xml;utf8,...",
-        "hairImage": "data:image/svg+xml;utf8,...",
-        "glassesImage": "data:image/svg+xml;utf8,...",
-        "topImage": "data:image/svg+xml;utf8,...",
-        "bottomImage": "data:image/svg+xml;utf8,..."
+        "gender": "male",
+        "color": "blue",
+        "shirt": "short",
+        "underdress": "short",
+        "glasses": "no",
+        "emotion": 1
       },
       "feedbackText": "太棒了！你又进步了一点点。",
       "themeFood": "胡萝卜",
@@ -128,7 +128,7 @@
       "book": {
         "bookID": "uuid",
         "title": "小宇的美味冒险",
-        "preview": "data:image/svg+xml;utf8,...",
+        "preview": "http://localhost:8000/static/images/xxxx.png",
         "description": "今天我们尝试了胡萝卜...",
         "confirmed": false,
         "regenerateCount": 0
@@ -168,17 +168,23 @@
   - **Headers**：`Authorization: Bearer <token>`
   - **Request**
     ```json
-    { "score": 8, "content": "今天吃得不错" }
+    { "foodName": "胡萝卜", "score": 8, "content": "今天吃得不错" }
     ```
+  - **说明**：仅记录进食，不触发绘本生成
   - **Response 200**
     ```json
-    { "ok": true, "feedbackText": "太棒了！你又进步了一点点。", "expression": "happy", "score": 8 }
+    { "ok": true, "feedbackText": "太棒了！你又进步了一点点。", "expression": "happy", "score": 8, "emotion": 2 }
     ```
+  - **emotion 映射**：`1-3 → 0`、`4-6 → 1`、`7-8 → 2`、`9-10 → 3`；会写入用户数据库，直到下一次进食记录提交前保持不变。
+  - **反馈语来源**：调用 backend `/api/v1/feedback_words/generate`，并写入本次进食记录条目（`user_food_logs.feedback_text`）
 
 - `POST /api/voice/transcribe`
+  - **Headers**：`Authorization: Bearer <token>`
+  - **Request**：`multipart/form-data`，字段 `file`（音频文件）
+  - **说明**：user-api 接收后转发到 backend `/api/v1/voice/transcribe`
   - **Response 200**
     ```json
-    { "text": "（语音转写示例）" }
+    { "text": "今天我吃了胡萝卜" }
     ```
 
 - `POST /api/book/confirm`
@@ -191,17 +197,15 @@
   - **Request**
     ```json
     {
-      "reason": "太长了",
-      "target_food": "西兰花",
-      "title": "新标题（选填）",
-      "note": "偏冒险主题（选填）",
-      "story_type": "冒险",
-      "difficulty": "medium",
+      "reason": "太长了（选填）",
+      "target_food": "西兰花（选填）",
+      "story_type": "interactive（选填）",
+      "difficulty": "medium（选填）",
       "pages": 8,
-      "interaction_density": "medium"
+      "interaction_density": "medium（选填）"
     }
     ```
-  > `target_food` 选填，仅本次生效；`pages`、`difficulty`、`interaction_density` 从 RegenModal 故事设置读取，2026-03-05 起已正确转发给 FastAPI。
+  > 均为选填；缺省时 user-api 会使用默认值：`story_type=interactive`、`difficulty=medium`、`pages=6`、`interaction_density=medium`；`target_food` 缺省时使用用户档案的目标食物。
   - **Response 200**
     ```json
     {
@@ -236,7 +240,7 @@
 ## 历史绘本列表页
 
 - **Route**：`/noa/books/history`
-- **功能**：展示已确认的历史绘本列表，点击进入阅读页。
+- **功能**：展示已确认的历史绘本列表，点击进入阅读页；无历史绘本时仅显示“还没有绘本”。
 - **关键实现**：`frontend/src/pages/noa/BookHistoryPage.tsx`
 
 **API**
@@ -271,6 +275,7 @@
      - 无参数且绘本已确认：历史回顾只读模式，`storybook_source` = `'review'`
      - 无参数且绘本未确认：预览模式，`storybook_source` = `'preview'`
   5. 跳转至 `/reader`
+- **插图检查**：若绘本插图未全部生成，提示等待并轮询 backend 直至完成后进入阅读
 - **关键实现**：`frontend/src/pages/noa/BookDetailPage.tsx`
 
 **API**
@@ -300,11 +305,11 @@
   - **Header**：
     - "退出"按钮（有 session 时弹出 FeedbackModal；无 session 时直接返回主页）
     - 进度条 + 页码计数器
-    - TTS "朗读"开关（使用 zhimiao 语音；自动朗读故事文字，朗读完毕后续读互动提示）
+    - TTS "朗读"开关（使用 zhimiao 语音；翻页/退出/完成时自动停止上一段朗读；读完故事文字后可续读互动提示；若互动为情节选择，会在读完“选择你更想做的一步：”后继续读出选项文案）
   - **导航**：
     - "上一页" / "下一页"
     - 最后一页时显示"完成 ✓"按钮
-  - **互动层**（InteractionLayer 组件）：支持 tap（圆形按钮，class `w-20 h-20`）、mimic、branch 交互类型
+  - **互动层**（InteractionLayer 组件）：支持 tap（圆形按钮，class `w-20 h-20`）、mimic、branch 交互类型；情节选择不再播放选择后的语音反馈语
   - **图片轮询**：若 draft 中存在尚未生成图片的页面，每 3 秒轮询一次（最多 10 次），更新后刷新显示
   - **完成流程**（最后一页点击"完成"）：弹出 FeedbackModal → 若存在最终 session → 弹出 SUSModal → 返回主页
 - **关键实现**：`frontend/src/pages/Reader.tsx`

@@ -32,3 +32,18 @@ claude-scientific-skills/
 # root
 node_modules/
 noa_child.zip
+sample.png
+icon/
+emotion/
+basic/
+
+.DS_Store
+.dbg/
+child01_temp_book_content.json
+代码阅读.md
+功能梳理.md
+debug.md
+
+# sqlite wal/shm
+*.db-wal
+*.db-shm

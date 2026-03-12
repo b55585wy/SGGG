@@ -2,6 +2,7 @@ import json
 import csv
 import io
 import os
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import StreamingResponse
 from database import get_db
@@ -9,7 +10,7 @@ from database import get_db
 router = APIRouter(prefix="/api/v1/export", tags=["export"])
 
 
-def _check_admin(x_admin_key: str | None = None, key: str | None = None):
+def _check_admin(x_admin_key: Optional[str] = None, key: Optional[str] = None):
     expected = os.environ.get("ADMIN_API_KEY", "")
     if not expected:
         raise HTTPException(503, detail="admin key not configured")
@@ -116,8 +117,8 @@ def export_child_data(child_id: str):
 
 @router.get("/admin/sessions.csv")
 def export_admin_sessions(
-    x_admin_key: str | None = Header(None),
-    key: str | None = Query(None),
+    x_admin_key: Optional[str] = Header(None),
+    key: Optional[str] = Query(None),
 ):
     _check_admin(x_admin_key, key)
     with get_db() as db:
@@ -131,8 +132,8 @@ def export_admin_sessions(
 
 @router.get("/admin/telemetry.csv")
 def export_admin_telemetry(
-    x_admin_key: str | None = Header(None),
-    key: str | None = Query(None),
+    x_admin_key: Optional[str] = Header(None),
+    key: Optional[str] = Query(None),
 ):
     _check_admin(x_admin_key, key)
     with get_db() as db:
@@ -146,8 +147,8 @@ def export_admin_telemetry(
 
 @router.get("/admin/feedback.csv")
 def export_admin_feedback(
-    x_admin_key: str | None = Header(None),
-    key: str | None = Query(None),
+    x_admin_key: Optional[str] = Header(None),
+    key: Optional[str] = Query(None),
 ):
     _check_admin(x_admin_key, key)
     with get_db() as db:
@@ -160,8 +161,8 @@ def export_admin_feedback(
 
 @router.get("/admin/sus.csv")
 def export_admin_sus(
-    x_admin_key: str | None = Header(None),
-    key: str | None = Query(None),
+    x_admin_key: Optional[str] = Header(None),
+    key: Optional[str] = Query(None),
 ):
     _check_admin(x_admin_key, key)
     with get_db() as db:
@@ -174,8 +175,8 @@ def export_admin_sus(
 
 @router.get("/admin/stories.csv")
 def export_admin_stories(
-    x_admin_key: str | None = Header(None),
-    key: str | None = Query(None),
+    x_admin_key: Optional[str] = Header(None),
+    key: Optional[str] = Query(None),
 ):
     _check_admin(x_admin_key, key)
     with get_db() as db:

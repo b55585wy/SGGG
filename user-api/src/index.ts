@@ -18,6 +18,8 @@ import {
   getLastFoodScore,
   getFoodLogHistory,
   getFoodLogHeatmapData,
+  getRecentAvatarFeedbackTexts,
+  getLatestCompletedReadingForUser,
   getReadingSummary,
   insertUser,
   insertAvatarState,
@@ -37,17 +39,12 @@ import {
   setUserGenerating,
   clearUserGenerating,
   isUserGenerating,
-  setGenerateError,
-  clearGenerateError,
-  getGenerateError,
-  hasCompletedReading,
   exportAllUsers,
   exportAllFoodLogs,
   exportAllReadingSessions,
   exportAllVoiceRecordings,
   exportAllAvatars,
-  updateTempBookCover,
-  updateHistoryBookCover,
+  setUserAvatarEmotion,
 } from "./db";
 import { signUserToken } from "./jwt";
 
@@ -75,6 +72,36 @@ function createBookPreviewImage() {
   return svgDataUri(svg);
 }
 
+function isPlaceholderPreview(preview: string) {
+  return preview.startsWith("data:image/svg+xml");
+}
+
+function extractStoryId(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content) as { story_id?: string };
+    return typeof parsed.story_id === "string" ? parsed.story_id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePreviewFromBackend(storyId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { draft?: { pages?: Array<{ page_no?: number; image_url?: string }> } };
+    const pages = data.draft?.pages ?? [];
+    if (pages.length === 0) return null;
+    const allReady = pages.every((p) => typeof p.image_url === "string" && p.image_url.length > 0);
+    if (!allReady) return null;
+    const sorted = [...pages].sort((a, b) => (a.page_no ?? 0) - (b.page_no ?? 0));
+    const first = sorted[0];
+    return first?.image_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 /** 分数映射：user-api 0-10 → FastAPI 1-5 */
@@ -84,6 +111,13 @@ function mapScore(score: number): number {
   if (score <= 6) return 3;
   if (score <= 8) return 4;
   return 5;
+}
+
+function mapScoreToEmotion(score: number): 0 | 1 | 2 | 3 {
+  if (score <= 3) return 0;
+  if (score <= 6) return 1;
+  if (score <= 8) return 2;
+  return 3;
 }
 
 /** 根据最近得分列表计算趋势（improving / declining / stable） */
@@ -103,45 +137,6 @@ function daysSinceFirst(firstAt: string): number {
   return Math.round((Date.now() - first) / 86_400_000);
 }
 
-/** 轮询后端等待封面图生成完毕，然后更新 temp_books 的 preview + content。
- *  每 10 秒轮询一次，最多 60 次（10 分钟），因为 DashScope 图片生成较慢。 */
-function pollCoverAndUpdate(userID: string, storyId: string) {
-  let attempts = 0;
-  const timer = setInterval(async () => {
-    if (++attempts > 60) { clearInterval(timer); return; }
-    try {
-      const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { draft: { book_meta: { cover_image_url?: string }; [k: string]: unknown } };
-      const coverUrl = data.draft.book_meta.cover_image_url;
-      if (coverUrl) {
-        clearInterval(timer);
-        await updateTempBookCover(userID, coverUrl, JSON.stringify(data.draft)).catch(() => {});
-        console.log(`[COVER-POLL] 封面已更新 user=${userID} story=${storyId}`);
-      }
-    } catch { /* ignore */ }
-  }, 10_000);
-}
-
-/** 轮询后端等待封面图生成完毕，然后更新 history_books 的 preview + content。 */
-function pollCoverAndUpdateHistory(bookId: string) {
-  let attempts = 0;
-  const timer = setInterval(async () => {
-    if (++attempts > 60) { clearInterval(timer); return; }
-    try {
-      const res = await fetch(`${FASTAPI_URL}/api/v1/story/${bookId}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { draft: { book_meta: { cover_image_url?: string }; [k: string]: unknown } };
-      const coverUrl = data.draft.book_meta.cover_image_url;
-      if (coverUrl) {
-        clearInterval(timer);
-        await updateHistoryBookCover(bookId, coverUrl, JSON.stringify(data.draft)).catch(() => {});
-        console.log(`[COVER-POLL-HIST] 历史绘本封面已更新 book=${bookId}`);
-      }
-    } catch { /* ignore */ }
-  }, 10_000);
-}
-
 async function generateTempBookForUser(params: {
   userID: string;
   nickname: string;
@@ -154,10 +149,6 @@ async function generateTempBookForUser(params: {
   recentHistory: Array<{ score: number; content: string; createdAt: string }>;
   /** 阅读行为摘要 */
   readingSummary: { totalSessions: number; lastCompletionRate: number | null; lastCompleted: boolean | null };
-  /** 孩子年龄，默认 5 */
-  age?: number;
-  /** 管理员自定义 prompt（附加到故事生成请求中） */
-  customPrompt?: string;
 }) {
   const allScores = [params.mealScore, ...params.recentHistory.map((h) => h.score)];
   const trend = calcScoreTrend(allScores);
@@ -174,10 +165,10 @@ async function generateTempBookForUser(params: {
     autoDifficulty = "easy";
   }
 
-  const requestBody: Record<string, unknown> = {
+  const requestBody = {
     child_profile: {
       nickname: params.nickname,
-      age: params.age ?? 5,
+      age: 5,
       gender: params.gender,
     },
     meal_context: {
@@ -204,9 +195,6 @@ async function generateTempBookForUser(params: {
       language: "zh-CN",
     },
   };
-  if (params.customPrompt) {
-    requestBody.custom_prompt = params.customPrompt;
-  }
 
   const response = await fetch(`${FASTAPI_URL}/api/v1/story/generate`, {
     method: "POST",
@@ -263,8 +251,6 @@ async function triggerAutoBookGeneration(userID: string, avatar: { nickname: str
 
   generatingUsers.add(userID);
   setUserGenerating(userID).catch(() => {});
-  clearGenerateError(userID).catch(() => {});
-
   generateTempBookForUser({
     userID,
     nickname: avatar.nickname,
@@ -275,16 +261,7 @@ async function triggerAutoBookGeneration(userID: string, avatar: { nickname: str
     regenerateCount: 0,
     recentHistory,
     readingSummary,
-  })
-    .then(async () => {
-      const tb = await getTempBook(userID);
-      if (tb) pollCoverAndUpdate(userID, tb.bookID);
-    })
-    .catch(async (err) => {
-      console.error("[BOOK] 自动生成绘本失败:", err);
-      const msg = err instanceof Error ? err.message : "绘本生成失败";
-      await setGenerateError(userID, msg).catch(() => {});
-    })
+  }).catch((err) => console.error("[BOOK] 绘本生成失败:", err))
     .finally(async () => {
       generatingUsers.delete(userID);
       await clearUserGenerating(userID).catch(() => {});
@@ -315,10 +292,10 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   const token = signUserToken({ userID: user.user_id });
-  // firstLogin based on DB flag so admin-generated accounts still visit /noa/avatar
+  // firstLogin = true only when the user has not set up their avatar yet
   const existingAvatar = await getUserAvatar(user.user_id);
-  const firstLogin = user.first_login === 1;
-  if (!user.user_id.startsWith("demo") && firstLogin) {
+  const firstLogin = !existingAvatar;
+  if (!user.user_id.startsWith("demo") && user.first_login === 1 && existingAvatar) {
     await setFirstLoginFlag(user.user_id, false);
   }
 
@@ -371,6 +348,7 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
 
   try {
     await insertUser({ userID, password, firstLogin, themeFood });
+    res.status(201).json({ user: { userID }, firstLogin, themeFood });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
     if (message.includes("UNIQUE constraint failed")) {
@@ -378,63 +356,7 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
       return;
     }
     res.status(500).json({ message: "创建用户失败" });
-    return;
   }
-
-  // Optionally generate default storybook
-  const wantBook = (body as { generateBook?: unknown }).generateBook === true;
-  if (wantBook) {
-    const nickname =
-      typeof (body as { nickname?: unknown }).nickname === "string"
-        ? (body as { nickname: string }).nickname.trim() || userID
-        : userID;
-    const gender =
-      (body as { gender?: unknown }).gender === "female" ? "female" : "male";
-    const age =
-      typeof (body as { age?: unknown }).age === "number"
-        ? (body as { age: number }).age
-        : 5;
-    const customPrompt =
-      typeof (body as { customPrompt?: unknown }).customPrompt === "string"
-        ? (body as { customPrompt: string }).customPrompt.trim()
-        : "";
-
-    // Auto-create avatar so the user doesn't need the avatar step
-    await saveUserAvatar({ userID, nickname, gender });
-
-    // Fire-and-forget story generation
-    generatingUsers.add(userID);
-    setUserGenerating(userID).catch(() => {});
-    clearGenerateError(userID).catch(() => {});
-    generateTempBookForUser({
-      userID,
-      nickname,
-      gender,
-      themeFood,
-      mealScore: 5,
-      mealContent: `第一次尝试${themeFood}`,
-      regenerateCount: 0,
-      recentHistory: [],
-      readingSummary: { totalSessions: 0, lastCompletionRate: null, lastCompleted: null },
-      age,
-      customPrompt: customPrompt || undefined,
-    })
-      .then(async () => {
-        const tb = await getTempBook(userID);
-        if (tb) pollCoverAndUpdate(userID, tb.bookID);
-      })
-      .catch(async (err) => {
-        console.error("[ADMIN-BOOK] 默认绘本生成失败:", err);
-        const msg = err instanceof Error ? err.message : "绘本生成失败";
-        await setGenerateError(userID, msg).catch(() => {});
-      })
-      .finally(async () => {
-        generatingUsers.delete(userID);
-        await clearUserGenerating(userID).catch(() => {});
-      });
-  }
-
-  res.status(201).json({ user: { userID }, firstLogin, themeFood, bookGenerating: wantBook });
 });
 
 app.get("/api/admin/users", adminRequired, async (_req, res) => {
@@ -477,10 +399,11 @@ app.get("/api/avatar/current", authRequired, async (req: AuthenticatedRequest, r
   res.json({
     nickname: avatar.nickname,
     gender: avatar.gender,
-    hairStyle: avatar.hairStyle,
-    glasses: avatar.glasses,
-    topColor: avatar.topColor,
-    bottomColor: avatar.bottomColor,
+    color: avatar.avatarColor,
+    shirt: avatar.avatarShirt,
+    underdress: avatar.avatarUnderdress,
+    glasses: avatar.avatarGlasses,
+    emotion: avatar.avatarEmotion,
   });
 });
 
@@ -531,28 +454,36 @@ app.post("/api/avatar/save", authRequired, async (req: AuthenticatedRequest, res
     typeof (body as { nickname?: unknown }).nickname === "string"
       ? (body as { nickname: string }).nickname.trim()
       : "";
-  const gender =
-    typeof (body as { gender?: unknown }).gender === "string"
-      ? (body as { gender: string }).gender
-      : "";
-  if (!nickname || (gender !== "male" && gender !== "female")) {
-    res.status(400).json({ message: "昵称和性别不能为空" });
+  if (!nickname) {
+    res.status(400).json({ message: "昵称不能为空" });
     return;
   }
 
-  const str = (key: string) =>
+  const pick = (key: string) =>
     typeof (body as Record<string, unknown>)[key] === "string"
       ? (body as Record<string, string>)[key]
-      : null;
+      : "";
+
+  const gender = pick("gender") || "male";
+  const color = pick("color") || "blue";
+  const shirt = pick("shirt") || "short";
+  const underdress = pick("underdress") || "short";
+  const glasses = pick("glasses") || "no";
+
+  if (gender !== "male" && gender !== "female") { res.status(400).json({ message: "性别参数错误" }); return; }
+  if (color !== "blue" && color !== "red" && color !== "yellow") { res.status(400).json({ message: "颜色参数错误" }); return; }
+  if (shirt !== "short" && shirt !== "long") { res.status(400).json({ message: "上衣参数错误" }); return; }
+  if (underdress !== "short" && underdress !== "long") { res.status(400).json({ message: "下装参数错误" }); return; }
+  if (glasses !== "no" && glasses !== "yes") { res.status(400).json({ message: "眼镜参数错误" }); return; }
 
   await saveUserAvatar({
     userID: req.user.userID,
     nickname,
     gender,
-    hairStyle: str("hairStyle"),
-    glasses: str("glasses"),
-    topColor: str("topColor"),
-    bottomColor: str("bottomColor"),
+    avatarColor: color,
+    avatarShirt: shirt,
+    avatarUnderdress: underdress,
+    avatarGlasses: glasses,
   });
   res.json({ ok: true });
 });
@@ -568,23 +499,16 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  const [baseImage, hairImage, glassesImage, topImage, bottomImage, latestState] =
-    await Promise.all([
-      getAvatarBase(),
-      avatar.hairStyle ? getAvatarComponent("hair", avatar.hairStyle) : Promise.resolve(null),
-      avatar.glasses ? getAvatarComponent("glasses", avatar.glasses) : Promise.resolve(null),
-      avatar.topColor ? getAvatarComponent("top", avatar.topColor) : Promise.resolve(null),
-      avatar.bottomColor ? getAvatarComponent("bottom", avatar.bottomColor) : Promise.resolve(null),
-      getLatestAvatarState(req.user.userID),
-    ]);
+  const latestState = await getLatestAvatarState(req.user.userID);
 
   const avatarData = {
     nickname: avatar.nickname,
-    baseImage,
-    hairImage: hairImage || "",
-    glassesImage: glassesImage || "",
-    topImage: topImage || "",
-    bottomImage: bottomImage || "",
+    gender: avatar.gender,
+    color: avatar.avatarColor,
+    shirt: avatar.avatarShirt,
+    underdress: avatar.avatarUnderdress,
+    glasses: avatar.avatarGlasses,
+    emotion: avatar.avatarEmotion,
   };
 
   const base = {
@@ -595,43 +519,33 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
 
   const tempBook = await getTempBook(req.user.userID);
   const generating = generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID);
-  const generateError = generating ? null : await getGenerateError(req.user.userID);
   if (tempBook) {
-    // 如果 preview 还是 SVG 占位，尝试从 content 或 FastAPI 提取 AI 封面
-    let tempPreview = tempBook.preview;
-    if (tempPreview.startsWith("data:image/svg+xml")) {
-      let coverUrl: string | undefined;
-      // 先检查本地 content
-      if (tempBook.content) {
-        try {
-          const draft = JSON.parse(tempBook.content);
-          coverUrl = draft.book_meta?.cover_image_url;
-        } catch { /* ignore */ }
+    let preview = tempBook.preview;
+    if (isPlaceholderPreview(preview)) {
+      const storyId = extractStoryId(tempBook.content);
+      if (storyId) {
+        const resolved = await resolvePreviewFromBackend(storyId);
+        if (resolved) {
+          preview = resolved;
+          await saveTempBook({
+            userID: tempBook.userID,
+            bookID: tempBook.bookID,
+            title: tempBook.title,
+            preview,
+            description: tempBook.description,
+            content: tempBook.content,
+            regenerateCount: tempBook.regenerateCount,
+          });
+        }
       }
-      // 本地没有则查 FastAPI
-      if (!coverUrl) {
-        try {
-          const storyRes = await fetch(`${FASTAPI_URL}/api/v1/story/${tempBook.bookID}`);
-          if (storyRes.ok) {
-            const storyData = (await storyRes.json()) as { draft: { book_meta: { cover_image_url?: string }; [k: string]: unknown } };
-            coverUrl = storyData.draft.book_meta.cover_image_url;
-            // 顺便更新 DB，下次不用再查
-            if (coverUrl) {
-              updateTempBookCover(req.user.userID, coverUrl, JSON.stringify(storyData.draft)).catch(() => {});
-            }
-          }
-        } catch { /* ignore */ }
-      }
-      if (coverUrl) tempPreview = coverUrl;
     }
     res.json({
       ...base,
       generating,
-      generateError,
       book: {
         bookID: tempBook.bookID,
         title: tempBook.title,
-        preview: tempPreview,
+        preview,
         description: tempBook.description,
         confirmed: false,
         regenerateCount: tempBook.regenerateCount,
@@ -642,33 +556,36 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
 
   const latestHistory = await getLatestHistoryBook(req.user.userID);
   if (latestHistory) {
-    const readCompleted = await hasCompletedReading(req.user.userID, latestHistory.bookID);
-    // 尝试从 content 中提取 AI 封面（防止 confirm 时 cover 尚未就绪的情况）
-    let historyPreview = latestHistory.preview;
-    if (historyPreview.startsWith("data:image/svg+xml") && latestHistory.content) {
-      try {
-        const draft = JSON.parse(latestHistory.content);
-        if (draft.book_meta?.cover_image_url) historyPreview = draft.book_meta.cover_image_url;
-      } catch { /* use existing */ }
+    let preview = latestHistory.preview;
+    if (isPlaceholderPreview(preview)) {
+      const storyId = extractStoryId(latestHistory.content);
+      if (storyId) {
+        const resolved = await resolvePreviewFromBackend(storyId);
+        if (resolved) preview = resolved;
+      }
     }
     res.json({
       ...base,
       generating,
-      generateError,
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
-        preview: historyPreview,
+        preview,
         description: latestHistory.description,
         confirmed: true,
-        readCompleted,
         regenerateCount: 0,
       },
     });
     return;
   }
 
-  res.json({ ...base, generating, generateError, book: null });
+  if (!generating) {
+    triggerAutoBookGeneration(req.user.userID, avatar);
+    res.json({ ...base, generating: true, book: null });
+    return;
+  }
+
+  res.json({ ...base, generating, book: null });
 });
 
 app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -681,11 +598,19 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     res.status(400).json({ message: "参数错误" });
     return;
   }
+  const foodName =
+    typeof (body as { foodName?: unknown }).foodName === "string"
+      ? (body as { foodName: string }).foodName.trim()
+      : "";
   const score = Number((body as { score?: unknown }).score);
   const content =
     typeof (body as { content?: unknown }).content === "string"
       ? (body as { content: string }).content.trim()
       : "";
+  if (!foodName) {
+    res.status(400).json({ message: "请输入今日食物" });
+    return;
+  }
   if (!Number.isFinite(score) || score <= 0) {
     res.status(400).json({ message: "请先滑动评分条" });
     return;
@@ -699,75 +624,71 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       ? (body as { voiceData: string }).voiceData
       : null;
 
-  await insertFoodLog({
-    userID: req.user.userID,
-    score,
-    content,
-    voiceData,
-  });
+  const avatar = await getUserAvatar(req.user.userID);
+  if (!avatar) {
+    res.status(404).json({ message: "未找到虚拟形象" });
+    return;
+  }
+  const recentPhrases = await getRecentAvatarFeedbackTexts(req.user.userID, 2);
 
-  // Immediate feedback (score-based); LLM feedback comes async via story generation
-  const feedbackText =
-    score >= 9
-      ? "哇，你今天表现太棒了！继续保持！"
-      : score >= 7
-        ? "很好的尝试，继续加油！"
-        : score >= 5
-          ? "不错的进步，慢慢来！"
-          : score >= 3
-            ? "没关系，每一小步都是进步。"
-            : "谢谢你的尝试，下次我们再试试看。";
+  const latestReading = await getLatestCompletedReadingForUser(req.user.userID);
+
+  let feedbackText = "";
+  try {
+    const seed = Date.now();
+    const r = await fetch(`${FASTAPI_URL}/api/v1/feedback_words/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        nickname: avatar.nickname,
+        picky_food: foodName,
+        self_rating: score,
+        self_description: content,
+        recent_phrases: recentPhrases,
+        seed,
+      }),
+    });
+    if (r.ok) {
+      const data = (await r.json()) as { text?: unknown };
+      if (typeof data.text === "string") feedbackText = data.text.trim();
+    }
+  } catch {
+    // ignore
+  }
+  if (!feedbackText) {
+    feedbackText =
+      score >= 9
+        ? "哇，你今天表现太棒了！继续保持！"
+        : score >= 7
+          ? "很好的尝试，继续加油！"
+          : score >= 5
+            ? "不错的进步，慢慢来！"
+            : score >= 3
+              ? "没关系，每一小步都是进步。"
+              : "谢谢你的尝试，下次我们再试试看。";
+  }
   const expression =
     score >= 7 ? "happy" : score >= 5 ? "encouraging" : score >= 3 ? "gentle" : "neutral";
 
+  const emotion = mapScoreToEmotion(score);
+  await insertFoodLog({
+    userID: req.user.userID,
+    foodName,
+    score,
+    content,
+    voiceData,
+    feedbackText,
+    emotion,
+    relatedBookID: latestReading?.bookId ?? null,
+    relatedReadingSessionID: latestReading?.sessionId ?? null,
+    relatedReadingEndedAt: latestReading?.endedAt ?? null,
+  });
+
   await insertAvatarState({ userID: req.user.userID, feedbackText });
 
-  // Set generating flag BEFORE sending response so immediate polls see it
-  const skipGen = (body as { skipBookGeneration?: unknown }).skipBookGeneration === true;
-  if (!skipGen) {
-    generatingUsers.add(req.user.userID);
-    setUserGenerating(req.user.userID).catch(() => {});
-    clearGenerateError(req.user.userID).catch(() => {});
-  }
+  await setUserAvatarEmotion(req.user.userID, emotion);
 
-  res.json({ ok: true, feedbackText, expression, score });
-
-  // Fire-and-forget: generate storybook
-  if (!skipGen) {
-    const avatar = await getUserAvatar(req.user.userID);
-    if (avatar) {
-      const recentHistory = await getFoodLogHistory(req.user.userID, 10);
-      const readingSummary = await getReadingSummary(req.user.userID);
-      generateTempBookForUser({
-        userID: req.user.userID,
-        nickname: avatar.nickname,
-        gender: avatar.gender,
-        themeFood: avatar.themeFood,
-        mealScore: score,
-        mealContent: content,
-        regenerateCount: 0,
-        recentHistory,
-        readingSummary,
-      })
-        .then(() => {
-          const tb = getTempBook(req.user!.userID);
-          tb.then(book => { if (book) pollCoverAndUpdate(req.user!.userID, book.bookID); });
-        })
-        .catch(async (err) => {
-          console.error("[BOOK] 绘本生成失败:", err);
-          const msg = err instanceof Error ? err.message : "绘本生成失败";
-          await setGenerateError(req.user!.userID, msg).catch(() => {});
-        })
-        .finally(async () => {
-          generatingUsers.delete(req.user!.userID);
-          await clearUserGenerating(req.user!.userID).catch(() => {});
-        });
-    } else {
-      // No avatar → clean up generating flag
-      generatingUsers.delete(req.user.userID);
-      clearUserGenerating(req.user.userID).catch(() => {});
-    }
-  }
+  res.json({ ok: true, feedbackText, expression, score, emotion });
 });
 
 app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -780,36 +701,43 @@ app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, re
     res.status(404).json({ message: "未找到待确认绘本" });
     return;
   }
-  // 尝试从后端获取最新 draft（可能包含 AI 封面图）
-  let preview = tempBook.preview;
-  let content = tempBook.content;
+
   try {
-    const backendRes = await fetch(`${FASTAPI_URL}/api/v1/story/${tempBook.bookID}`);
-    if (backendRes.ok) {
-      const data = (await backendRes.json()) as { draft: { book_meta: { cover_image_url?: string }; [k: string]: unknown } };
-      if (data.draft.book_meta.cover_image_url) {
-        preview = data.draft.book_meta.cover_image_url;
-        content = JSON.stringify(data.draft);
-      }
+    const storyId = tempBook.bookID;
+    const r = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
+    if (!r.ok) {
+      res.status(503).json({ message: "图片状态检查失败" });
+      return;
     }
-  } catch { /* use existing temp book data */ }
+    const data = (await r.json()) as { draft?: { pages?: Array<{ page_no?: number; image_url?: unknown }>; book_meta?: { title?: string; summary?: string } } };
+    const pages = data.draft?.pages ?? [];
+    const allReady = pages.length > 0 && pages.every((p) => typeof p.image_url === "string" && p.image_url.length > 0);
+    if (!allReady) {
+      res.status(400).json({ message: "插图生成中，请稍后再确认绘本" });
+      return;
+    }
+    const sorted = [...pages].sort((a, b) => (a.page_no ?? 0) - (b.page_no ?? 0));
+    const firstUrl = typeof sorted[0]?.image_url === "string" ? (sorted[0].image_url as string) : null;
+    const nextPreview = firstUrl || tempBook.preview;
+    const nextTitle = data.draft?.book_meta?.title || tempBook.title;
+    const nextDesc = data.draft?.book_meta?.summary || tempBook.description;
+    const nextContent = data.draft ? JSON.stringify(data.draft) : tempBook.content;
 
-  await addHistoryBook({
-    bookID: tempBook.bookID,
-    userID: tempBook.userID,
-    title: tempBook.title,
-    preview,
-    description: tempBook.description,
-    content,
-  });
-  await clearTempBook(req.user.userID);
-
-  // 封面还未就绪时，继续轮询更新 history_books
-  if (preview.startsWith("data:image/svg+xml")) {
-    pollCoverAndUpdateHistory(tempBook.bookID);
+    await addHistoryBook({
+      bookID: tempBook.bookID,
+      userID: tempBook.userID,
+      title: nextTitle,
+      preview: nextPreview,
+      description: nextDesc,
+      content: nextContent,
+    });
+    await clearTempBook(req.user.userID);
+    res.json({ ok: true });
+    return;
+  } catch {
+    res.status(503).json({ message: "图片状态检查失败" });
+    return;
   }
-
-  res.json({ ok: true });
 });
 
 app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -917,9 +845,6 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     regenerateCount: tempBook.regenerateCount + 1,
   });
 
-  // 开始轮询封面图
-  pollCoverAndUpdate(req.user.userID, draft.story_id);
-
   res.json({
     ok: true,
     book: {
@@ -955,23 +880,13 @@ app.get("/api/books/history", authRequired, async (req: AuthenticatedRequest, re
   }
   const items = await listHistoryBooks(req.user.userID);
   res.json({
-    items: items.map((item) => {
-      let preview = item.preview;
-      // 尝试从 content 中提取 AI 封面
-      if (preview.startsWith("data:image/svg+xml") && item.content) {
-        try {
-          const draft = JSON.parse(item.content);
-          if (draft.book_meta?.cover_image_url) preview = draft.book_meta.cover_image_url;
-        } catch { /* use existing */ }
-      }
-      return {
-        bookID: item.bookID,
-        title: item.title,
-        preview,
-        description: item.description,
-        confirmedAt: item.confirmedAt,
-      };
-    }),
+    items: items.map((item) => ({
+      bookID: item.bookID,
+      title: item.title,
+      preview: item.preview,
+      description: item.description,
+      confirmedAt: item.confirmedAt,
+    })),
   });
 });
 
@@ -1045,6 +960,7 @@ app.post("/api/voice/record", authRequired, async (req: AuthenticatedRequest, re
 
 app.post("/api/voice/transcribe", authRequired, upload.single("file"), async (req: AuthenticatedRequest, res) => {
   if (!req.user) { res.status(401).json({ message: "未登录" }); return; }
+  const fastapiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
   const file = (req as typeof req & { file?: { buffer: Buffer; mimetype?: string; originalname?: string } }).file;
   if (!file?.buffer) {
     res.status(400).json({ message: "未收到录音文件" });
@@ -1056,7 +972,7 @@ app.post("/api/voice/transcribe", authRequired, upload.single("file"), async (re
   const filename = file.originalname || "recording.webm";
   form.append("file", new Blob([new Uint8Array(file.buffer)], { type: mime }), filename);
 
-  const endpoint = FASTAPI_URL.replace(/\/$/, "") + "/api/v1/voice/transcribe";
+  const endpoint = fastapiUrl.replace(/\/$/, "") + "/api/v1/voice/transcribe";
   let resp: Response;
   try {
     resp = await fetch(endpoint, {
@@ -1067,13 +983,11 @@ app.post("/api/voice/transcribe", authRequired, upload.single("file"), async (re
     res.status(502).json({ message: `语音转写失败: 无法连接到 ${endpoint}（${e instanceof Error ? e.message : "fetch failed"}）` });
     return;
   }
-
   const text = await resp.text();
   if (!resp.ok) {
     res.status(502).json({ message: `语音转写失败: ${text || resp.status}` });
     return;
   }
-
   let payload: { text?: string } | null = null;
   try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
   res.json({ text: payload?.text || "" });
@@ -1119,18 +1033,16 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     tryLevel: typeof body.tryLevel === "string" ? body.tryLevel : null,
     abortReason: typeof body.abortReason === "string" ? body.abortReason : null,
   });
-
   const bookId = typeof body.bookId === "string" ? body.bookId : null;
   if (body.completed === true && bookId && !body.skipAutoBookGeneration) {
     const history = await getHistoryBookById(req.user.userID, bookId);
     if (history) {
       const avatar = await getUserAvatar(req.user.userID);
       if (avatar) {
-        void triggerAutoBookGeneration(req.user.userID, avatar);
+        triggerAutoBookGeneration(req.user.userID, avatar);
       }
     }
   }
-
   // Return daily count for today for this user
   const daily = await getDailyReadingStats(1);
   const todayCount = daily[0]?.sessionCount ?? 1;
@@ -1147,21 +1059,8 @@ function checkAdminKey(req: express.Request, res: express.Response): boolean {
   return true;
 }
 
-/** Column headers for each export table — used when query returns 0 rows. */
-const CSV_HEADERS: Record<string, string[]> = {
-  "users.csv": ["user_id","first_login","theme_food","nickname","gender","hair_style","glasses","top_color","bottom_color","avatar_created_at"],
-  "food_logs.csv": ["log_id","user_id","score","content","created_at"],
-  "reading_sessions.csv": ["id","user_id","book_id","started_at","ended_at","duration_ms","total_pages","pages_read","interaction_count","completed","session_type","try_level","abort_reason","created_at"],
-  "voice_recordings.csv": ["id","user_id","source","context_id","page_id","transcript","duration_ms","created_at"],
-  "avatars.csv": ["user_id","nickname","gender","hair_style","glasses","top_color","bottom_color","theme_food","created_at","updated_at"],
-};
-
-function toCsv(rows: Record<string, unknown>[], filename?: string): string {
-  if (rows.length === 0) {
-    // Return header-only CSV so the downloaded file is never blank
-    const fallback = filename && CSV_HEADERS[filename];
-    return fallback ? fallback.join(",") : "";
-  }
+function toCsv(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return "";
   const headers = Object.keys(rows[0]);
   const lines = [headers.join(",")];
   for (const row of rows) {
@@ -1183,7 +1082,7 @@ function csvRoute(
     if (!checkAdminKey(req, res)) return;
     try {
       const rows = await fetcher();
-      const csv = toCsv(rows, filename);
+      const csv = toCsv(rows);
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(csv);

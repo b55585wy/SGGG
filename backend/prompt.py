@@ -87,6 +87,8 @@ EVENT KEY RULES:
 - snake_case format, descriptive (e.g., "smell_broccoli_p02", "choose_path_p03")
 """
 
+from typing import Optional
+
 
 def build_user_prompt(
     child_profile: dict,

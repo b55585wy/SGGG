@@ -1,6 +1,9 @@
 .env
 storybook.db
+storybook.db-shm
+storybook.db-wal
 __pycache__/
 *.pyc
 .venv/
 venv/
+.DS_Store

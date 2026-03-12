@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { clearToken } from '@/lib/auth'
+import { clearToken, getToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
 import AvatarEditModal from '@/components/AvatarEditModal'
 import { FoodLogModal } from '@/components/PostReadingModal'
+import { useTTS } from '@/hooks/useTTS'
+import { buildEmotionAvatarImageSrc, buildBasicAvatarImageSrc, basicAvatarDefaults, type BasicAvatarColor, type BasicAvatarEmotion, type BasicAvatarGender, type BasicAvatarGlasses, type BasicAvatarShirt, type BasicAvatarUnderdress } from '@/lib/basicAvatar'
 import {
   ClockCounterClockwise,
   BookOpenText,
@@ -13,10 +15,8 @@ import {
   SignOut,
   PencilSimple,
   SmileyWink,
-  Sparkle,
   X,
   ForkKnife,
-  PencilLine,
   SlidersHorizontal,
   GameController,
   Compass,
@@ -32,11 +32,12 @@ import {
 type HomeStatusResponse = {
   avatar: {
     nickname: string
-    baseImage: string | null
-    hairImage: string
-    glassesImage: string
-    topImage: string
-    bottomImage: string
+    gender: BasicAvatarGender
+    color: BasicAvatarColor
+    shirt: BasicAvatarShirt
+    underdress: BasicAvatarUnderdress
+    glasses: BasicAvatarGlasses
+    emotion?: BasicAvatarEmotion | null
   }
   feedbackText: string
   themeFood: string
@@ -50,7 +51,53 @@ type HomeStatusResponse = {
     confirmed: boolean
     readCompleted?: boolean
     regenerateCount: number
+  } | null
+}
+
+type FoodLogResponse = {
+  ok: boolean
+  feedbackText: string
+  expression: string
+  score: number
+  emotion?: BasicAvatarEmotion
+}
+
+type VoiceResponse = { text: string }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function scoreColor(s: number): string {
+  if (s <= 3) return '#e11d48'
+  if (s <= 6) return '#f59e0b'
+  return '#059669'
+}
+
+function scoreLabel(s: number): string {
+  if (s <= 2) return '完全拒绝'
+  if (s <= 4) return '不太喜欢'
+  if (s <= 6) return '还行'
+  if (s <= 8) return '比较喜欢'
+  return '非常喜欢'
+}
+
+function normalizePreview(preview: string | null | undefined): string | null {
+  if (!preview) return null
+  const trimmed = preview.trim()
+  if (!trimmed) return null
+  if (trimmed.startsWith('data:')) return trimmed
+  if (trimmed.startsWith('<svg')) {
+    return `data:image/svg+xml;utf8,${encodeURIComponent(trimmed)}`
   }
+  return trimmed
+}
+
+function feedbackFontSize(text: string): number {
+  const len = text.trim().length
+  if (len <= 40) return 14
+  if (len <= 55) return 13
+  if (len <= 70) return 12
+  if (len <= 85) return 11
+  return 10
 }
 
 // ─── Regen Modal ─────────────────────────────────────────────────────────────
@@ -95,28 +142,21 @@ type RegenModalProps = {
 function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenModalProps) {
   const [reason, setReason] = useState('')
   const [foodOverride, setFoodOverride] = useState('')
-  const [showHints, setShowHints] = useState(false)
-  const [title, setTitle] = useState('')
-  const [note, setNote] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [storyType, setStoryType] = useState('interactive')
   const [difficulty, setDifficulty] = useState('medium')
   const [pages, setPages] = useState(6)
   const [interactionDensity, setInteractionDensity] = useState('medium')
-  const [error, setError] = useState('')
 
   const reachedLimit = regenerateCount >= 2
-  const canSubmit = !reachedLimit && reason !== ''
+  const canSubmit = !reachedLimit
 
   function onSubmit() {
-    if (!reason) { setError('请选择一个不满意的原因'); return }
     // Close immediately — fire API in background
     onSuccess()
     postJson('/api/book/regenerate', {
-      reason,
+      reason: reason || undefined,
       target_food: foodOverride.trim() || undefined,
-      title: title.trim() || undefined,
-      note: note.trim() || undefined,
       story_type: storyType,
       difficulty,
       pages,
@@ -186,32 +226,31 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
           {/* Scrollable body */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
 
-            {/* Reason (required) */}
+            {/* Story type (required) */}
             <section>
               <div className="flex items-baseline gap-2 mb-3">
                 <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>01</span>
-                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>不满意的原因</span>
-                <span className="text-xs ml-auto" style={{ color: 'var(--color-error)' }}>必填</span>
+                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>故事类型</span>
+                <span className="text-xs ml-auto" style={{ color: 'var(--color-muted)' }}>可选</span>
               </div>
-              <motion.div className="grid grid-cols-2 gap-2" variants={reasonVariants} initial="hidden" animate="show">
-                {REASONS.map((r) => (
-                  <motion.button
-                    key={r.value}
-                    variants={reasonItem}
+              <div className="grid grid-cols-2 gap-2">
+                {STORY_TYPES.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
                     type="button"
-                    onClick={() => setReason(r.value)}
-                    whileTap={{ scale: 0.96 }}
-                    className="py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
+                    onClick={() => setStoryType(value)}
+                    className="flex items-center gap-2 py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
                     style={
-                      reason === r.value
+                      storyType === value
                         ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' }
                         : { borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }
                     }
                   >
-                    {r.label}
-                  </motion.button>
+                    <Icon size={14} weight="duotone" />
+                    {label}
+                  </button>
                 ))}
-              </motion.div>
+              </div>
             </section>
 
             {/* Food override (optional) */}
@@ -237,38 +276,10 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
               </div>
             </section>
 
-            {/* Hints (collapsible) */}
-            <section>
-              <button type="button" onClick={() => setShowHints((v) => !v)} className="flex items-center gap-2 w-full text-left" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>03</span>
-                <PencilLine size={12} weight="bold" style={{ color: 'var(--color-muted)' }} />
-                <span className="text-sm font-bold tracking-tight flex-1" style={{ color: 'var(--color-foreground)' }}>补充说明</span>
-                <span className="text-xs" style={{ color: 'var(--color-muted)' }}>可选</span>
-                {showHints ? <CaretUp size={11} weight="bold" style={{ color: 'var(--color-muted)' }} /> : <CaretDown size={11} weight="bold" style={{ color: 'var(--color-muted)' }} />}
-              </button>
-              <div className="mt-2" style={{ borderTop: '1px solid var(--color-border-light)' }} />
-              <AnimatePresence>
-                {showHints && (
-                  <motion.div key="hints" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={spring} className="overflow-hidden">
-                    <div className="pt-3 space-y-3">
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>标题建议</label>
-                        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="给新故事起个名字" className="form-input" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>更多要求</label>
-                        <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="描述你希望新故事有什么不同…" rows={2} className="form-input resize-none" />
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </section>
-
             {/* Advanced (collapsible) */}
             <section>
-              <button type="button" onClick={() => setShowAdvanced((v) => !v)} className="flex items-center gap-2 w-full text-left" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>04</span>
+              <button type="button" onClick={() => setShowAdvanced((v: boolean) => !v)} className="flex items-center gap-2 w-full text-left" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>03</span>
                 <SlidersHorizontal size={12} weight="bold" style={{ color: 'var(--color-muted)' }} />
                 <span className="text-sm font-bold tracking-tight flex-1" style={{ color: 'var(--color-foreground)' }}>故事设置</span>
                 <span className="text-xs" style={{ color: 'var(--color-muted)' }}>可选</span>
@@ -279,17 +290,6 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                 {showAdvanced && (
                   <motion.div key="advanced" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={spring} className="overflow-hidden">
                     <div className="pt-3 space-y-4">
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>故事类型</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {STORY_TYPES.map(({ value, label, Icon }) => (
-                            <button key={value} type="button" onClick={() => setStoryType(value)} className="flex items-center gap-2 py-2 px-3 rounded-xl text-sm font-medium border transition-colors" style={storyType === value ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' } : { borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}>
-                              <Icon size={13} weight="duotone" />
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                           <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>难度</label>
@@ -317,17 +317,38 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                 )}
               </AnimatePresence>
             </section>
+
+            {/* Reason (optional) */}
+            <section>
+              <div className="flex items-baseline gap-2 mb-3">
+                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>04</span>
+                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>重新生成原因</span>
+                <span className="text-xs ml-auto" style={{ color: 'var(--color-muted)' }}>可选</span>
+              </div>
+              <motion.div className="grid grid-cols-2 gap-2" variants={reasonVariants} initial="hidden" animate="show">
+                {REASONS.map((r) => (
+                  <motion.button
+                    key={r.value}
+                    variants={reasonItem}
+                    type="button"
+                    onClick={() => setReason(r.value)}
+                    whileTap={{ scale: 0.96 }}
+                    className="py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
+                    style={
+                      reason === r.value
+                        ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' }
+                        : { borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }
+                    }
+                  >
+                    {r.label}
+                  </motion.button>
+                ))}
+              </motion.div>
+            </section>
           </div>
 
           {/* Footer */}
-          <div className="shrink-0 px-6 py-4 border-t space-y-3" style={{ borderColor: 'var(--color-border-light)' }}>
-            <AnimatePresence>
-              {error && (
-                <motion.p key="err" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="text-sm px-3 py-2 rounded-xl" style={{ color: 'var(--color-error)', background: 'var(--color-error-light)' }}>
-                  {error}
-                </motion.p>
-              )}
-            </AnimatePresence>
+          <div className="shrink-0 px-6 py-4 border-t" style={{ borderColor: 'var(--color-border-light)' }}>
             {reachedLimit ? (
               <div className="text-center text-sm py-3 rounded-2xl font-medium" style={{ color: 'var(--color-muted)', background: 'var(--color-warm-100)' }}>
                 已达到重新生成上限（2/2）
@@ -357,7 +378,295 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   )
 }
 
-// (Food log is now modal-only via FoodLogModal)
+// ─── Inline Food Log ──────────────────────────────────────────────────────────
+
+type InlineFoodLogProps = {
+  onSuccess: (data: FoodLogResponse) => void
+}
+
+function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
+  const [foodName, setFoodName] = useState('')
+  const [foodVoiceLoading, setFoodVoiceLoading] = useState(false)
+  const [foodIsRecording, setFoodIsRecording] = useState(false)
+  const [foodAudioUrl, setFoodAudioUrl] = useState<string | null>(null)
+  const foodRecorderRef = useRef<MediaRecorder | null>(null)
+  const foodStreamRef = useRef<MediaStream | null>(null)
+  const foodChunksRef = useRef<Blob[]>([])
+  const [score, setScore] = useState(0)
+  const [scoreTouched, setScoreTouched] = useState(false)
+  const [content, setContent] = useState('')
+  const [sending, setSending] = useState(false)
+  const [voiceLoading, setVoiceLoading] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+
+  const canSend = useMemo(
+    () => !!foodName.trim() && !!content.trim() && scoreTouched && score > 0 && !sending,
+    [foodName, content, scoreTouched, score, sending],
+  )
+  const sliderPct = (score / 10) * 100
+  const thumbColor = score > 0 ? scoreColor(score) : undefined
+
+  async function onSend() {
+    setError('')
+    if (!foodName.trim()) { setError('请输入今日食物'); return }
+    if (!scoreTouched || score <= 0) { setError('请先滑动评分条'); return }
+    if (!content.trim()) { setError('请输入进食记录'); return }
+    setSending(true)
+    try {
+      const data = await postJson<FoodLogResponse>('/api/food/log', { foodName: foodName.trim(), score, content: content.trim() })
+      setFoodName(''); setScore(0); setScoreTouched(false); setContent('')
+      onSuccess(data)
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e &&
+        typeof (e as { message?: unknown }).message === 'string'
+          ? (e as { message: string }).message : '提交失败'
+      setError(message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function transcribeBlob(blob: Blob, target: 'food' | 'content') {
+    if (target === 'food') {
+      setFoodVoiceLoading(true)
+    } else {
+      setVoiceLoading(true)
+    }
+    try {
+      const token = getToken()
+      const form = new FormData()
+      form.append('file', blob, 'recording.webm')
+      const res = await fetch('/api/user/voice/transcribe', {
+        method: 'POST',
+        headers: token ? { authorization: `Bearer ${token}` } : undefined,
+        body: form,
+      })
+      if (!res.ok) {
+        const msg = await res.text().catch(() => '')
+        throw new Error(msg || '语音转写失败')
+      }
+      const data = await res.json() as VoiceResponse
+      if (data.text) {
+        if (target === 'food') {
+          setFoodName(data.text)
+        } else {
+          setContent(data.text)
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '语音转写失败')
+    } finally {
+      if (target === 'food') {
+        setFoodVoiceLoading(false)
+      } else {
+        setVoiceLoading(false)
+      }
+    }
+  }
+
+  async function startRecording(target: 'food' | 'content') {
+    setError('')
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('当前浏览器不支持录音')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (target === 'food') {
+        foodStreamRef.current = stream
+        foodChunksRef.current = []
+      } else {
+        streamRef.current = stream
+        chunksRef.current = []
+      }
+      const recorder = new MediaRecorder(stream)
+      recorder.ondataavailable = (e) => {
+        if (e.data.size <= 0) return
+        if (target === 'food') {
+          foodChunksRef.current.push(e.data)
+        } else {
+          chunksRef.current.push(e.data)
+        }
+      }
+      recorder.onstop = async () => {
+        const blob = new Blob(
+          target === 'food' ? foodChunksRef.current : chunksRef.current,
+          { type: recorder.mimeType || 'audio/webm' },
+        )
+        if (target === 'food') {
+          setFoodAudioUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev)
+            return URL.createObjectURL(blob)
+          })
+        } else {
+          setAudioUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev)
+            return URL.createObjectURL(blob)
+          })
+        }
+        stream.getTracks().forEach(t => t.stop())
+        await transcribeBlob(blob, target)
+      }
+      if (target === 'food') {
+        foodRecorderRef.current = recorder
+        setFoodIsRecording(true)
+      } else {
+        recorderRef.current = recorder
+        setIsRecording(true)
+      }
+      recorder.start()
+    } catch {
+      setError('无法访问麦克风，请检查浏览器权限')
+    }
+  }
+
+  function stopRecording(target: 'food' | 'content') {
+    const recorder = target === 'food' ? foodRecorderRef.current : recorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop()
+    }
+    if (target === 'food') {
+      setFoodIsRecording(false)
+    } else {
+      setIsRecording(false)
+    }
+  }
+
+  function onTranscribe(target: 'food' | 'content') {
+    if (target === 'food' ? foodVoiceLoading : voiceLoading) return
+    const recording = target === 'food' ? foodIsRecording : isRecording
+    if (recording) {
+      stopRecording(target)
+    } else {
+      void startRecording(target)
+    }
+  }
+
+  return (
+    <>
+      {/* Scrollable body */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-6" style={{ scrollbarWidth: 'none' }}>
+
+        {/* Food name */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>今日食物</label>
+          <div className="flex gap-2">
+            <input
+              value={foodName}
+              onChange={(e) => setFoodName(e.target.value)}
+              placeholder="请输入今日尝试的食物"
+              className="form-input flex-1 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => onTranscribe('food')}
+              disabled={foodVoiceLoading}
+              className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
+              style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
+            >
+              <Microphone size={18} weight={foodIsRecording || foodVoiceLoading ? 'fill' : 'regular'} />
+            </button>
+          </div>
+          {foodAudioUrl && (
+            <audio controls src={foodAudioUrl} className="w-full h-8" />
+          )}
+        </div>
+
+        {/* Score section */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>喜欢程度</label>
+            <div className="flex items-baseline gap-0.5">
+              <span
+                className="text-xl font-black tabular-nums leading-none transition-colors"
+                style={{ color: score > 0 ? scoreColor(score) : 'var(--color-muted)' }}
+              >
+                {score > 0 ? score : '–'}
+              </span>
+              <span className="text-xs ml-0.5" style={{ color: 'var(--color-muted)' }}>/10</span>
+              {scoreTouched && score > 0 && (
+                <span
+                  className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
+                  style={{ background: scoreColor(score) }}
+                >
+                  {scoreLabel(score)}
+                </span>
+              )}
+            </div>
+          </div>
+          <input
+            type="range" min={0} max={10} value={score}
+            onChange={(e) => { setScore(Number(e.target.value)); setScoreTouched(true) }}
+            className="range-accent w-full"
+            style={{
+              background: score > 0
+                ? `linear-gradient(to right, ${scoreColor(score)} 0%, ${scoreColor(score)} ${sliderPct}%, var(--color-warm-200) ${sliderPct}%, var(--color-warm-200) 100%)`
+                : undefined,
+              ['--range-thumb-color' as string]: thumbColor,
+            }}
+          />
+        </div>
+
+        {/* Text + voice */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>进食过程描述</label>
+          <div className="flex gap-2">
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="描述一下进食过程，比如吃了多少、有没有困难…"
+              className="form-input flex-1 resize-none text-sm"
+              rows={5}
+            />
+            <button
+              type="button"
+              onClick={() => onTranscribe('content')}
+              disabled={voiceLoading}
+              className="shrink-0 flex items-center justify-center rounded-2xl border w-12 self-stretch transition-all active:scale-[0.95] disabled:opacity-50"
+              style={{ borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }}
+            >
+              <Microphone size={18} weight={isRecording || voiceLoading ? 'fill' : 'regular'} />
+            </button>
+          </div>
+          {audioUrl && (
+            <audio controls src={audioUrl} className="w-full h-8" />
+          )}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <p className="text-sm" style={{ color: 'var(--color-error)' }}>{error}</p>
+        )}
+      </div>
+
+      {/* Fixed footer */}
+      <div className="shrink-0 px-8 py-5" style={{ borderTop: '1px solid var(--color-border-light)' }}>
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={!canSend}
+          className="w-full py-4 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+          style={{
+            background: canSend ? 'linear-gradient(135deg, #059669, #047857)' : 'var(--color-warm-100)',
+            color: canSend ? 'white' : 'var(--color-muted)',
+            cursor: canSend ? 'pointer' : 'not-allowed',
+            border: 'none',
+            boxShadow: canSend ? '0 8px 24px -4px rgba(5,150,105,0.38)' : 'none',
+          }}
+        >
+          <PaperPlaneTilt size={15} weight="bold" />
+          {sending ? '提交中...' : '提交记录'}
+        </button>
+      </div>
+    </>
+  )
+}
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
@@ -392,6 +701,7 @@ function LoadingSkeleton() {
 
 export default function HomePage() {
   const navigate = useNavigate()
+  const tts = useTTS()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [status, setStatus] = useState<HomeStatusResponse | null>(null)
@@ -410,14 +720,14 @@ export default function HomePage() {
       // Restore generating state from server (survives page refresh).
       // While generating, clear any stale book so the animation shows correctly.
       if (data.generating) {
-        setStatus((prev) => prev ? { ...prev, ...data, book: null } : { ...data, book: null })
-        setBookGenerating(true)
+        setStatus((prev: HomeStatusResponse | null) => prev ? ({ ...prev, ...data, book: null } as HomeStatusResponse) : ({ ...data, book: null } as HomeStatusResponse))
       } else {
         setStatus(data)
         if (data.generateError) {
           setError(`绘本生成失败：${data.generateError}`)
         }
       }
+      setBookGenerating(!!data.generating)
     } catch (e) {
       if (e && typeof e === 'object' && 'status' in e) {
         const statusCode = (e as { status?: number }).status
@@ -445,6 +755,7 @@ export default function HomePage() {
     try {
       const data = await getJson<HomeStatusResponse>('/api/home/status')
       setStatus(data)
+      setBookGenerating(!!data.generating)
       return data
     } catch { return null }
   }, [])
@@ -491,6 +802,22 @@ export default function HomePage() {
   }, [status?.book?.bookID, bookGenerating])
 
   useEffect(() => {
+    const b = status?.book
+    if (!b || bookGenerating) return
+    if (!b.preview || !b.preview.startsWith('data:image/svg+xml')) return
+    let attempts = 0
+    const timer = setInterval(async () => {
+      if (++attempts > 60) { clearInterval(timer); return }
+      const data = await refreshStatus()
+      const nextPreview = data?.book?.preview
+      if (nextPreview && !nextPreview.startsWith('data:image/svg+xml')) {
+        clearInterval(timer)
+      }
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [status?.book?.bookID, status?.book?.preview, bookGenerating, refreshStatus, status])
+
+  useEffect(() => {
     const lastPath = sessionStorage.getItem('lastPath')
     if (lastPath && lastPath !== '/noa/home') {
       sessionStorage.removeItem('homeFeedbackText')
@@ -524,6 +851,8 @@ export default function HomePage() {
 
   const avatar = status?.avatar
   const book = status?.book
+  const previewSrc = normalizePreview(book?.preview)
+  const confirmDisabled = !book || book.confirmed || !previewSrc || previewSrc.startsWith('data:image/svg+xml') || bookGenerating
   const regenerateReached = book ? book.regenerateCount >= 2 : false
 
   if (loading) return <LoadingSkeleton />
@@ -564,15 +893,6 @@ export default function HomePage() {
           <h1 className="font-bold text-base tracking-tight truncate" style={{ color: 'var(--color-foreground)' }}>
             {avatar?.nickname ? `${avatar.nickname}，你好 👋` : '主页面'}
           </h1>
-          {status?.themeFood && (
-            <span
-              className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold"
-              style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}
-            >
-              <Sparkle size={10} weight="fill" />
-              今日：{status.themeFood}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {book?.readCompleted && (
@@ -616,6 +936,12 @@ export default function HomePage() {
         </div>
       </header>
 
+      {error && (
+        <div className="relative z-10 px-6 pt-3 text-sm" style={{ color: 'var(--color-error)' }}>
+          {error}
+        </div>
+      )}
+
       {/* ── Main 2-column layout ── */}
       <div className="relative z-10 flex-1 min-h-0 flex flex-col lg:flex-row gap-3 lg:gap-4 p-3 lg:p-4 lg:pt-3">
 
@@ -638,20 +964,76 @@ export default function HomePage() {
 
           {/* Avatar layers */}
           <div className="relative flex-1 min-h-0">
-            {avatar?.baseImage && <img src={avatar.baseImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {avatar?.topImage && <img src={avatar.topImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {avatar?.bottomImage && <img src={avatar.bottomImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {avatar?.hairImage && <img src={avatar.hairImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {avatar?.glassesImage && <img src={avatar.glassesImage} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-            {/* Bottom fade */}
-            <div
-              className="absolute bottom-0 inset-x-0 h-40 pointer-events-none"
-              style={{ background: 'linear-gradient(to top, white 10%, transparent)' }}
-            />
+            {feedbackText && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!tts.isSupported) return
+                  if (tts.isSpeaking) { tts.stop(); return }
+                  void tts.speak(feedbackText, 'zhimiao')
+                }}
+                className="absolute z-20 left-1/2 -translate-x-1/2 top-4 w-[min(92%,320px)] text-left transition-all active:scale-[0.98]"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
+              >
+                <div
+                  className="relative rounded-[1.25rem] px-4 py-3"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(5,150,105,0.96), rgba(4,120,87,0.96))',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                    boxShadow: '0 22px 44px -18px rgba(5,150,105,0.55)',
+                  }}
+                >
+                  <p
+                    className="font-semibold leading-relaxed"
+                    style={{ color: 'rgba(255,255,255,0.98)', fontSize: feedbackFontSize(feedbackText) }}
+                  >
+                    {feedbackText}
+                  </p>
+                  <div
+                    className="absolute -bottom-2 left-1/2 -translate-x-1/2"
+                    style={{
+                      width: 0,
+                      height: 0,
+                      borderLeft: '9px solid transparent',
+                      borderRight: '9px solid transparent',
+                      borderTop: '10px solid rgba(4,120,87,0.96)',
+                      filter: 'drop-shadow(0 10px 14px rgba(5,150,105,0.28))',
+                    }}
+                  />
+                </div>
+              </button>
+            )}
+            {(() => {
+              const combo = {
+                gender: avatar?.gender ?? basicAvatarDefaults.gender,
+                color: avatar?.color ?? basicAvatarDefaults.color,
+                shirt: avatar?.shirt ?? basicAvatarDefaults.shirt,
+                underdress: avatar?.underdress ?? basicAvatarDefaults.underdress,
+                glasses: avatar?.glasses ?? basicAvatarDefaults.glasses,
+              }
+              const emotion = avatar?.emotion
+              const src = typeof emotion === 'number'
+                ? buildEmotionAvatarImageSrc(combo, emotion)
+                : buildBasicAvatarImageSrc(combo)
+              return (
+                <img
+                  src={src}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-contain"
+                  onError={(e) => {
+                    const el = e.currentTarget
+                    const fallback = buildBasicAvatarImageSrc(combo)
+                    if (el.src.endsWith(fallback)) return
+                    el.src = fallback
+                  }}
+                />
+              )
+            })()}
           </div>
 
           {/* Avatar info + feedback bubble */}
-          <div className="relative z-10 shrink-0 px-5 pb-5 space-y-3">
+          <div className="relative z-10 shrink-0 px-5 pb-5">
             {/* Name row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -673,43 +1055,12 @@ export default function HomePage() {
                 编辑
               </button>
             </div>
-
-            {/* Speech bubble */}
-            {feedbackText ? (
-              <div className="relative">
-                {/* Bubble tail */}
-                <div
-                  className="absolute -top-2 left-6"
-                  style={{
-                    width: 0, height: 0,
-                    borderLeft: '7px solid transparent',
-                    borderRight: '7px solid transparent',
-                    borderBottom: '8px solid #d1fae5',
-                  }}
-                />
-                <div
-                  className="rounded-2xl px-4 py-3"
-                  style={{ background: 'var(--color-accent-light)' }}
-                >
-                  <p className="text-xs leading-relaxed line-clamp-3" style={{ color: 'var(--color-accent-hover)' }}>
-                    {feedbackText}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div
-                className="rounded-2xl px-4 py-2.5"
-                style={{ background: 'var(--color-warm-100)' }}
-              >
-                <p className="text-xs" style={{ color: 'var(--color-muted)' }}>今天心情平静 😊</p>
-              </div>
-            )}
           </div>
         </motion.div>
 
         {/* ── Right: conditional two-state panel ── */}
         <AnimatePresence mode="wait">
-          {book || bookGenerating ? (
+          {(book || bookGenerating) ? (
 
             /* ── State B: Book card ── */
             <motion.div
@@ -749,18 +1100,18 @@ export default function HomePage() {
                       <span className="book-gen-dot h-1.5 w-1.5 rounded-full" style={{ background: 'var(--color-accent)', opacity: 0.7, animationDelay: '400ms' }} />
                     </div>
                   </div>
-                ) : book?.preview ? (
+                ) : previewSrc ? (
                   <>
                     <img
-                      src={book.preview}
-                      alt={book.title}
+                      src={previewSrc}
+                      alt={book?.title ?? ''}
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                     <div
                       className="absolute inset-0 pointer-events-none"
                       style={{ background: 'linear-gradient(to right, transparent 60%, rgba(255,255,255,0.12))' }}
                     />
-                    {book.confirmed && (
+                    {book?.confirmed && (
                       <span
                         className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white"
                         style={{ background: 'var(--color-accent)', boxShadow: '0 2px 8px rgba(5,150,105,0.4)' }}
@@ -778,8 +1129,8 @@ export default function HomePage() {
                     >
                       <BookOpenText size={28} weight="light" style={{ color: 'var(--color-accent)', opacity: 0.7 }} />
                     </div>
-                    <span className="text-[11px] font-medium text-center px-4" style={{ color: 'var(--color-muted)' }}>
-                      提交后生成
+                  <span className="text-[11px] font-medium text-center px-4" style={{ color: 'var(--color-muted)' }}>
+                      暂无绘本
                     </span>
                   </div>
                 )}
@@ -848,16 +1199,18 @@ export default function HomePage() {
                     <div className="space-y-2.5">
                       <button
                         onClick={onConfirmBook}
+                        disabled={confirmDisabled}
                         className="w-full py-4 rounded-full font-bold text-sm text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                         style={{
-                          background: 'linear-gradient(135deg, #059669, #047857)',
+                          background: confirmDisabled ? 'var(--color-warm-200)' : 'linear-gradient(135deg, #059669, #047857)',
                           border: 'none',
-                          boxShadow: '0 8px 24px -4px rgba(5,150,105,0.45)',
-                          cursor: 'pointer',
+                          boxShadow: confirmDisabled ? 'none' : '0 8px 24px -4px rgba(5,150,105,0.45)',
+                          cursor: confirmDisabled ? 'not-allowed' : 'pointer',
+                          opacity: confirmDisabled ? 0.55 : 1,
                         }}
                       >
                         <CheckCircle size={16} weight="bold" />
-                        确认绘本，开始阅读
+                        {previewSrc && previewSrc.startsWith('data:image/svg+xml') ? '插图生成中…' : '确认绘本，开始阅读'}
                       </button>
                       <button
                         onClick={() => setShowRegenModal(true)}
@@ -875,14 +1228,21 @@ export default function HomePage() {
                         重新生成 ({book.regenerateCount}/2)
                       </button>
                     </div>
-                  ) : (
-                    /* Generating state — disabled placeholder */
+                  ) : bookGenerating ? (
                     <div
                       className="w-full py-4 rounded-full font-bold text-sm flex items-center justify-center gap-2"
                       style={{ background: 'var(--color-warm-100)', color: 'var(--color-muted)' }}
                     >
                       <BookOpenText size={16} weight="light" />
                       绘本生成中…
+                    </div>
+                  ) : (
+                    <div
+                      className="w-full py-4 rounded-full font-bold text-sm flex items-center justify-center gap-2"
+                      style={{ background: 'var(--color-warm-100)', color: 'var(--color-muted)' }}
+                    >
+                      <BookOpenText size={16} weight="light" />
+                      暂无绘本
                     </div>
                   )}
                 </div>
@@ -973,6 +1333,7 @@ export default function HomePage() {
         </AnimatePresence>
       </div>
 
+
       {/* ── Food Log Modal (unified with post-reading modal) ── */}
       <AnimatePresence>
         {showFoodLogModal && (
@@ -1004,7 +1365,7 @@ export default function HomePage() {
             onClose={() => setShowRegenModal(false)}
             onSuccess={() => {
               setShowRegenModal(false)
-              setStatus((prev) => (prev ? { ...prev, book: null } : null))
+              setStatus((prev: HomeStatusResponse | null) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
               setBookGenerating(true)
             }}
           />

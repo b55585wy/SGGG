@@ -3,23 +3,15 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SpinnerGap, Sparkle } from '@phosphor-icons/react'
 import { getJson, postJson } from '@/lib/ncApi'
+import { basicAvatarDefaults, basicAvatarOptions, buildBasicAvatarImageSrc, type BasicAvatarColor, type BasicAvatarGender, type BasicAvatarGlasses, type BasicAvatarShirt, type BasicAvatarUnderdress } from '@/lib/basicAvatar'
 
-type Option = { id: string; label: string; image: string }
-type OptionsResponse = {
-  hair: Option[]
-  glasses: Option[]
-  topColors: Option[]
-  bottomColors: Option[]
-}
-type BaseResponse = { image: string }
-type ComponentResponse = { image: string }
 type CurrentAvatarResponse = {
   nickname: string
-  gender: string
-  hairStyle: string | null
-  glasses: string | null
-  topColor: string | null
-  bottomColor: string | null
+  gender: BasicAvatarGender
+  color: BasicAvatarColor
+  shirt: BasicAvatarShirt
+  underdress: BasicAvatarUnderdress
+  glasses: BasicAvatarGlasses
 }
 
 const spring = { type: 'spring' as const, stiffness: 110, damping: 22 }
@@ -32,12 +24,12 @@ const itemVariants = {
 // ─── Option row ───────────────────────────────────────────────────────────────
 
 function OptionRow({
-  label, options, selectedId, onSelect,
+  label, options, selected, onSelect,
 }: {
   label: string
-  options: Option[]
-  selectedId: string
-  onSelect: (id: string) => void
+  options: Array<{ value: string; label: string; icon: string }>
+  selected: string
+  onSelect: (value: string) => void
 }) {
   return (
     <div className="space-y-2">
@@ -53,24 +45,24 @@ function OptionRow({
       >
         {options.map((item) => (
           <motion.button
-            key={item.id}
+            key={item.value}
             variants={itemVariants}
             type="button"
-            onClick={() => onSelect(item.id)}
+            onClick={() => onSelect(item.value)}
             whileTap={{ scale: 0.9 }}
             className="flex-shrink-0 flex flex-col items-center gap-1.5 rounded-[1.2rem] border transition-all"
             style={{
               width: 64,
               padding: '7px 5px 6px',
-              ...(selectedId === item.id
+              ...(selected === item.value
                 ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', boxShadow: '0 0 0 3px rgba(5,150,105,0.12)' }
                 : { borderColor: 'var(--color-border-light)', background: '#fafaf9' }),
             }}
           >
-            <img src={item.image} alt={item.label} style={{ width: 36, height: 36, objectFit: 'contain' }} />
+            <img src={item.icon} alt={item.label} style={{ width: 36, height: 36, objectFit: 'contain' }} />
             <span
               className="text-[10px] font-semibold leading-none"
-              style={{ color: selectedId === item.id ? 'var(--color-accent)' : 'var(--color-muted)' }}
+              style={{ color: selected === item.value ? 'var(--color-accent)' : 'var(--color-muted)' }}
             >
               {item.label}
             </span>
@@ -112,105 +104,49 @@ export default function AvatarPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [baseImage, setBaseImage] = useState('')
-  const [options, setOptions] = useState<OptionsResponse | null>(null)
 
   const [nickname, setNickname] = useState('')
-  const [gender, setGender] = useState<'male' | 'female' | ''>('')
-  const [hairId, setHairId] = useState('')
-  const [glassesId, setGlassesId] = useState('')
-  const [topId, setTopId] = useState('')
-  const [bottomId, setBottomId] = useState('')
+  const [gender, setGender] = useState<BasicAvatarGender>(basicAvatarDefaults.gender)
+  const [color, setColor] = useState<BasicAvatarColor>(basicAvatarDefaults.color)
+  const [shirt, setShirt] = useState<BasicAvatarShirt>(basicAvatarDefaults.shirt)
+  const [underdress, setUnderdress] = useState<BasicAvatarUnderdress>(basicAvatarDefaults.underdress)
+  const [glasses, setGlasses] = useState<BasicAvatarGlasses>(basicAvatarDefaults.glasses)
 
-  const [hairImage, setHairImage] = useState('')
-  const [glassesImage, setGlassesImage] = useState('')
-  const [topImage, setTopImage] = useState('')
-  const [bottomImage, setBottomImage] = useState('')
-
-  const canSubmit = useMemo(() => !!nickname.trim() && !!gender && !saving, [nickname, gender, saving])
-
-  async function fetchComponent(type: 'hair' | 'glasses' | 'top' | 'bottom', id: string) {
-    const data = await getJson<ComponentResponse>(`/api/avatar/component?type=${type}&id=${id}`)
-    return data.image
-  }
+  const canSubmit = useMemo(() => !!nickname.trim() && !saving, [nickname, saving])
 
   useEffect(() => {
     async function load() {
       setError('')
       try {
-        const [base, opts, current] = await Promise.all([
-          getJson<BaseResponse>('/api/avatar/base'),
-          getJson<OptionsResponse>('/api/avatar/options'),
-          getJson<CurrentAvatarResponse>('/api/avatar/current').catch(() => null),
-        ])
-        setBaseImage(base.image)
-        setOptions(opts)
-
-        const initHair = current?.hairStyle || opts.hair[0]?.id || ''
-        const initGlasses = current?.glasses || opts.glasses.find((g) => g.id === 'none')?.id || opts.glasses[0]?.id || ''
-        const initTop = current?.topColor || opts.topColors[0]?.id || ''
-        const initBottom = current?.bottomColor || opts.bottomColors[0]?.id || ''
-
+        const current = await getJson<CurrentAvatarResponse>('/api/avatar/current').catch(() => null)
         if (current?.nickname) setNickname(current.nickname)
-        if (current?.gender === 'male' || current?.gender === 'female') setGender(current.gender)
-        setHairId(initHair)
-        setGlassesId(initGlasses)
-        setTopId(initTop)
-        setBottomId(initBottom)
-
-        const [h, g, t, b] = await Promise.all([
-          initHair ? fetchComponent('hair', initHair) : Promise.resolve(''),
-          initGlasses ? fetchComponent('glasses', initGlasses) : Promise.resolve(''),
-          initTop ? fetchComponent('top', initTop) : Promise.resolve(''),
-          initBottom ? fetchComponent('bottom', initBottom) : Promise.resolve(''),
-        ])
-        setHairImage(h)
-        setGlassesImage(g)
-        setTopImage(t)
-        setBottomImage(b)
+        if (current?.gender) setGender(current.gender)
+        if (current?.color) setColor(current.color)
+        if (current?.shirt) setShirt(current.shirt)
+        if (current?.underdress) setUnderdress(current.underdress)
+        if (current?.glasses) setGlasses(current.glasses)
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
       } finally {
         setLoading(false)
       }
     }
-    load()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function onSelectHair(id: string) {
-    setHairId(id)
-    try { setHairImage(await fetchComponent('hair', id)) }
-    catch { /* ignore */ }
-  }
-  async function onSelectGlasses(id: string) {
-    setGlassesId(id)
-    try { setGlassesImage(await fetchComponent('glasses', id)) }
-    catch { /* ignore */ }
-  }
-  async function onSelectTop(id: string) {
-    setTopId(id)
-    try { setTopImage(await fetchComponent('top', id)) }
-    catch { /* ignore */ }
-  }
-  async function onSelectBottom(id: string) {
-    setBottomId(id)
-    try { setBottomImage(await fetchComponent('bottom', id)) }
-    catch { /* ignore */ }
-  }
+    void load()
+  }, [])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!nickname.trim() || !gender) { setError('昵称和性别不能为空'); return }
+    if (!nickname.trim()) { setError('昵称不能为空'); return }
     setSaving(true)
     try {
       await postJson('/api/avatar/save', {
         nickname: nickname.trim(),
         gender,
-        hairStyle: hairId,
-        glasses: glassesId,
-        topColor: topId,
-        bottomColor: bottomId,
+        color,
+        shirt,
+        underdress,
+        glasses,
       })
       navigate('/noa/home', { replace: true })
     } catch (e) {
@@ -289,14 +225,10 @@ export default function AvatarPage() {
 
           {/* Avatar layers */}
           <div className="relative flex-1 min-h-0">
-            {baseImage && <img src={baseImage} alt="base" className="absolute inset-0 w-full h-full object-cover" />}
-            {topImage && <img src={topImage} alt="top" className="absolute inset-0 w-full h-full object-cover" />}
-            {bottomImage && <img src={bottomImage} alt="bottom" className="absolute inset-0 w-full h-full object-cover" />}
-            {hairImage && <img src={hairImage} alt="hair" className="absolute inset-0 w-full h-full object-cover" />}
-            {glassesImage && <img src={glassesImage} alt="glasses" className="absolute inset-0 w-full h-full object-cover" />}
-            <div
-              className="absolute bottom-0 inset-x-0 h-32 pointer-events-none"
-              style={{ background: 'linear-gradient(to top, #f0fdf4, transparent)' }}
+            <img
+              src={buildBasicAvatarImageSrc({ gender, color, shirt, underdress, glasses })}
+              alt="avatar"
+              className="absolute inset-0 w-full h-full object-contain"
             />
           </div>
 
@@ -363,10 +295,7 @@ export default function AvatarPage() {
               />
 
               <div className="flex gap-2.5">
-                {[
-                  { value: 'male' as const, label: '男孩', emoji: '👦' },
-                  { value: 'female' as const, label: '女孩', emoji: '👧' },
-                ].map((item) => (
+                {basicAvatarOptions.gender.map((item) => (
                   <button
                     key={item.value}
                     type="button"
@@ -378,31 +307,32 @@ export default function AvatarPage() {
                         : { borderColor: 'var(--color-border-light)', background: 'white', color: 'var(--color-foreground)' }
                     }
                   >
-                    {item.emoji} {item.label}
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <img src={item.icon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+                      {item.label}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Style options */}
-            {options && (
-              <div
-                className="rounded-[1.8rem] p-5 space-y-4"
-                style={{
-                  background: '#fafaf9',
-                  border: '1px solid var(--color-border-light)',
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">🎨</span>
-                  <span className="text-xs font-bold tracking-wide" style={{ color: 'var(--color-muted)' }}>形象定制</span>
-                </div>
-                <OptionRow label="发型" options={options.hair} selectedId={hairId} onSelect={onSelectHair} />
-                <OptionRow label="眼镜" options={options.glasses} selectedId={glassesId} onSelect={onSelectGlasses} />
-                <OptionRow label="上衣颜色" options={options.topColors} selectedId={topId} onSelect={onSelectTop} />
-                <OptionRow label="下装颜色" options={options.bottomColors} selectedId={bottomId} onSelect={onSelectBottom} />
+            <div
+              className="rounded-[1.8rem] p-5 space-y-4"
+              style={{
+                background: '#fafaf9',
+                border: '1px solid var(--color-border-light)',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🎨</span>
+                <span className="text-xs font-bold tracking-wide" style={{ color: 'var(--color-muted)' }}>形象定制</span>
               </div>
-            )}
+              <OptionRow label="颜色" options={basicAvatarOptions.color} selected={color} onSelect={(v) => setColor(v as BasicAvatarColor)} />
+              <OptionRow label="上衣" options={basicAvatarOptions.shirt} selected={shirt} onSelect={(v) => setShirt(v as BasicAvatarShirt)} />
+              <OptionRow label="下装" options={basicAvatarOptions.underdress} selected={underdress} onSelect={(v) => setUnderdress(v as BasicAvatarUnderdress)} />
+              <OptionRow label="眼镜" options={basicAvatarOptions.glasses} selected={glasses} onSelect={(v) => setGlasses(v as BasicAvatarGlasses)} />
+            </div>
 
             {/* Error */}
             <AnimatePresence>

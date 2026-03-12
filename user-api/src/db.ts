@@ -53,6 +53,11 @@ function ensureSchema(db: Database) {
       glasses TEXT,
       top_color TEXT,
       bottom_color TEXT,
+      avatar_color TEXT NOT NULL DEFAULT 'blue',
+      avatar_shirt TEXT NOT NULL DEFAULT 'short',
+      avatar_underdress TEXT NOT NULL DEFAULT 'short',
+      avatar_glasses TEXT NOT NULL DEFAULT 'no',
+      avatar_emotion INTEGER DEFAULT NULL,
       theme_food TEXT DEFAULT '胡萝卜',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -62,9 +67,15 @@ function ensureSchema(db: Database) {
     CREATE TABLE IF NOT EXISTS user_food_logs (
       log_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      food_name TEXT NOT NULL,
       score INTEGER NOT NULL,
       content TEXT NOT NULL,
       voice_data TEXT,
+      feedback_text TEXT,
+      emotion INTEGER,
+      related_book_id TEXT,
+      related_reading_session_id TEXT,
+      related_reading_ended_at TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(user_id)
     );
@@ -187,6 +198,47 @@ function ensureUserAvatarColumns(db: Database) {
   if (!columns.has("theme_food")) {
     db.run("ALTER TABLE user_avatars ADD COLUMN theme_food TEXT DEFAULT '胡萝卜';");
   }
+  if (!columns.has("avatar_color")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_color TEXT NOT NULL DEFAULT 'blue';");
+  }
+  if (!columns.has("avatar_shirt")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_shirt TEXT NOT NULL DEFAULT 'short';");
+  }
+  if (!columns.has("avatar_underdress")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_underdress TEXT NOT NULL DEFAULT 'short';");
+  }
+  if (!columns.has("avatar_glasses")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_glasses TEXT NOT NULL DEFAULT 'no';");
+  }
+  if (!columns.has("avatar_emotion")) {
+    db.run("ALTER TABLE user_avatars ADD COLUMN avatar_emotion INTEGER DEFAULT NULL;");
+  }
+}
+
+function ensureFoodLogColumns(db: Database) {
+  const res = db.exec("PRAGMA table_info(user_food_logs);");
+  const columns = new Set<string>();
+  for (const row of res[0]?.values ?? []) {
+    if (typeof row[1] === "string") columns.add(row[1]);
+  }
+  if (!columns.has("food_name")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN food_name TEXT NOT NULL DEFAULT '';");
+  }
+  if (!columns.has("related_book_id")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN related_book_id TEXT;");
+  }
+  if (!columns.has("related_reading_session_id")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN related_reading_session_id TEXT;");
+  }
+  if (!columns.has("related_reading_ended_at")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN related_reading_ended_at TEXT;");
+  }
+  if (!columns.has("feedback_text")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN feedback_text TEXT;");
+  }
+  if (!columns.has("emotion")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN emotion INTEGER;");
+  }
 }
 
 function ensureSeedData(db: Database) {
@@ -289,6 +341,7 @@ export async function getDb(): Promise<Database> {
 
       ensureSchema(db);
       ensureUserAvatarColumns(db);
+      ensureFoodLogColumns(db);
       ensureSeedData(db);
       ensureAvatarAssets(db);
       await persistDb(db);
@@ -460,10 +513,10 @@ export async function saveUserAvatar(params: {
   userID: string;
   nickname: string;
   gender: string;
-  hairStyle?: string | null;
-  glasses?: string | null;
-  topColor?: string | null;
-  bottomColor?: string | null;
+  avatarColor?: string | null;
+  avatarShirt?: string | null;
+  avatarUnderdress?: string | null;
+  avatarGlasses?: string | null;
 }) {
   const db = await getDb();
   const now = new Date().toISOString();
@@ -472,23 +525,23 @@ export async function saveUserAvatar(params: {
     `
     INSERT INTO user_avatars (
       user_id, nickname, gender,
-      hair_style, glasses, top_color, bottom_color,
+      avatar_color, avatar_shirt, avatar_underdress, avatar_glasses,
       theme_food,
       created_at, updated_at
     )
     VALUES (
       $user_id, $nickname, $gender,
-      $hair_style, $glasses, $top_color, $bottom_color,
+      $avatar_color, $avatar_shirt, $avatar_underdress, $avatar_glasses,
       $theme_food,
       $created_at, $updated_at
     )
     ON CONFLICT(user_id) DO UPDATE SET
       nickname = $nickname,
       gender = $gender,
-      hair_style = $hair_style,
-      glasses = $glasses,
-      top_color = $top_color,
-      bottom_color = $bottom_color,
+      avatar_color = $avatar_color,
+      avatar_shirt = $avatar_shirt,
+      avatar_underdress = $avatar_underdress,
+      avatar_glasses = $avatar_glasses,
       theme_food = $theme_food,
       updated_at = $updated_at;
     `,
@@ -496,10 +549,10 @@ export async function saveUserAvatar(params: {
       $user_id: params.userID,
       $nickname: params.nickname,
       $gender: params.gender,
-      $hair_style: params.hairStyle ?? null,
-      $glasses: params.glasses ?? null,
-      $top_color: params.topColor ?? null,
-      $bottom_color: params.bottomColor ?? null,
+      $avatar_color: params.avatarColor ?? "blue",
+      $avatar_shirt: params.avatarShirt ?? "short",
+      $avatar_underdress: params.avatarUnderdress ?? "short",
+      $avatar_glasses: params.avatarGlasses ?? "no",
       $theme_food: themeFood,
       $created_at: now,
       $updated_at: now,
@@ -512,10 +565,11 @@ export type UserAvatar = {
   userID: string;
   nickname: string;
   gender: string;
-  hairStyle: string | null;
-  glasses: string | null;
-  topColor: string | null;
-  bottomColor: string | null;
+  avatarColor: string;
+  avatarShirt: string;
+  avatarUnderdress: string;
+  avatarGlasses: string;
+  avatarEmotion: number | null;
   themeFood: string;
   createdAt: string;
   updatedAt: string;
@@ -525,7 +579,7 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
   const db = await getDb();
   const stmt = db.prepare(
     `
-    SELECT user_id, nickname, gender, hair_style, glasses, top_color, bottom_color, theme_food, created_at, updated_at
+    SELECT user_id, nickname, gender, avatar_color, avatar_shirt, avatar_underdress, avatar_glasses, avatar_emotion, theme_food, created_at, updated_at
     FROM user_avatars
     WHERE user_id = $user_id
     LIMIT 1;
@@ -538,10 +592,11 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
       user_id: string;
       nickname: string;
       gender: string;
-      hair_style: string | null;
-      glasses: string | null;
-      top_color: string | null;
-      bottom_color: string | null;
+      avatar_color: string | null;
+      avatar_shirt: string | null;
+      avatar_underdress: string | null;
+      avatar_glasses: string | null;
+      avatar_emotion: number | null;
       theme_food: string | null;
       created_at: string;
       updated_at: string;
@@ -550,10 +605,11 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
       userID: row.user_id,
       nickname: row.nickname,
       gender: row.gender,
-      hairStyle: row.hair_style ?? null,
-      glasses: row.glasses ?? null,
-      topColor: row.top_color ?? null,
-      bottomColor: row.bottom_color ?? null,
+      avatarColor: row.avatar_color || "blue",
+      avatarShirt: row.avatar_shirt || "short",
+      avatarUnderdress: row.avatar_underdress || "short",
+      avatarGlasses: row.avatar_glasses || "no",
+      avatarEmotion: typeof row.avatar_emotion === "number" ? row.avatar_emotion : null,
       themeFood: row.theme_food || "胡萝卜",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -563,29 +619,132 @@ export async function getUserAvatar(userID: string): Promise<UserAvatar | null> 
   }
 }
 
+export async function setUserAvatarEmotion(userID: string, emotion: number | null) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    UPDATE user_avatars
+    SET avatar_emotion = $emotion, updated_at = $updated_at
+    WHERE user_id = $user_id;
+    `,
+    {
+      $user_id: userID,
+      $emotion: emotion == null ? null : emotion,
+      $updated_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
 export async function insertFoodLog(params: {
   userID: string;
+  foodName: string;
   score: number;
   content: string;
   voiceData?: string | null;
+  feedbackText?: string | null;
+  emotion?: number | null;
+  relatedBookID?: string | null;
+  relatedReadingSessionID?: string | null;
+  relatedReadingEndedAt?: string | null;
 }) {
   const db = await getDb();
   const now = new Date().toISOString();
   db.run(
     `
-    INSERT INTO user_food_logs (log_id, user_id, score, content, voice_data, created_at)
-    VALUES ($log_id, $user_id, $score, $content, $voice_data, $created_at);
+    INSERT INTO user_food_logs (
+      log_id,
+      user_id,
+      food_name,
+      score,
+      content,
+      voice_data,
+      feedback_text,
+      emotion,
+      related_book_id,
+      related_reading_session_id,
+      related_reading_ended_at,
+      created_at
+    )
+    VALUES (
+      $log_id,
+      $user_id,
+      $food_name,
+      $score,
+      $content,
+      $voice_data,
+      $feedback_text,
+      $emotion,
+      $related_book_id,
+      $related_reading_session_id,
+      $related_reading_ended_at,
+      $created_at
+    );
     `,
     {
       $log_id: crypto.randomUUID(),
       $user_id: params.userID,
+      $food_name: params.foodName,
       $score: params.score,
       $content: params.content,
       $voice_data: params.voiceData ?? null,
+      $feedback_text: params.feedbackText ?? null,
+      $emotion: params.emotion ?? null,
+      $related_book_id: params.relatedBookID ?? null,
+      $related_reading_session_id: params.relatedReadingSessionID ?? null,
+      $related_reading_ended_at: params.relatedReadingEndedAt ?? null,
       $created_at: now,
     },
   );
   await persistDb(db);
+}
+
+export async function getLatestFoodLog(userID: string): Promise<{ score: number; content: string } | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT score, content
+    FROM user_food_logs
+    WHERE user_id = $user_id
+    ORDER BY created_at DESC
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { score: number; content: string };
+    return { score: row.score, content: row.content };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function getLatestCompletedReadingForUser(userID: string): Promise<{
+  sessionId: string;
+  bookId: string;
+  endedAt: string;
+} | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT rs.id, rs.book_id, rs.ended_at
+    FROM reading_sessions rs
+    JOIN history_books hb ON hb.book_id = rs.book_id AND hb.user_id = rs.user_id
+    WHERE rs.user_id = $user_id AND rs.completed = 1 AND rs.book_id IS NOT NULL
+    ORDER BY rs.ended_at DESC
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as { id: string; book_id: string; ended_at: string };
+    return { sessionId: row.id, bookId: row.book_id, endedAt: row.ended_at };
+  } finally {
+    stmt.free();
+  }
 }
 
 export async function insertAvatarState(params: {
@@ -631,6 +790,30 @@ export async function getLatestAvatarState(userID: string): Promise<{
     if (!stmt.step()) return null;
     const row = stmt.getAsObject() as unknown as { feedback_text: string | null };
     return { feedbackText: row.feedback_text ?? null };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function getRecentAvatarFeedbackTexts(userID: string, limit = 2): Promise<string[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT feedback_text
+    FROM user_avatar_states
+    WHERE user_id = $user_id AND feedback_text IS NOT NULL AND feedback_text != ''
+    ORDER BY created_at DESC
+    LIMIT $limit;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID, $limit: limit });
+    const items: string[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as { feedback_text: string | null };
+      if (row.feedback_text) items.push(row.feedback_text);
+    }
+    return items;
   } finally {
     stmt.free();
   }
@@ -1580,7 +1763,7 @@ export async function exportAllUsers(): Promise<Record<string, unknown>[]> {
 export async function exportAllFoodLogs(): Promise<Record<string, unknown>[]> {
   const db = await getDb();
   return execRows(db, `
-    SELECT log_id, user_id, score, content, created_at
+    SELECT log_id, user_id, food_name, score, content, feedback_text, emotion, related_book_id, related_reading_session_id, related_reading_ended_at, created_at
     FROM user_food_logs
     ORDER BY created_at DESC;
   `);
@@ -1609,8 +1792,9 @@ export async function exportAllVoiceRecordings(): Promise<Record<string, unknown
 export async function exportAllAvatars(): Promise<Record<string, unknown>[]> {
   const db = await getDb();
   return execRows(db, `
-    SELECT user_id, nickname, gender, hair_style, glasses,
-           top_color, bottom_color, theme_food, created_at, updated_at
+    SELECT user_id, nickname, gender,
+           avatar_color, avatar_shirt, avatar_underdress, avatar_glasses,
+           theme_food, created_at, updated_at
     FROM user_avatars
     ORDER BY user_id;
   `);
