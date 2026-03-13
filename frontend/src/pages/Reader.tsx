@@ -244,7 +244,6 @@ export default function ReaderPage() {
     }
   }, [draft, pageIdx, tts.stop, track]);
 
-  const TOTAL_SESSIONS = 9;
 
   const logReadingSession = useCallback(async (
     extra: { tryLevel?: TryLevel | null; abortReason?: AbortReason | null } | null,
