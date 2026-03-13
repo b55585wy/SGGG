@@ -731,9 +731,9 @@ export default function AdminUsersPage() {
             </div>
 
             {/* Enriched User Table */}
-            <div className="overflow-hidden rounded-2xl border border-border-light bg-surface
+            <div className="overflow-x-auto rounded-2xl border border-border-light bg-surface
                             shadow-[0_8px_24px_-8px_rgba(0,0,0,0.04)]">
-              <table className="w-full">
+              <table className="w-full min-w-[1200px]">
                 <thead>
                   <tr className="border-b border-border-light bg-warm-100/50">
                     <ColHeader label="用户ID" sk="userID" />
