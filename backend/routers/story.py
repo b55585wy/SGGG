@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from openai import RateLimitError
 from models import GenerateRequest, RegenerateRequest
 from database import get_db
-from llm import generate_story_content
+from episode_text import generate_story_from_episode
 from image_gen import generate_images_for_pages
 
 router = APIRouter(prefix="/api/v1/story", tags=["story"])
@@ -28,9 +28,33 @@ def _build_draft(story_content: dict, story_id: str) -> dict:
 
 def _generate_images_bg(story_id: str, draft_copy: dict):
     """后台线程：并行生成图片后更新数据库。"""
-    global_style = draft_copy.get("book_meta", {}).get("global_visual_style", "")
+    global_style = ""
+    visual_canon = draft_copy.get("visual_canon") if isinstance(draft_copy.get("visual_canon"), dict) else None
+    page_image_prompt_packages = (
+        draft_copy.get("page_image_prompt_packages")
+        if isinstance(draft_copy.get("page_image_prompt_packages"), list)
+        else None
+    )
+    temporal_characteristics = (
+        draft_copy.get("temporal_characteristics")
+        if isinstance(draft_copy.get("temporal_characteristics"), dict)
+        else {}
+    )
+    child_avatar = (
+        temporal_characteristics.get("child_avatar")
+        if isinstance(temporal_characteristics.get("child_avatar"), dict)
+        else None
+    )
+    if not visual_canon:
+        global_style = draft_copy.get("book_meta", {}).get("global_visual_style", "")
     print(f"[INFO] IMG generation start story_id={story_id}")
-    generate_images_for_pages(draft_copy["pages"], global_style)
+    generate_images_for_pages(
+        draft_copy["pages"],
+        global_style,
+        visual_canon=visual_canon,
+        page_image_prompt_packages=page_image_prompt_packages,
+        child_avatar=child_avatar,
+    )
     with get_db() as db:
         db.execute(
             "UPDATE stories SET story_json = ? WHERE story_id = ?",
@@ -56,10 +80,22 @@ def story_generate(req: GenerateRequest):
     child_profile = req.child_profile.model_dump()
     meal_context = req.meal_context.model_dump()
     story_config = req.story_config.model_dump()
+    story_arc = req.story_arc or {}
+    recap_and_goal = req.recap_and_goal or {}
+    temporal_characteristics = req.temporal_characteristics or {}
+    recent_story = req.recent_story
     try:
-        print("[INFO] story_generate LLM start")
-        content = generate_story_content(child_profile, meal_context, story_config)
-        print("[INFO] story_generate LLM done")
+        print("[INFO] story_generate episode_module start")
+        content = generate_story_from_episode(
+            child_profile=child_profile,
+            meal_context=meal_context,
+            story_config=story_config,
+            story_arc=story_arc,
+            recap_and_goal=recap_and_goal,
+            temporal_characteristics=temporal_characteristics,
+            recent_story=recent_story,
+        )
+        print("[INFO] story_generate episode_module done")
     except RateLimitError:
         raise HTTPException(429, detail={"error": {"code": "RATE_LIMIT", "message": "AI 生成频率超限，请等待 1 分钟后重试。"}})
     except json.JSONDecodeError as e:
@@ -75,6 +111,14 @@ def story_generate(req: GenerateRequest):
     draft["child_profile"] = child_profile
     draft["meal_context"] = meal_context
     draft["story_config"] = story_config
+    if story_arc:
+        draft["story_arc"] = story_arc
+    if recap_and_goal:
+        draft["recap_and_goal"] = recap_and_goal
+    if temporal_characteristics:
+        draft["temporal_characteristics"] = temporal_characteristics
+    if recent_story is not None:
+        draft["recent_story"] = recent_story
 
     with get_db() as db:
         db.execute(
@@ -118,16 +162,27 @@ def story_regenerate(req: RegenerateRequest):
 
     meal_context = prev_draft.get("meal_context") or {"target_food": req.target_food, "meal_score": 3, "meal_text": ""}
     meal_context["target_food"] = req.target_food
+    story_arc = prev_draft.get("story_arc") or {}
+    recap_and_goal = prev_draft.get("recap_and_goal") or {}
+    temporal_characteristics = prev_draft.get("temporal_characteristics") or {}
+    temporal_characteristics = {
+        **temporal_characteristics,
+        **(req.temporal_characteristics or {}),
+        "selected_food_instance": req.target_food,
+    }
 
     try:
-        print("[INFO] story_regenerate LLM start")
-        content = generate_story_content(
-            prev_draft.get("child_profile") or {},
-            meal_context,
-            story_config,
-            dissatisfaction_reason=req.dissatisfaction_reason,
+        print("[INFO] story_regenerate episode_module start")
+        content = generate_story_from_episode(
+            child_profile=prev_draft.get("child_profile") or {},
+            meal_context=meal_context,
+            story_config=story_config,
+            story_arc=story_arc,
+            recap_and_goal=recap_and_goal,
+            temporal_characteristics=temporal_characteristics,
+            recent_story=prev_draft.get("recent_story"),
         )
-        print("[INFO] story_regenerate LLM done")
+        print("[INFO] story_regenerate episode_module done")
     except RateLimitError:
         raise HTTPException(429, detail={"error": {"code": "RATE_LIMIT", "message": "AI 生成频率超限，请等待 1 分钟后重试。"}})
     except json.JSONDecodeError as e:
@@ -143,6 +198,12 @@ def story_regenerate(req: RegenerateRequest):
     draft["child_profile"] = prev_draft.get("child_profile") or {}
     draft["meal_context"] = meal_context
     draft["story_config"] = story_config
+    if story_arc:
+        draft["story_arc"] = story_arc
+    if recap_and_goal:
+        draft["recap_and_goal"] = recap_and_goal
+    if temporal_characteristics:
+        draft["temporal_characteristics"] = temporal_characteristics
 
     with get_db() as db:
         db.execute(

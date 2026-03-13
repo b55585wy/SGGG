@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import http from "node:http";
+import https from "node:https";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
@@ -11,6 +13,7 @@ import {
   getAvatarComponent,
   getLatestAvatarState,
   getLatestHistoryBook,
+  getRecentHistoryBooks,
   getTempBook,
   getTempBookById,
   getUserAvatar,
@@ -32,6 +35,8 @@ import {
   listUsers,
   saveTempBook,
   saveUserAvatar,
+  saveUserStoryArc,
+  getUserStoryArc,
   clearTempBook,
   setFirstLoginFlag,
   deleteUser,
@@ -39,22 +44,99 @@ import {
   setUserGenerating,
   clearUserGenerating,
   isUserGenerating,
+  getUserGeneratingState,
+  setUserGeneratingError,
+  clearUserGeneratingError,
   exportAllUsers,
   exportAllFoodLogs,
   exportAllReadingSessions,
   exportAllVoiceRecordings,
   exportAllAvatars,
   setUserAvatarEmotion,
+  updateUserThemeFood,
 } from "./db";
 import { signUserToken } from "./jwt";
+import { buildStoryArcUserProfile, type StoryArcExtraProfile } from "./storyArc";
+import { buildPreviousBlocks, type StorySummaryOutput } from "./storySummary";
 
 dotenv.config();
+
+const FASTAPI_FETCH_TIMEOUT_SEC = (() => {
+  const raw = Number(process.env.FASTAPI_FETCH_TIMEOUT_SEC ?? "900");
+  return Number.isFinite(raw) && raw > 0 ? raw : 900;
+})();
+
+async function postJsonWithTimeout(url: string, body: unknown, timeoutSec: number) {
+  const target = new URL(url);
+  const payload = JSON.stringify(body);
+  const transport = target.protocol === "https:" ? https : http;
+  return await new Promise<{
+    ok: boolean;
+    status: number;
+    text: string;
+    json: unknown | null;
+  }>((resolve, reject) => {
+    const req = transport.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || undefined,
+        path: `${target.pathname}${target.search}`,
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          text += chunk;
+        });
+        res.on("end", () => {
+          let parsed: unknown | null = null;
+          try {
+            parsed = text ? JSON.parse(text) : null;
+          } catch {
+            parsed = null;
+          }
+          const status = res.statusCode ?? 0;
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            text,
+            json: parsed,
+          });
+        });
+      },
+    );
+    req.setTimeout(timeoutSec * 1000, () => {
+      req.destroy(new Error(`FASTAPI request timeout after ${timeoutSec}s`));
+    });
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
 
 // In-memory set tracking users whose book is currently being generated/regenerated.
 // Cleared when the temp book is saved (or on error). Survives individual requests but
 // resets on server restart — acceptable because the polling client will see the book
 // in the DB once generation completes regardless.
 const generatingUsers = new Set<string>();
+type PendingAutoStory = {
+  storyId: string;
+  title: string;
+  summary: string;
+  regenerateCount: number;
+};
+const pendingAutoStories = new Map<string, PendingAutoStory>();
+
+function clearUserRuntimeGenerationState(userID: string) {
+  generatingUsers.delete(userID);
+  pendingAutoStories.delete(userID);
+}
 
 const app = express();
 
@@ -72,6 +154,37 @@ function createBookPreviewImage() {
   return svgDataUri(svg);
 }
 
+function buildAvatarReferenceAssetPath(avatar: {
+  gender: string;
+  avatarColor: string;
+  avatarShirt: string;
+  avatarUnderdress: string;
+  avatarGlasses: string;
+}) {
+  return `/basic/${avatar.gender}_${avatar.avatarColor}_${avatar.avatarShirt}_${avatar.avatarUnderdress}_${avatar.avatarGlasses}.png`;
+}
+
+function buildChildAvatarTemporalState(avatar: {
+  nickname: string;
+  gender: string;
+  avatarColor: string;
+  avatarShirt: string;
+  avatarUnderdress: string;
+  avatarGlasses: string;
+}) {
+  return {
+    nickname: avatar.nickname,
+    gender: avatar.gender,
+    identity_source: "persistent_base_reference",
+    color: avatar.avatarColor,
+    shirt: avatar.avatarShirt,
+    underdress: avatar.avatarUnderdress,
+    glasses: avatar.avatarGlasses,
+    reference_asset_kind: "frontend_public_png",
+    reference_asset_path: buildAvatarReferenceAssetPath(avatar),
+  };
+}
+
 function isPlaceholderPreview(preview: string) {
   return preview.startsWith("data:image/svg+xml");
 }
@@ -80,6 +193,18 @@ function extractStoryId(content: string): string | null {
   try {
     const parsed = JSON.parse(content) as { story_id?: string };
     return typeof parsed.story_id === "string" ? parsed.story_id : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractBookMeta(content: string): { title: string; summary: string } | null {
+  try {
+    const parsed = JSON.parse(content) as { book_meta?: { title?: string; summary?: string } };
+    const title = typeof parsed.book_meta?.title === "string" ? parsed.book_meta.title : "";
+    const summary = typeof parsed.book_meta?.summary === "string" ? parsed.book_meta.summary : "";
+    if (!title && !summary) return null;
+    return { title, summary };
   } catch {
     return null;
   }
@@ -102,7 +227,72 @@ async function resolvePreviewFromBackend(storyId: string): Promise<string | null
   }
 }
 
+async function resolveDraftFromBackendIfReady(storyId: string): Promise<{ preview: string; content: string } | null> {
+  try {
+    const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { draft?: { pages?: Array<{ page_no?: number; image_url?: string }> } };
+    const pages = data.draft?.pages ?? [];
+    if (pages.length === 0) return null;
+    const allReady = pages.every((p) => typeof p.image_url === "string" && p.image_url.length > 0);
+    if (!allReady) return null;
+    const sorted = [...pages].sort((a, b) => (a.page_no ?? 0) - (b.page_no ?? 0));
+    const first = sorted[0];
+    const preview = first?.image_url ?? null;
+    if (!preview) return null;
+    return { preview, content: JSON.stringify(data.draft) };
+  } catch {
+    return null;
+  }
+}
+
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+
+async function generateStoryArcViaBackend(userProfile: Record<string, unknown>): Promise<unknown> {
+  const response = await fetch(`${FASTAPI_URL}/api/v1/continuity/story_arc/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ user_profile: userProfile }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`FastAPI continuity/story_arc/generate failed (${response.status}): ${text}`);
+  }
+  const data = (await response.json()) as { story_arc?: unknown };
+  if (!data || typeof data !== "object" || !("story_arc" in data)) {
+    throw new Error("FastAPI continuity/story_arc/generate returned invalid payload");
+  }
+  return data.story_arc;
+}
+
+async function summarizeViaBackend(params: {
+  userID: string;
+  previousBlocks: Array<{ episode_id: string; title: string; text_cn: string }>;
+  storyFramework: Record<string, unknown> | null;
+}): Promise<StorySummaryOutput | null> {
+  if (!params.previousBlocks || params.previousBlocks.length === 0) return null;
+  try {
+    console.info(`INFO: summarize:start userID=${params.userID} blocks=${params.previousBlocks.length}`);
+    const response = await fetch(`${FASTAPI_URL}/api/v1/continuity/summarize`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        previous_blocks: params.previousBlocks.slice(0, 3),
+        story_framework: params.storyFramework ?? null,
+      }),
+    });
+    if (!response.ok) {
+      console.info(`INFO: summarize:skip userID=${params.userID} status=${response.status}`);
+      return null;
+    }
+    const data = (await response.json()) as { summary?: StorySummaryOutput };
+    console.info(`INFO: summarize:done userID=${params.userID}`);
+    return data.summary ?? null;
+  } catch {
+    console.info(`INFO: summarize:error userID=${params.userID}`);
+    return null;
+  }
+}
 
 /** 分数映射：user-api 0-10 → FastAPI 1-5 */
 function mapScore(score: number): number {
@@ -142,6 +332,10 @@ async function generateTempBookForUser(params: {
   nickname: string;
   gender: string;
   themeFood: string;
+  avatarColor: string;
+  avatarShirt: string;
+  avatarUnderdress: string;
+  avatarGlasses: string;
   mealScore: number;
   mealContent: string;
   regenerateCount: number;
@@ -149,7 +343,13 @@ async function generateTempBookForUser(params: {
   recentHistory: Array<{ score: number; content: string; createdAt: string }>;
   /** 阅读行为摘要 */
   readingSummary: { totalSessions: number; lastCompletionRate: number | null; lastCompleted: boolean | null };
-}) {
+  storySummary?: StorySummaryOutput | null;
+  storyArc?: Record<string, unknown> | null;
+}): Promise<{
+  storyId: string;
+  title: string;
+  summary: string;
+}> {
   const allScores = [params.mealScore, ...params.recentHistory.map((h) => h.score)];
   const trend = calcScoreTrend(allScores);
   const attemptNumber = params.recentHistory.length + 1; // 含本次
@@ -187,6 +387,19 @@ async function generateTempBookForUser(params: {
       previous_book_completed: params.readingSummary.lastCompleted ?? false,
       previous_book_completion_rate: params.readingSummary.lastCompletionRate,
     },
+    story_arc: params.storyArc ?? undefined,
+    recap_and_goal: params.storySummary ?? undefined,
+    temporal_characteristics: {
+      selected_food_instance: params.themeFood,
+      child_avatar: buildChildAvatarTemporalState({
+        nickname: params.nickname,
+        gender: params.gender,
+        avatarColor: params.avatarColor,
+        avatarShirt: params.avatarShirt,
+        avatarUnderdress: params.avatarUnderdress,
+        avatarGlasses: params.avatarGlasses,
+      }),
+    },
     story_config: {
       story_type: "interactive",
       difficulty: autoDifficulty,
@@ -196,18 +409,17 @@ async function generateTempBookForUser(params: {
     },
   };
 
-  const response = await fetch(`${FASTAPI_URL}/api/v1/story/generate`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(requestBody),
-  });
+  const response = await postJsonWithTimeout(
+    `${FASTAPI_URL}/api/v1/story/generate`,
+    requestBody,
+    FASTAPI_FETCH_TIMEOUT_SEC,
+  );
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`FastAPI story/generate failed (${response.status}): ${text}`);
+    throw new Error(`FastAPI story/generate failed (${response.status}): ${response.text}`);
   }
 
-  const data = (await response.json()) as {
+  const data = response.json as {
     draft: {
       story_id: string;
       book_meta: { title: string; summary: string };
@@ -226,46 +438,128 @@ async function generateTempBookForUser(params: {
     });
   }
 
-  await saveTempBook({
-    userID: params.userID,
-    bookID: draft.story_id,
+  return {
+    storyId: draft.story_id,
     title: draft.book_meta.title,
-    preview: createBookPreviewImage(),
-    description: draft.book_meta.summary,
-    content: JSON.stringify(draft),
-    regenerateCount: params.regenerateCount,
-  });
+    summary: draft.book_meta.summary,
+  };
 }
 
-async function triggerAutoBookGeneration(userID: string, avatar: { nickname: string; gender: string; themeFood: string }) {
+async function triggerAutoBookGeneration(userID: string, avatar: {
+  nickname: string;
+  gender: string;
+  themeFood: string;
+  avatarColor: string;
+  avatarShirt: string;
+  avatarUnderdress: string;
+  avatarGlasses: string;
+}) {
   if (generatingUsers.has(userID) || await isUserGenerating(userID)) return;
   const existingTemp = await getTempBook(userID);
   if (existingTemp) return;
-
-  const history = await getFoodLogHistory(userID, 10);
-  const latest = history[0] ?? null;
-  const mealScore = latest?.score ?? 5;
-  const mealContent = latest?.content ?? "暂无进食记录";
-  const recentHistory = history.length > 1 ? history.slice(1) : [];
-  const readingSummary = await getReadingSummary(userID);
-
   generatingUsers.add(userID);
   setUserGenerating(userID).catch(() => {});
-  generateTempBookForUser({
-    userID,
-    nickname: avatar.nickname,
-    gender: avatar.gender,
-    themeFood: avatar.themeFood,
-    mealScore,
-    mealContent,
-    regenerateCount: 0,
-    recentHistory,
-    readingSummary,
-  }).catch((err) => console.error("[BOOK] 绘本生成失败:", err))
-    .finally(async () => {
+
+  void (async () => {
+    try {
+      const history = await getFoodLogHistory(userID, 10);
+      const latest = history[0] ?? null;
+      const mealScore = latest?.score ?? 5;
+      const mealContent = latest?.content ?? "暂无进食记录";
+      const recentHistory = history.length > 1 ? history.slice(1) : [];
+      const readingSummary = await getReadingSummary(userID);
+      const storyArc = await getUserStoryArc(userID);
+      const recentBooks = await getRecentHistoryBooks(userID, 3);
+      const previousBlocks = buildPreviousBlocks(recentBooks);
+      let storyFramework: Record<string, unknown> | null = null;
+      if (storyArc?.storyArcJson) {
+        try {
+          const parsed = JSON.parse(storyArc.storyArcJson) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            storyFramework = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // ignore invalid story_arc payload
+        }
+      }
+      const storySummary = await summarizeViaBackend({
+        userID,
+        previousBlocks,
+        storyFramework,
+      });
+      const launched = await generateTempBookForUser({
+        userID,
+        nickname: avatar.nickname,
+        gender: avatar.gender,
+        themeFood: avatar.themeFood,
+        avatarColor: avatar.avatarColor,
+        avatarShirt: avatar.avatarShirt,
+        avatarUnderdress: avatar.avatarUnderdress,
+        avatarGlasses: avatar.avatarGlasses,
+        mealScore,
+        mealContent,
+        regenerateCount: 0,
+        recentHistory,
+        readingSummary,
+        storySummary,
+        storyArc: storyFramework,
+      });
+      pendingAutoStories.set(userID, {
+        storyId: launched.storyId,
+        title: launched.title,
+        summary: launched.summary,
+        regenerateCount: 0,
+      });
+    } catch (err) {
+      pendingAutoStories.delete(userID);
       generatingUsers.delete(userID);
       await clearUserGenerating(userID).catch(() => {});
-    });
+      const message = err instanceof Error && err.message ? err.message : "绘本生成失败，请截图联系管理员";
+      await setUserGeneratingError(userID, message).catch(() => {});
+      console.error("[BOOK] 绘本生成失败:", err);
+    }
+  })();
+}
+
+async function generateAndSaveStoryArcBase(params: {
+  userID: string;
+  themeFood: string;
+  nickname?: string | null;
+  gender?: string | null;
+  age?: number | null;
+  extraProfile?: StoryArcExtraProfile | null;
+  trigger: "register" | "avatar_save" | "theme_change";
+}) {
+  const existing = await getUserStoryArc(params.userID);
+  let seedProfile: Record<string, unknown> | null = null;
+  if (existing?.sourceProfileJson) {
+    try {
+      const parsed = JSON.parse(existing.sourceProfileJson) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        seedProfile = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // ignore invalid historical data
+    }
+  }
+  const sourceProfile = buildStoryArcUserProfile({
+    userID: params.userID,
+    themeFood: params.themeFood,
+    nickname: params.nickname ?? null,
+    gender: params.gender ?? null,
+    age: params.age ?? null,
+  }, {
+    seedProfile,
+    extraProfile: params.extraProfile ?? null,
+  });
+  console.info(`INFO: story_arc:start userID=${params.userID} trigger=${params.trigger}`);
+  const storyArc = await generateStoryArcViaBackend(sourceProfile);
+  await saveUserStoryArc({
+    userID: params.userID,
+    storyArcJson: JSON.stringify(storyArc),
+    sourceProfileJson: JSON.stringify(sourceProfile),
+  });
+  console.info(`INFO: story_arc:done userID=${params.userID} trigger=${params.trigger}`);
 }
 
 app.get("/api/health", (_req, res) => {
@@ -340,6 +634,10 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
     typeof (body as { themeFood?: unknown }).themeFood === "string"
       ? (body as { themeFood: string }).themeFood.trim()
       : "胡萝卜";
+  const storyArcProfile =
+    body && typeof body === "object" && (body as { storyArcProfile?: unknown }).storyArcProfile && typeof (body as { storyArcProfile?: unknown }).storyArcProfile === "object"
+      ? ((body as { storyArcProfile: unknown }).storyArcProfile as StoryArcExtraProfile)
+      : null;
 
   if (!userID.trim() || !password) {
     res.status(400).json({ message: "参数错误" });
@@ -348,6 +646,18 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
 
   try {
     await insertUser({ userID, password, firstLogin, themeFood });
+    try {
+      await generateAndSaveStoryArcBase({
+        userID,
+        themeFood,
+        extraProfile: storyArcProfile,
+        trigger: "register",
+      });
+    } catch (arcErr) {
+      await deleteUser(userID).catch(() => {});
+      clearUserRuntimeGenerationState(userID);
+      throw arcErr;
+    }
     res.status(201).json({ user: { userID }, firstLogin, themeFood });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
@@ -373,6 +683,7 @@ app.delete("/api/admin/users/:userID", adminRequired, async (req, res) => {
   try {
     const deleted = await deleteUser(userID);
     if (deleted) {
+      clearUserRuntimeGenerationState(userID);
       res.json({ ok: true, message: "删除成功" });
     } else {
       res.status(404).json({ message: "用户不存在" });
@@ -485,7 +796,50 @@ app.post("/api/avatar/save", authRequired, async (req: AuthenticatedRequest, res
     avatarUnderdress: underdress,
     avatarGlasses: glasses,
   });
+  const latestAvatar = await getUserAvatar(req.user.userID);
+  if (latestAvatar) {
+    generateAndSaveStoryArcBase({
+      userID: req.user.userID,
+      themeFood: latestAvatar.themeFood,
+      nickname: latestAvatar.nickname,
+      gender: latestAvatar.gender,
+      trigger: "avatar_save",
+    }).catch((err) => {
+      console.error("[STORY_ARC] async refresh after avatar save failed:", err);
+    });
+  }
   res.json({ ok: true });
+});
+
+app.post("/api/story/theme", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!req.user) {
+    res.status(401).json({ message: "未登录" });
+    return;
+  }
+  const body = req.body as unknown;
+  const themeFood =
+    body && typeof body === "object" && typeof (body as { themeFood?: unknown }).themeFood === "string"
+      ? (body as { themeFood: string }).themeFood.trim()
+      : "";
+  if (!themeFood) {
+    res.status(400).json({ message: "themeFood 不能为空" });
+    return;
+  }
+  await updateUserThemeFood(req.user.userID, themeFood);
+  const avatar = await getUserAvatar(req.user.userID);
+  try {
+    await generateAndSaveStoryArcBase({
+      userID: req.user.userID,
+      themeFood,
+      nickname: avatar?.nickname ?? null,
+      gender: avatar?.gender ?? null,
+      trigger: "theme_change",
+    });
+  } catch (e) {
+    res.status(500).json({ message: "故事主题已更新，但 story_arc 重新生成失败" });
+    return;
+  }
+  res.json({ ok: true, themeFood });
 });
 
 app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -518,7 +872,58 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   };
 
   const tempBook = await getTempBook(req.user.userID);
-  const generating = generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID);
+  const generatingState = await getUserGeneratingState(req.user.userID);
+  const generating = generatingUsers.has(req.user.userID) || generatingState.generating;
+  const statusMetaWithBook = {
+    generating,
+    generatingSince: generating ? generatingState.generatingSince : null,
+    generatingSlow: generating ? generatingState.generatingSlow : false,
+    generationError: null,
+  };
+  const statusMetaNoBook = {
+    generating,
+    generatingSince: generating ? generatingState.generatingSince : null,
+    generatingSlow: generating ? generatingState.generatingSlow : false,
+    generationError: generating ? null : generatingState.generationError,
+  };
+  if (!tempBook && generating) {
+    const pending = pendingAutoStories.get(req.user.userID);
+    if (pending) {
+      const resolved = await resolveDraftFromBackendIfReady(pending.storyId);
+      if (resolved) {
+        const meta = extractBookMeta(resolved.content);
+        await saveTempBook({
+          userID: req.user.userID,
+          bookID: pending.storyId,
+          title: meta?.title || pending.title,
+          preview: resolved.preview,
+          description: meta?.summary || pending.summary,
+          content: resolved.content,
+          regenerateCount: pending.regenerateCount,
+        });
+        pendingAutoStories.delete(req.user.userID);
+        generatingUsers.delete(req.user.userID);
+        await clearUserGenerating(req.user.userID).catch(() => {});
+        await clearUserGeneratingError(req.user.userID).catch(() => {});
+        res.json({
+          ...base,
+          generating: false,
+          generatingSince: null,
+          generatingSlow: false,
+          generationError: null,
+          book: {
+            bookID: pending.storyId,
+            title: meta?.title || pending.title,
+            preview: resolved.preview,
+            description: meta?.summary || pending.summary,
+            confirmed: false,
+            regenerateCount: pending.regenerateCount,
+          },
+        });
+        return;
+      }
+    }
+  }
   if (tempBook) {
     let preview = tempBook.preview;
     if (isPlaceholderPreview(preview)) {
@@ -541,7 +946,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     }
     res.json({
       ...base,
-      generating,
+      ...statusMetaWithBook,
       book: {
         bookID: tempBook.bookID,
         title: tempBook.title,
@@ -566,7 +971,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     }
     res.json({
       ...base,
-      generating,
+      ...statusMetaWithBook,
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
@@ -579,13 +984,32 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     return;
   }
 
-  if (!generating) {
-    triggerAutoBookGeneration(req.user.userID, avatar);
-    res.json({ ...base, generating: true, book: null });
+  if (!generating && generatingState.generationError) {
+    res.json({
+      ...base,
+      generating: false,
+      generatingSince: null,
+      generatingSlow: false,
+      generationError: generatingState.generationError,
+      book: null,
+    });
     return;
   }
 
-  res.json({ ...base, generating, book: null });
+  if (!generating) {
+    triggerAutoBookGeneration(req.user.userID, avatar);
+    res.json({
+      ...base,
+      generating: true,
+      generatingSince: new Date().toISOString(),
+      generatingSlow: false,
+      generationError: null,
+      book: null,
+    });
+    return;
+  }
+
+  res.json({ ...base, ...statusMetaNoBook, book: null });
 });
 
 app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -606,6 +1030,10 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
   const content =
     typeof (body as { content?: unknown }).content === "string"
       ? (body as { content: string }).content.trim()
+      : "";
+  const specificThing =
+    typeof (body as { specificThing?: unknown }).specificThing === "string"
+      ? (body as { specificThing: string }).specificThing.trim()
       : "";
   if (!foodName) {
     res.status(400).json({ message: "请输入今日食物" });
@@ -642,6 +1070,7 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       body: JSON.stringify({
         nickname: avatar.nickname,
         picky_food: foodName,
+        specific_thing: specificThing || null,
         self_rating: score,
         self_description: content,
         recent_phrases: recentPhrases,
@@ -674,6 +1103,7 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
   await insertFoodLog({
     userID: req.user.userID,
     foodName,
+    specificThing: specificThing || null,
     score,
     content,
     voiceData,
@@ -807,25 +1237,36 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     difficulty: regenDifficulty,
     interaction_density: regenInteractionDensity,
     dissatisfaction_reason: promptReason || promptNote || "用户要求重新生成",
+    temporal_characteristics: {
+      selected_food_instance: targetFoodOverride || avatar.themeFood,
+      child_avatar: buildChildAvatarTemporalState({
+        nickname: avatar.nickname,
+        gender: avatar.gender,
+        avatarColor: avatar.avatarColor,
+        avatarShirt: avatar.avatarShirt,
+        avatarUnderdress: avatar.avatarUnderdress,
+        avatarGlasses: avatar.avatarGlasses,
+      }),
+    },
   };
 
   generatingUsers.add(req.user.userID);
   await setUserGenerating(req.user.userID).catch(() => {});
   try {
-  const response = await fetch(`${FASTAPI_URL}/api/v1/story/regenerate`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(regenBody),
-  });
+  const response = await postJsonWithTimeout(
+    `${FASTAPI_URL}/api/v1/story/regenerate`,
+    regenBody,
+    FASTAPI_FETCH_TIMEOUT_SEC,
+  );
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    console.error("[BOOK] 重新生成失败:", response.status, text);
+    console.error("[BOOK] 重新生成失败:", response.status, response.text);
+    await setUserGeneratingError(req.user.userID, response.text || "绘本重新生成失败，请截图联系管理员").catch(() => {});
     res.status(502).json({ message: "绘本重新生成失败" });
     return;
   }
 
-  const data = (await response.json()) as {
+  const data = response.json as {
     draft: {
       story_id: string;
       book_meta: { title: string; summary: string };
@@ -844,6 +1285,7 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     content: JSON.stringify(draft),
     regenerateCount: tempBook.regenerateCount + 1,
   });
+  await clearUserGeneratingError(req.user.userID).catch(() => {});
 
   res.json({
     ok: true,
@@ -958,6 +1400,18 @@ app.post("/api/voice/record", authRequired, async (req: AuthenticatedRequest, re
   res.json({ ok: true, recordingId, transcript });
 });
 
+function audioExtFromMime(mimeType: string): string {
+  const mime = mimeType.toLowerCase().split(";")[0].trim();
+  if (mime === "audio/webm") return "webm";
+  if (mime === "audio/mp4" || mime === "audio/x-m4a") return "m4a";
+  if (mime === "audio/mpeg" || mime === "audio/mp3" || mime === "audio/mpga") return "mp3";
+  if (mime === "audio/wav" || mime === "audio/x-wav" || mime === "audio/wave") return "wav";
+  if (mime === "audio/ogg") return "ogg";
+  if (mime === "audio/flac") return "flac";
+  if (mime === "audio/aiff") return "aiff";
+  return "webm";
+}
+
 app.post("/api/voice/transcribe", authRequired, upload.single("file"), async (req: AuthenticatedRequest, res) => {
   if (!req.user) { res.status(401).json({ message: "未登录" }); return; }
   const fastapiUrl = process.env.FASTAPI_URL || "http://localhost:8000";
@@ -968,8 +1422,8 @@ app.post("/api/voice/transcribe", authRequired, upload.single("file"), async (re
   }
 
   const form = new FormData();
-  const mime = file.mimetype || "audio/webm";
-  const filename = file.originalname || "recording.webm";
+  const mime = (file.mimetype || "audio/webm").toLowerCase();
+  const filename = `recording.${audioExtFromMime(mime)}`;
   form.append("file", new Blob([new Uint8Array(file.buffer)], { type: mime }), filename);
 
   const endpoint = fastapiUrl.replace(/\/$/, "") + "/api/v1/voice/transcribe";
@@ -1014,15 +1468,25 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     tryLevel?: unknown;
     abortReason?: unknown;
   };
-  const durationMs = typeof body.durationMs === "number" ? body.durationMs : 0;
-  const totalPages = typeof body.totalPages === "number" ? body.totalPages : 0;
-  const pagesRead = typeof body.pagesRead === "number" ? body.pagesRead : 0;
   const now = new Date().toISOString();
-  await insertReadingSession({
+  const startedAt = typeof body.startedAt === "string" ? body.startedAt : now;
+  const endedAt = typeof body.endedAt === "string" ? body.endedAt : now;
+  const startedMs = Date.parse(startedAt);
+  const endedMs = Date.parse(endedAt);
+  const computedDurationMs = Number.isFinite(startedMs) && Number.isFinite(endedMs) && endedMs >= startedMs
+    ? endedMs - startedMs
+    : 0;
+  const clientDurationMs = typeof body.durationMs === "number" && Number.isFinite(body.durationMs) && body.durationMs >= 0
+    ? Math.floor(body.durationMs)
+    : 0;
+  const durationMs = Math.max(clientDurationMs, computedDurationMs);
+  const totalPages = typeof body.totalPages === "number" && Number.isFinite(body.totalPages) ? Math.max(0, Math.floor(body.totalPages)) : 0;
+  const pagesRead = typeof body.pagesRead === "number" && Number.isFinite(body.pagesRead) ? Math.max(0, Math.floor(body.pagesRead)) : 0;
+  const writeResult = await insertReadingSession({
     userID: req.user.userID,
     bookID: typeof body.bookId === "string" ? body.bookId : null,
-    startedAt: typeof body.startedAt === "string" ? body.startedAt : now,
-    endedAt: typeof body.endedAt === "string" ? body.endedAt : now,
+    startedAt,
+    endedAt,
     durationMs,
     totalPages,
     pagesRead,
@@ -1033,7 +1497,7 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     abortReason: typeof body.abortReason === "string" ? body.abortReason : null,
   });
   const bookId = typeof body.bookId === "string" ? body.bookId : null;
-  if (body.completed === true && bookId) {
+  if (body.completed === true && bookId && writeResult.created) {
     const history = await getHistoryBookById(req.user.userID, bookId);
     if (history) {
       const avatar = await getUserAvatar(req.user.userID);

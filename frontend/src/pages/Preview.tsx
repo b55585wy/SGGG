@@ -117,7 +117,7 @@ export default function PreviewPage() {
         {/* Meta tags */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.1 }}
           className="flex flex-wrap gap-2 mb-4">
-          {[m.theme_food, m.story_type, m.target_behavior_level, `${draft.pages.length} 页`].map((t, i) => (
+          {[m.theme_food, m.story_type, `${draft.pages.length} 页`].map((t, i) => (
             <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--color-warm-100)] text-[var(--color-muted)] text-xs font-medium">
               {i < 2 ? <Tag size={12} weight="bold" /> : <Star size={12} weight="bold" />}{t}
             </span>

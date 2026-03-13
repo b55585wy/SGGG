@@ -1,0 +1,11 @@
+{
+  "nickname": "xxx",
+  "age": 4,
+  "target_food_category": "green vegetables",
+  "interest_theme": ["trains"],
+  "optional_preferences": {
+    "preferred_story_mode": "light_fantasy_familiar",
+    "avoid_topics": ["darkness", "monsters"],
+    "language_level": "simple"
+  }
+}

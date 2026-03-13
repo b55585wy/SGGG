@@ -40,10 +40,10 @@ const REASONS = [
 ]
 
 const STORY_TYPES = [
-  { value: 'interactive', label: '互动冒险', Icon: GameController },
-  { value: 'adventure',   label: '探险故事', Icon: Compass },
-  { value: 'social',      label: '社交故事', Icon: UsersThree },
-  { value: 'sensory',     label: '感官体验', Icon: Palette },
+  { value: 'interactive', label: '好奇发现', Icon: GameController },
+  { value: 'adventure',   label: '日常小事', Icon: Compass },
+  { value: 'social',      label: '轻趣幻想', Icon: UsersThree },
+  { value: 'sensory',     label: '奇妙探索', Icon: Palette },
 ]
 
 const spring = { type: 'spring' as const, stiffness: 100, damping: 20 }

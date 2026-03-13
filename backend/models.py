@@ -34,15 +34,14 @@ class StoryConfig(BaseModel):
     must_include_positive_feedback: bool = True
     language: str = "zh-CN"
 
-class HistoryContext(BaseModel):
-    previous_summaries: Optional[list[str]] = None
-    used_story_types: Optional[list[str]] = None
-
 class GenerateRequest(BaseModel):
     child_profile: ChildProfile
     meal_context: MealContext
     story_config: StoryConfig
-    history_context: Optional[HistoryContext] = None
+    story_arc: Optional[dict[str, Any]] = None
+    recap_and_goal: Optional[dict[str, Any]] = None
+    temporal_characteristics: Optional[dict[str, Any]] = None
+    recent_story: Optional[Any] = None
 
 
 # ── Story Regenerate ──────────────────────────────────────────
@@ -55,6 +54,7 @@ class RegenerateRequest(BaseModel):
     pages: Optional[int] = None
     difficulty: Optional[str] = None
     interaction_density: Optional[str] = None
+    temporal_characteristics: Optional[dict[str, Any]] = None
 
 
 # ── Session ───────────────────────────────────────────────────

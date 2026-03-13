@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ImageBroken, Tag } from '@phosphor-icons/react';
+import { ImageBroken } from '@phosphor-icons/react';
 import type { Page } from '@/types/story';
 
 interface StoryCardProps {
@@ -48,10 +48,6 @@ export function StoryCard({ page, imageUrl }: StoryCardProps) {
         <p className="text-lg leading-relaxed text-[var(--color-foreground)] max-w-[65ch]">
           {page.text}
         </p>
-        <div className="mt-4 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
-          <Tag size={14} weight="bold" />
-          <span>{page.behavior_anchor}</span>
-        </div>
       </div>
     </motion.div>
   );

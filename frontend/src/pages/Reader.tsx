@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning, Tag } from '@phosphor-icons/react';
+import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning } from '@phosphor-icons/react';
 import { InteractionLayer } from '@/components/InteractionLayer';
 import { FeedbackModal, type FeedbackDoneData } from '@/components/FeedbackModal';
 import { useSession } from '@/hooks/useSession';
@@ -23,12 +23,15 @@ export default function ReaderPage() {
   const [feedback, setFeedback] = useState<FeedbackStatus | null>(null);
   const [showSUS, setShowSUS] = useState(false);
   const [autoReadEnabled, setAutoReadEnabled] = useState(false);
+  const [interactionFrameShown, setInteractionFrameShown] = useState<Record<string, boolean>>({});
   const autoReadRef = useRef(false);
   const autoReadSeqRef = useRef(0);
   const lastAutoReadKeyRef = useRef<string | null>(null);
+  const completionLoggedRef = useRef(false);
   const enterRef = useRef(Date.now());
   const trackedRef = useRef(false);
   const sessionStartRef = useRef(new Date().toISOString());
+  const readingEndedAtRef = useRef<string | null>(null);
   const interactionCountRef = useRef(0);
 
   useEffect(() => {
@@ -130,6 +133,41 @@ export default function ReaderPage() {
     tts.stop();
   }, [tts]);
 
+  const TOTAL_SESSIONS = 9;
+
+  const logReadingSession = useCallback(async (
+    feedbackData: FeedbackDoneData | null,
+    pagesRead: number,
+    completed: boolean,
+  ) => {
+    if (!draft) return;
+    const bookId = localStorage.getItem('storybook_book_id') ?? undefined;
+    const sessionType = session !== null
+      ? 'experiment'
+      : (localStorage.getItem('storybook_source') ?? 'preview');
+    const endedAt = readingEndedAtRef.current ?? new Date().toISOString();
+    const startMs = Date.parse(sessionStartRef.current);
+    const endMs = Date.parse(endedAt);
+    const durationMs = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs
+      ? endMs - startMs
+      : Math.max(0, Date.now() - new Date(sessionStartRef.current).getTime());
+    try {
+      await postJson('/api/reading/log', {
+        bookId,
+        startedAt: sessionStartRef.current,
+        endedAt,
+        durationMs,
+        totalPages: draft.pages.length,
+        pagesRead,
+        interactionCount: interactionCountRef.current,
+        completed,
+        sessionType,
+        tryLevel: feedbackData?.tryLevel ?? null,
+        abortReason: feedbackData?.abortReason ?? null,
+      }, { keepalive: true });
+    } catch { /* best-effort */ }
+  }, [draft, session]);
+
   const trackDwell = useCallback(() => {
     if (!draft || !session) return;
     const p = draft.pages[pageIdx];
@@ -147,8 +185,13 @@ export default function ReaderPage() {
     }
     if (next >= draft.pages.length) {
       if (session) {
+        if (!readingEndedAtRef.current) readingEndedAtRef.current = new Date().toISOString();
         track('story_complete', { completion_rate: 1.0 }, draft.pages[draft.pages.length - 1].page_id);
         flush();
+        // Mark completed as soon as user taps "完成", so backend can trigger next-book generation
+        // even if the feedback modal is never submitted.
+        completionLoggedRef.current = true;
+        void logReadingSession(null, draft.pages.length, true);
         setFeedback('COMPLETED');
       } else {
         // Read-only mode — just go home
@@ -158,8 +201,12 @@ export default function ReaderPage() {
       }
       return;
     }
+    if (autoReadRef.current) {
+      // Force replay on the next page even if keys collide in edge flows.
+      lastAutoReadKeyRef.current = null;
+    }
     setPageIdx(next);
-  }, [draft, pageIdx, session, trackDwell, track, flush, tts, clearSession, navigate]);
+  }, [draft, pageIdx, session, trackDwell, track, flush, tts, clearSession, navigate, logReadingSession]);
 
   const onInteractionStart = useCallback((interactionType: string, eventKey: string) => {
     if (!draft) return;
@@ -168,19 +215,32 @@ export default function ReaderPage() {
 
   const onInteraction = useCallback((key: string, ms: number) => {
     if (!draft) return;
-    if (autoReadRef.current) {
-      tts.stop();
-    }
     interactionCountRef.current += 1;
-    track('interaction', { event_key: key, latency_ms: ms }, draft.pages[pageIdx].page_id);
-  }, [draft, pageIdx, track, tts]);
+    const currentPage = draft.pages[pageIdx];
+    track('interaction', { event_key: key, latency_ms: ms }, currentPage.page_id);
+    if (
+      currentPage.interaction.type === 'tap' ||
+      currentPage.interaction.type === 'drag' ||
+      currentPage.interaction.type === 'mimic'
+    ) {
+      if (currentPage.interaction_image_url) {
+        setInteractionFrameShown((prev) => (
+          prev[currentPage.page_id] ? prev : { ...prev, [currentPage.page_id]: true }
+        ));
+      }
+    }
+  }, [draft, pageIdx, track]);
 
   const onBranch = useCallback((choiceId: string, nextPageId: string) => {
     if (!draft) return;
     tts.stop();
     track('branch_select', { choice_id: choiceId }, draft.pages[pageIdx].page_id);
     const idx = draft.pages.findIndex(p => p.page_id === nextPageId);
-    if (idx >= 0) { trackDwell(); setPageIdx(idx); }
+    if (idx >= 0) {
+      trackDwell();
+      if (autoReadRef.current) lastAutoReadKeyRef.current = null;
+      setPageIdx(idx);
+    }
   }, [draft, pageIdx, track, trackDwell, tts]);
 
   const onTTS = useCallback(() => {
@@ -205,41 +265,16 @@ export default function ReaderPage() {
     }
   }, [draft, pageIdx, tts, track]);
 
-  const TOTAL_SESSIONS = 9;
-
-  const logReadingSession = useCallback(async (
-    feedbackData: FeedbackDoneData | null,
-    pagesRead: number,
-    completed: boolean,
-  ) => {
-    if (!draft) return;
-    const bookId = localStorage.getItem('storybook_book_id') ?? undefined;
-    const sessionType = session !== null
-      ? 'experiment'
-      : (localStorage.getItem('storybook_source') ?? 'preview');
-    const endedAt = new Date().toISOString();
-    const durationMs = Date.now() - new Date(sessionStartRef.current).getTime();
-    try {
-      await postJson('/api/reading/log', {
-        bookId,
-        startedAt: sessionStartRef.current,
-        endedAt,
-        durationMs,
-        totalPages: draft.pages.length,
-        pagesRead,
-        interactionCount: interactionCountRef.current,
-        completed,
-        sessionType,
-        tryLevel: feedbackData?.tryLevel ?? null,
-        abortReason: feedbackData?.abortReason ?? null,
-      });
-    } catch { /* best-effort */ }
-  }, [draft, session]);
-
   const onExit = useCallback(() => {
     tts.stop();
     if (session) {
-      trackDwell(); flush(); setFeedback('ABORTED');
+      if (!readingEndedAtRef.current) readingEndedAtRef.current = new Date().toISOString();
+      trackDwell();
+      flush();
+      // Persist abort timing immediately so closing the app on feedback modal
+      // does not drop this reading session.
+      void logReadingSession(null, pageIdx + 1, false);
+      setFeedback('ABORTED');
     } else {
       // Preview / review mode — log the visit and go home
       void logReadingSession(null, pageIdx + 1, false);
@@ -254,7 +289,14 @@ export default function ReaderPage() {
   const onFeedbackDone = useCallback((data: FeedbackDoneData) => {
     tts.stop();
     setFeedback(null);
-    void logReadingSession(data, pageIdx + 1, data.status === 'COMPLETED');
+    if (data.status === 'ABORTED') {
+      void logReadingSession(data, pageIdx + 1, false);
+    } else if (draft) {
+      // COMPLETED path: update the same session row with try_level while keeping
+      // the end timestamp fixed at the moment user tapped "完成".
+      completionLoggedRef.current = true;
+      void logReadingSession(data, draft.pages.length, true);
+    }
     if (session && session.session_index >= TOTAL_SESSIONS - 1) {
       setShowSUS(true);
     } else {
@@ -264,7 +306,7 @@ export default function ReaderPage() {
       localStorage.removeItem('storybook_source');
       navigate('/noa/home');
     }
-  }, [session, clearSession, navigate, logReadingSession, pageIdx, tts]);
+  }, [session, clearSession, navigate, logReadingSession, pageIdx, tts, draft]);
 
   const onSUSDone = useCallback(() => {
     tts.stop();
@@ -285,6 +327,14 @@ export default function ReaderPage() {
   const isLast = pageIdx === draft.pages.length - 1;
   const isFirst = pageIdx === 0;
   const progress = ((pageIdx + 1) / draft.pages.length) * 100;
+  const showInteractionFrame = !!interactionFrameShown[page.page_id]
+    && (
+      page.interaction.type === 'tap'
+      || page.interaction.type === 'drag'
+      || page.interaction.type === 'mimic'
+    )
+    && !!page.interaction_image_url;
+  const currentImageUrl = showInteractionFrame ? page.interaction_image_url : page.image_url;
 
   return (
     <div
@@ -361,17 +411,17 @@ export default function ReaderPage() {
         >
           <AnimatePresence mode="wait">
             <motion.div
-              key={page.page_id + '-img'}
+              key={`${page.page_id}-${showInteractionFrame ? 'interaction' : 'base'}-img`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35 }}
               className="absolute inset-0 flex flex-col items-center justify-center"
             >
-              {page.image_url ? (
+              {currentImageUrl ? (
                 /* 真实插图 */
                 <img
-                  src={page.image_url}
+                  src={currentImageUrl}
                   alt={page.image_prompt}
                   className="w-full h-full object-cover rounded-[2rem]"
                 />
@@ -404,12 +454,6 @@ export default function ReaderPage() {
                 <p className="text-2xl leading-loose" style={{ color: 'var(--color-foreground)' }}>
                   {page.text}
                 </p>
-
-                {/* 行为锚点 badge */}
-                <div className="mt-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1" style={{ background: 'var(--color-warm-100)' }}>
-                  <Tag size={11} weight="bold" style={{ color: 'var(--color-muted)' }} />
-                  <span className="text-xs font-medium" style={{ color: 'var(--color-muted)' }}>{page.behavior_anchor}</span>
-                </div>
 
                 {/* 互动层 */}
                 <InteractionLayer
