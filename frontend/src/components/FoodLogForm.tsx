@@ -24,7 +24,6 @@ type FoodLogResponse = {
   score?: number;
 };
 
-type VoiceResponse = { text: string };
 
 export type FoodLogFormResult = {
   feedbackText: string;
