@@ -55,9 +55,8 @@ export default function PreviewPage() {
         ...preAnswers, target_food: draft.book_meta.theme_food,
       }));
     }
-    const child_id = localStorage.getItem('storybook_active_child_id') || undefined;
     try {
-      await startSession(draft.story_id, child_id);
+      await startSession(draft.story_id);
       navigate('/reader');
     } catch (e) { setError(e instanceof Error ? e.message : '启动阅读失败，请重试。'); }
   };

@@ -299,7 +299,7 @@ export default function ReaderPage() {
     tts.stop();
     setFeedback(null);
     void logReadingSession({ tryLevel: data.tryLevel }, pageIdx + 1, true, !data.foodLogSubmitted);
-    if (session && session.session_index >= TOTAL_SESSIONS - 1) {
+    if (false) {
       setShowSUS(true);
     } else {
       goHome();
@@ -310,7 +310,7 @@ export default function ReaderPage() {
     tts.stop();
     setFeedback(null);
     void logReadingSession({ abortReason: data.abortReason }, pageIdx + 1, false);
-    if (session && session.session_index >= TOTAL_SESSIONS - 1) {
+    if (false) {
       setShowSUS(true);
     } else {
       goHome();

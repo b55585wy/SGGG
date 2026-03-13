@@ -41,7 +41,6 @@ export function StarRating({ value, onChange, size = 36 }: Props) {
         const halfScore = star * 2 - 1;
         const isFull = display >= fullScore;
         const isHalf = !isFull && display >= halfScore;
-        const _isEmpty = !isFull && !isHalf;
 
         return (
           <button
