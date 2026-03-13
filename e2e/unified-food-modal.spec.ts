@@ -15,11 +15,11 @@ async function mockHomeStatusNoBook(page: Page, themeFood = '西兰花') {
       body: JSON.stringify({
         avatar: {
           nickname: '测试小朋友',
-          baseImage: null,
-          hairImage: '',
-          glassesImage: '',
-          topImage: '',
-          bottomImage: '',
+          gender: 'male',
+          color: 'blue',
+          shirt: 'short',
+          underdress: 'none',
+          glasses: 'no',
         },
         feedbackText: '',
         themeFood,
@@ -43,11 +43,11 @@ async function mockHomeStatusWithBook(
       body: JSON.stringify({
         avatar: {
           nickname: '测试小朋友',
-          baseImage: null,
-          hairImage: '',
-          glassesImage: '',
-          topImage: '',
-          bottomImage: '',
+          gender: 'male',
+          color: 'blue',
+          shirt: 'short',
+          underdress: 'none',
+          glasses: 'no',
         },
         feedbackText: '',
         themeFood,
@@ -74,11 +74,11 @@ async function mockHomeStatusGenerating(page: Page, themeFood = '胡萝卜') {
       body: JSON.stringify({
         avatar: {
           nickname: '测试小朋友',
-          baseImage: null,
-          hairImage: '',
-          glassesImage: '',
-          topImage: '',
-          bottomImage: '',
+          gender: 'male',
+          color: 'blue',
+          shirt: 'short',
+          underdress: 'none',
+          glasses: 'no',
         },
         feedbackText: '',
         themeFood,
@@ -172,29 +172,29 @@ test.describe('首页空状态 CTA（无绘本时）', () => {
 // ─── 2. 首页弹窗：State B 右上角按钮 ─────────────────────────────────────────
 
 test.describe('首页弹窗（State B → 右上角记录进食按钮）', () => {
-  test('有绘本（未确认）时不显示记录进食按钮', async ({ page }) => {
+  test('有绘本（未确认）时记录进食按钮仍可见', async ({ page }) => {
     await setAuthToken(page);
     await mockHomeStatusWithBook(page, '胡萝卜', { confirmed: false });
     await page.goto('/noa/home');
     await expect(page.locator('text=当前绘本')).toBeVisible({ timeout: 8_000 });
-    await expect(page.locator('text=记录一次进食')).not.toBeVisible();
-    await expect(page.locator('button').filter({ hasText: '记录进食' })).not.toBeVisible();
+    // 记录进食按钮始终可见
+    await expect(page.locator('button').filter({ hasText: '记录进食' })).toBeVisible();
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/state-b-unconfirmed.png`, fullPage: true });
   });
 
-  test('已确认但未阅读完时不显示记录进食按钮', async ({ page }) => {
+  test('已确认但未阅读完时记录进食按钮仍可见', async ({ page }) => {
     await setAuthToken(page);
     await mockHomeStatusWithBook(page, '胡萝卜', { confirmed: true, readCompleted: false });
     await page.goto('/noa/home');
     await expect(page.locator('text=当前绘本')).toBeVisible({ timeout: 8_000 });
-    // 仅确认预览，未阅读完毕 → 不显示记录进食按钮
-    await expect(page.locator('button').filter({ hasText: '记录进食' })).not.toBeVisible();
+    // 记录进食按钮始终可见
+    await expect(page.locator('button').filter({ hasText: '记录进食' })).toBeVisible();
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/state-b-confirmed-not-read.png`, fullPage: true });
   });
 
-  test('阅读完毕后显示记录进食按钮', async ({ page }) => {
+  test('阅读完毕后记录进食按钮可见', async ({ page }) => {
     await setAuthToken(page);
     await mockHomeStatusWithBook(page, '胡萝卜', { confirmed: true, readCompleted: true });
     await mockFoodLogSuccess(page);

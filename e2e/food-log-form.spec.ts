@@ -17,11 +17,11 @@ async function mockHomeStatusNoBook(page: Page, themeFood = '西兰花') {
       body: JSON.stringify({
         avatar: {
           nickname: '测试',
-          baseImage: null,
-          hairImage: '',
-          glassesImage: '',
-          topImage: '',
-          bottomImage: '',
+          gender: 'male',
+          color: 'blue',
+          shirt: 'short',
+          underdress: 'none',
+          glasses: 'no',
         },
         feedbackText: '',
         themeFood,
@@ -32,7 +32,7 @@ async function mockHomeStatusNoBook(page: Page, themeFood = '西兰花') {
   );
 }
 
-/** Mock home status with a read-completed book (State B, readCompleted=true for 记录进食 button). */
+/** Mock home status with a book (State B). */
 async function mockHomeStatusWithBook(page: Page, themeFood = '胡萝卜') {
   await page.route('**/api/user/home/status', (route) =>
     route.fulfill({
@@ -41,11 +41,11 @@ async function mockHomeStatusWithBook(page: Page, themeFood = '胡萝卜') {
       body: JSON.stringify({
         avatar: {
           nickname: '测试',
-          baseImage: null,
-          hairImage: '',
-          glassesImage: '',
-          topImage: '',
-          bottomImage: '',
+          gender: 'male',
+          color: 'blue',
+          shirt: 'short',
+          underdress: 'none',
+          glasses: 'no',
         },
         feedbackText: '',
         themeFood,
@@ -111,13 +111,13 @@ async function mockSpeechRecognition(page: Page, text = '我吃了一小口西�
   }, text);
 }
 
-/** Navigate to home (State A = empty CTA), click CTA to open food log modal. */
+/** Navigate to home and open food log modal via header button. */
 async function goToHomeFoodLog(page: Page) {
   await page.goto('/noa/home');
-  // State A now shows a CTA card instead of inline form
-  const cta = page.locator('button', { hasText: '开始记录' });
-  await expect(cta).toBeVisible({ timeout: 8_000 });
-  await cta.click();
+  // Click the "记录进食" button in header (always visible)
+  const btn = page.locator('button').filter({ hasText: '记录进食' });
+  await expect(btn).toBeVisible({ timeout: 8_000 });
+  await btn.click();
   await expect(page.locator('text=用餐怎么样？')).toBeVisible({ timeout: 5_000 });
 }
 
@@ -187,8 +187,10 @@ test.describe('首页 FoodLogForm 弹窗（State A → CTA → Modal）', () => 
     await goToHomeFoodLog(page);
   });
 
-  test('显示今日食物标签', async ({ page }) => {
-    await expect(page.locator('text=今日食物：西兰花')).toBeVisible();
+  test('显示今日食物输入框并预填主题食物', async ({ page }) => {
+    const input = page.locator('input[placeholder="请输入今日尝试的食物"]');
+    await expect(input).toBeVisible();
+    await expect(input).toHaveValue('西兰花');
   });
 
   test('未评分和未填写时提交按钮禁用', async ({ page }) => {
@@ -227,8 +229,8 @@ test.describe('首页 FoodLogForm 弹窗（State A → CTA → Modal）', () => 
     expect(capture.body).not.toBeNull();
     expect(capture.body!.score).toBe(3);
     expect(capture.body!.content).toBe('尝了一口');
-    // No skipBookGeneration for home form
-    expect(capture.body!.skipBookGeneration).toBeUndefined();
+    // No skipAutoBookGeneration for home form
+    expect(capture.body!.skipAutoBookGeneration).toBeUndefined();
   });
 
   test('显示尝试程度和跳过按钮（统一弹窗）', async ({ page }) => {
@@ -256,8 +258,10 @@ test.describe('首页弹窗 FoodLogForm（State B → 右上角按钮）', () =>
     await expect(page.locator('.fixed >> text=用餐怎么样？')).toBeVisible({ timeout: 5_000 });
   });
 
-  test('弹窗显示今日食物', async ({ page }) => {
-    await expect(page.locator('text=今日食物：胡萝卜')).toBeVisible();
+  test('弹窗显示今日食物输入框', async ({ page }) => {
+    const input = page.locator('input[placeholder="请输入今日尝试的食物"]');
+    await expect(input).toBeVisible();
+    await expect(input).toHaveValue('胡萝卜');
   });
 
   test('点击背景关闭弹窗', async ({ page }) => {
@@ -438,7 +442,8 @@ test.describe('PostReadingModal 阅读后弹窗', () => {
 
   test('弹窗显示食物名称', async ({ page }) => {
     await setupAndCompleteReading(page);
-    await expect(page.locator('text=今日食物：西兰花')).toBeVisible();
+    const foodInput = page.locator('input[placeholder="请输入今日尝试的食物"]');
+    await expect(foodInput).toHaveValue('西兰花');
   });
 
   test('未选尝试程度时提交按钮禁用', async ({ page }) => {
@@ -505,7 +510,7 @@ test.describe('PostReadingModal 阅读后弹窗', () => {
 
     await page.waitForTimeout(2_000);
     expect(capture.body).not.toBeNull();
-    expect(capture.body!.skipBookGeneration).toBe(true);
+    expect(capture.body!.skipAutoBookGeneration).toBe(true);
     expect(capture.body!.score).toBe(7);
     expect(capture.body!.content).toBe('嚼了嚼西兰花');
   });

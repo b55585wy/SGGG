@@ -1,0 +1,40 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - backend-data:/app/static/images
+
+  user-api:
+    build: ./user-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./user-api/.env
+    environment:
+      - FASTAPI_URL=http://backend:8000
+    volumes:
+      - userapi-data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_BASE_URL=
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - user-api
+
+volumes:
+  backend-data:
+  userapi-data:

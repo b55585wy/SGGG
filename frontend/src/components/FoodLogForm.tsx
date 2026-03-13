@@ -65,6 +65,7 @@ export function FoodLogForm({
   onClose,
 }: FoodLogFormProps) {
   const [tryLevel, setTryLevel] = useState<TryLevel | null>(null);
+  const [foodName, setFoodName] = useState(themeFood || '');
   const [score, setScore] = useState(0);
   const [content, setContent] = useState('');
   const [notes, setNotes] = useState('');
@@ -74,12 +75,13 @@ export function FoodLogForm({
   const recognitionRef = useRef<any>(null);
 
   const canSend = useMemo(() => {
+    if (!foodName.trim()) return false;
     if (showTryLevel && !tryLevel) return false;
     if (score === 0) return false;
     if (!content.trim()) return false;
     if (sending) return false;
     return true;
-  }, [showTryLevel, tryLevel, score, content, sending]);
+  }, [foodName, showTryLevel, tryLevel, score, content, sending]);
 
   function handleSkip() {
     // For post-reading: submit feedback (try-level only) if selected, then close
@@ -108,10 +110,11 @@ export function FoodLogForm({
     try {
       // Submit food log
       const payload: Record<string, unknown> = {
+        foodName: foodName.trim(),
         score,
         content: content.trim(),
       };
-      if (skipBookGeneration) payload.skipBookGeneration = true;
+      if (skipBookGeneration) payload.skipAutoBookGeneration = true;
       const data = await postJson<FoodLogResponse>('/api/food/log', payload);
 
       // Submit feedback if post-reading
@@ -194,7 +197,7 @@ export function FoodLogForm({
               <ForkKnife size={10} weight="fill" style={{ color: 'var(--color-accent)' }} />
             </div>
             <span className="text-[10px] font-bold tracking-widest uppercase" style={{ color: 'var(--color-accent)' }}>
-              {themeFood ? `今日食物：${themeFood}` : '进食记录'}
+              进食记录
             </span>
           </div>
           <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
@@ -213,6 +216,17 @@ export function FoodLogForm({
 
       {/* Scrollable body */}
       <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5" style={{ scrollbarWidth: 'none' }}>
+
+        {/* Food name */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>今日食物</label>
+          <input
+            value={foodName}
+            onChange={(e) => setFoodName(e.target.value)}
+            placeholder="请输入今日尝试的食物"
+            className="w-full border border-[var(--color-border-light)] rounded-xl p-3 text-sm bg-[var(--color-warm-50)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)] transition-colors"
+          />
+        </div>
 
         {/* Try Level */}
         {showTryLevel && (

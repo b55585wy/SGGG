@@ -205,7 +205,7 @@ test.describe('管理员导出 — CSV 内容完整性', () => {
     expect(columns.length).toBe(11);
   });
 
-  test('reading_sessions.csv 列头完整（14 列）', async ({ page }) => {
+  test('reading_sessions.csv 列头完整（15 列）', async ({ page }) => {
     await page.goto('/noa/admin/users');
     const res = await page.request.get(
       `/api/user/admin/export/reading_sessions.csv?key=${encodeURIComponent(ADMIN_KEY)}`,
@@ -216,7 +216,8 @@ test.describe('管理员导出 — CSV 内容完整性', () => {
     expect(columns).toContain('duration_ms');
     expect(columns).toContain('completed');
     expect(columns).toContain('try_level');
-    expect(columns.length).toBe(14);
+    expect(columns).toContain('skip_auto_book_generation');
+    expect(columns.length).toBe(15);
   });
 
   test('voice_recordings.csv 空表仍返回列头（8 列）', async ({ page }) => {

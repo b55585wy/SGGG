@@ -173,7 +173,7 @@ function ensureUserAvatarColumns(db: Database) {
     }
   }
 
-  // reading_sessions table migration — add session_type column
+  // reading_sessions table migration
   {
     const rs = db.exec("PRAGMA table_info(reading_sessions);");
     const rsCols = new Set<string>();
@@ -182,6 +182,9 @@ function ensureUserAvatarColumns(db: Database) {
     }
     if (!rsCols.has("session_type")) {
       db.run("ALTER TABLE reading_sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'experiment';");
+    }
+    if (!rsCols.has("skip_auto_book_generation")) {
+      db.run("ALTER TABLE reading_sessions ADD COLUMN skip_auto_book_generation INTEGER NOT NULL DEFAULT 0;");
     }
   }
 
@@ -1262,6 +1265,8 @@ export async function deleteUser(userID: string): Promise<boolean> {
     db.run("DELETE FROM history_books WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM user_avatar_states WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM user_food_logs WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM voice_recordings WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM reading_sessions WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM user_avatars WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM users WHERE user_id = $user_id", { $user_id: userID });
     db.run("COMMIT");
@@ -1290,13 +1295,14 @@ export async function insertReadingSession(params: {
   sessionType?: string;
   tryLevel?: string | null;
   abortReason?: string | null;
+  skipAutoBookGeneration?: boolean;
 }) {
   const db = await getDb();
   const now = new Date().toISOString();
   db.run(
     `INSERT INTO reading_sessions
-      (id, user_id, book_id, started_at, ended_at, duration_ms, total_pages, pages_read, interaction_count, completed, session_type, try_level, abort_reason, created_at)
-     VALUES ($id, $user_id, $book_id, $started_at, $ended_at, $duration_ms, $total_pages, $pages_read, $interaction_count, $completed, $session_type, $try_level, $abort_reason, $created_at);`,
+      (id, user_id, book_id, started_at, ended_at, duration_ms, total_pages, pages_read, interaction_count, completed, session_type, try_level, abort_reason, skip_auto_book_generation, created_at)
+     VALUES ($id, $user_id, $book_id, $started_at, $ended_at, $duration_ms, $total_pages, $pages_read, $interaction_count, $completed, $session_type, $try_level, $abort_reason, $skip_auto_book_generation, $created_at);`,
     {
       $id: crypto.randomUUID(),
       $user_id: params.userID,
@@ -1311,6 +1317,7 @@ export async function insertReadingSession(params: {
       $session_type: params.sessionType ?? "experiment",
       $try_level: params.tryLevel ?? null,
       $abort_reason: params.abortReason ?? null,
+      $skip_auto_book_generation: params.skipAutoBookGeneration ? 1 : 0,
       $created_at: now,
     },
   );
@@ -1774,7 +1781,7 @@ export async function exportAllReadingSessions(): Promise<Record<string, unknown
   return execRows(db, `
     SELECT id, user_id, book_id, started_at, ended_at, duration_ms,
            total_pages, pages_read, interaction_count, completed,
-           session_type, try_level, abort_reason, created_at
+           session_type, try_level, abort_reason, skip_auto_book_generation, created_at
     FROM reading_sessions
     ORDER BY created_at DESC;
   `);
