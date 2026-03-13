@@ -168,6 +168,9 @@ function ensureUserAvatarColumns(db: Database) {
     if (!columns.has("generating_since")) {
       db.run("ALTER TABLE users ADD COLUMN generating_since TEXT DEFAULT NULL;");
     }
+    if (!columns.has("generating_error")) {
+      db.run("ALTER TABLE users ADD COLUMN generating_error TEXT DEFAULT NULL;");
+    }
   }
 
   // reading_sessions table migration — add session_type column
@@ -1667,8 +1670,54 @@ export async function isUserGenerating(userID: string): Promise<boolean> {
     if (!stmt.step()) return false;
     const row = stmt.getAsObject() as { generating_since: string | null };
     if (!row.generating_since) return false;
-    const sinceMs = new Date(row.generating_since + "Z").getTime();
-    return Date.now() - sinceMs < 5 * 60 * 1000;
+    const parseDbDateTimeMs = (value: string): number | null => {
+      const iso = value.includes("T") ? value : value.replace(" ", "T");
+      const ts = new Date(`${iso}Z`).getTime();
+      return Number.isFinite(ts) ? ts : null;
+    };
+    const sinceMs = parseDbDateTimeMs(row.generating_since);
+    const genMax = Number(process.env.BOOK_GENERATE_MAX_WAIT_SEC ?? "1200");
+    const regenMax = Number(process.env.BOOK_REGENERATE_MAX_WAIT_SEC ?? "1200");
+    const maxWaitSec = Math.max(
+      Number.isFinite(genMax) && genMax > 0 ? genMax : 1200,
+      Number.isFinite(regenMax) && regenMax > 0 ? regenMax : 1200,
+    );
+
+    if (!sinceMs || Date.now() - sinceMs >= maxWaitSec * 1000) {
+      const msg = "生成任务超时或服务中断，请重新生成或联系管理员。";
+      db.run(
+        "UPDATE users SET generating_since = NULL, generating_error = CASE WHEN generating_error IS NULL OR generating_error = '' THEN $msg ELSE generating_error END WHERE user_id = $uid;",
+        { $uid: userID, $msg: msg },
+      );
+      await persistDb(db);
+      return false;
+    }
+    return true;
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function setUserGeneratingError(userID: string, message: string) {
+  const db = await getDb();
+  db.run("UPDATE users SET generating_error = $msg WHERE user_id = $uid;", { $uid: userID, $msg: message });
+  await persistDb(db);
+}
+
+export async function clearUserGeneratingError(userID: string) {
+  const db = await getDb();
+  db.run("UPDATE users SET generating_error = NULL WHERE user_id = $uid;", { $uid: userID });
+  await persistDb(db);
+}
+
+export async function getUserGeneratingState(userID: string): Promise<{ generatingSince: string | null; generatingError: string | null }> {
+  const db = await getDb();
+  const stmt = db.prepare("SELECT generating_since, generating_error FROM users WHERE user_id = $uid;");
+  stmt.bind({ $uid: userID });
+  try {
+    if (!stmt.step()) return { generatingSince: null, generatingError: null };
+    const row = stmt.getAsObject() as { generating_since: string | null; generating_error: string | null };
+    return { generatingSince: row.generating_since, generatingError: row.generating_error };
   } finally {
     stmt.free();
   }

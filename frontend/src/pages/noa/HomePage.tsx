@@ -42,6 +42,9 @@ type HomeStatusResponse = {
   feedbackText: string
   themeFood: string
   generating?: boolean
+  generatingSince?: string | null
+  generatingSlow?: boolean
+  generationError?: string | null
   book: {
     bookID: string
     title: string
@@ -710,11 +713,19 @@ export default function HomePage() {
   const [bookGenerating, setBookGenerating] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const statusUrl = useMemo(() => (showFoodLogPanel ? '/api/home/status' : '/api/home/status?ensureBook=1'), [showFoodLogPanel])
+
   const loadStatus = useCallback(async () => {
     setError('')
     setLoading(true)
     try {
-      const data = await getJson<HomeStatusResponse>('/api/home/status')
+      const data = await getJson<HomeStatusResponse>(statusUrl)
+      if (data.generationError) {
+        setStatus(data)
+        setBookGenerating(false)
+        setError(`生成失败：${data.generationError}。请截图此错误信息联系管理员。`)
+        return
+      }
       // Restore generating state from server (survives page refresh).
       // While generating, clear any stale book so the animation shows correctly.
       if (data.generating) {
@@ -744,16 +755,22 @@ export default function HomePage() {
     } finally {
       setLoading(false)
     }
-  }, [navigate])
+  }, [navigate, statusUrl])
 
   const refreshStatus = useCallback(async () => {
     try {
-      const data = await getJson<HomeStatusResponse>('/api/home/status')
+      const data = await getJson<HomeStatusResponse>(statusUrl)
+      if (data.generationError) {
+        setStatus(data)
+        setBookGenerating(false)
+        setError(`生成失败：${data.generationError}。请截图此错误信息联系管理员。`)
+        return data
+      }
       setStatus(data)
       setBookGenerating(!!data.generating)
       return data
     } catch { return null }
-  }, [])
+  }, [statusUrl])
 
   useEffect(() => { void loadStatus() }, [loadStatus])
 
@@ -761,8 +778,14 @@ export default function HomePage() {
     if (!bookGenerating) return
     pollRef.current = setInterval(async () => {
       try {
-        const data = await getJson<HomeStatusResponse>('/api/home/status')
+        const data = await getJson<HomeStatusResponse>(statusUrl)
         // Stop polling once server confirms generation is complete
+        if (data.generationError) {
+          setStatus(data)
+          setBookGenerating(false)
+          setError(`生成失败：${data.generationError}。请截图此错误信息联系管理员。`)
+          return
+        }
         if (!data.generating) {
           setStatus(data)
           setBookGenerating(false)
@@ -770,7 +793,7 @@ export default function HomePage() {
       } catch { /* ignore */ }
     }, 3000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [bookGenerating])
+  }, [bookGenerating, statusUrl])
 
   useEffect(() => {
     const b = status?.book
@@ -908,6 +931,11 @@ export default function HomePage() {
       {error && (
         <div className="relative z-10 px-6 pt-3 text-sm" style={{ color: 'var(--color-error)' }}>
           {error}
+        </div>
+      )}
+      {!error && bookGenerating && status?.generatingSlow && (
+        <div className="relative z-10 px-6 pt-3 text-sm" style={{ color: 'var(--color-muted)' }}>
+          生成时间较长，请保持页面打开继续等待；如等待过久，请截图并联系管理员。
         </div>
       )}
 

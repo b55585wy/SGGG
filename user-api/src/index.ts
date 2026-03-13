@@ -39,6 +39,9 @@ import {
   setUserGenerating,
   clearUserGenerating,
   isUserGenerating,
+  setUserGeneratingError,
+  clearUserGeneratingError,
+  getUserGeneratingState,
   exportAllUsers,
   exportAllFoodLogs,
   exportAllReadingSessions,
@@ -85,6 +88,18 @@ function extractStoryId(content: string): string | null {
   }
 }
 
+function extractBookMeta(content: string): { title: string; summary: string } | null {
+  try {
+    const parsed = JSON.parse(content) as { book_meta?: { title?: string; summary?: string } };
+    const title = typeof parsed.book_meta?.title === "string" ? parsed.book_meta.title : "";
+    const summary = typeof parsed.book_meta?.summary === "string" ? parsed.book_meta.summary : "";
+    if (!title && !summary) return null;
+    return { title, summary };
+  } catch {
+    return null;
+  }
+}
+
 async function resolvePreviewFromBackend(storyId: string): Promise<string | null> {
   try {
     const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
@@ -97,6 +112,40 @@ async function resolvePreviewFromBackend(storyId: string): Promise<string | null
     const sorted = [...pages].sort((a, b) => (a.page_no ?? 0) - (b.page_no ?? 0));
     const first = sorted[0];
     return first?.image_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveDraftFromBackendIfReady(storyId: string): Promise<{ preview: string; content: string } | null> {
+  try {
+    const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { draft?: { pages?: Array<{ page_no?: number; image_url?: string }> } };
+    const draft = data.draft as unknown as { pages?: Array<{ page_no?: number; image_url?: string }> } | undefined;
+    const pages = draft?.pages ?? [];
+    if (pages.length === 0) return null;
+    const allReady = pages.every((p) => typeof p.image_url === "string" && p.image_url.length > 0);
+    if (!allReady) return null;
+    const sorted = [...pages].sort((a, b) => (a.page_no ?? 0) - (b.page_no ?? 0));
+    const first = sorted[0];
+    const preview = first?.image_url ?? null;
+    if (!preview) return null;
+    return { preview, content: JSON.stringify(data.draft) };
+  } catch {
+    return null;
+  }
+}
+
+async function analyzeStoryImages(storyId: string): Promise<{ exists: boolean; total: number; ready: number; generationStatus?: string; generationError?: string } | null> {
+  try {
+    const res = await fetch(`${FASTAPI_URL}/api/v1/story/${storyId}`);
+    if (res.status === 404) return { exists: false, total: 0, ready: 0 };
+    if (!res.ok) return null;
+    const data = (await res.json()) as { draft?: { pages?: Array<{ image_url?: string }>; generation_status?: string; generation_error?: string } };
+    const pages = data.draft?.pages ?? [];
+    const ready = pages.filter((p) => typeof p.image_url === "string" && p.image_url.length > 0).length;
+    return { exists: true, total: pages.length, ready, generationStatus: data.draft?.generation_status, generationError: data.draft?.generation_error };
   } catch {
     return null;
   }
@@ -196,15 +245,56 @@ async function generateTempBookForUser(params: {
     },
   };
 
-  const response = await fetch(`${FASTAPI_URL}/api/v1/story/generate`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`FastAPI story/generate failed (${response.status}): ${text}`);
+  let response: Response | null = null;
+  let backoff = 2;
+  const startedAt = Date.now();
+  const degradeAfterMs = Number(process.env.BOOK_GENERATE_DEGRADE_AFTER_SEC || "180") * 1000;
+  const maxWaitMs = Number(process.env.BOOK_GENERATE_MAX_WAIT_SEC || "1200") * 1000;
+  let degraded = false;
+  while (true) {
+    const elapsed = Date.now() - startedAt;
+    if (!degraded && elapsed >= degradeAfterMs) {
+      requestBody.story_config.pages = Math.min(4, requestBody.story_config.pages);
+      requestBody.story_config.difficulty = "easy";
+      requestBody.story_config.interactive_density = "low";
+      degraded = true;
+    }
+    if (elapsed >= maxWaitMs) {
+      throw new Error("故事生成等待超时");
+    }
+    try {
+      response = await fetch(`${FASTAPI_URL}/api/v1/story/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+    } catch {
+      response = null;
+    }
+    if (response && response.ok) break;
+    if (response) {
+      const status = response.status;
+      if (status === 401 || status === 403 || status === 400 || status === 422) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`FastAPI鉴权/参数错误 (${status}): ${text}`);
+      }
+      if (status === 500) {
+        const text = await response.text().catch(() => "");
+        if (
+          text.includes("LLM request failed (401") ||
+          text.includes("LLM request failed (403") ||
+          text.includes("STORYTEXT_OPENAI_") && text.includes("not set")
+        ) {
+          throw new Error(`生成服务配置错误 (500): ${text}`);
+        }
+      }
+      if (status !== 429 && status !== 500 && status !== 502 && status !== 503 && status !== 504) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`FastAPI story/generate failed (${status}): ${text}`);
+      }
+    }
+    await new Promise((r) => setTimeout(r, Math.min(backoff, 60) * 1000));
+    backoff = Math.min(Math.floor(backoff * 1.7), 60);
   }
 
   const data = (await response.json()) as {
@@ -235,6 +325,28 @@ async function generateTempBookForUser(params: {
     content: JSON.stringify(draft),
     regenerateCount: params.regenerateCount,
   });
+
+  while (true) {
+    const analysis = await analyzeStoryImages(draft.story_id);
+    if (analysis?.generationError) {
+      throw new Error(analysis.generationError);
+    }
+    const resolved = await resolveDraftFromBackendIfReady(draft.story_id);
+    if (resolved) {
+      const meta = extractBookMeta(resolved.content);
+      await saveTempBook({
+        userID: params.userID,
+        bookID: draft.story_id,
+        title: meta?.title || draft.book_meta.title,
+        preview: resolved.preview,
+        description: meta?.summary || draft.book_meta.summary,
+        content: resolved.content,
+        regenerateCount: params.regenerateCount,
+      });
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
 }
 
 async function triggerAutoBookGeneration(userID: string, avatar: { nickname: string; gender: string; themeFood: string }) {
@@ -250,6 +362,7 @@ async function triggerAutoBookGeneration(userID: string, avatar: { nickname: str
   const readingSummary = await getReadingSummary(userID);
 
   generatingUsers.add(userID);
+  clearUserGeneratingError(userID).catch(() => {});
   setUserGenerating(userID).catch(() => {});
   generateTempBookForUser({
     userID,
@@ -261,7 +374,11 @@ async function triggerAutoBookGeneration(userID: string, avatar: { nickname: str
     regenerateCount: 0,
     recentHistory,
     readingSummary,
-  }).catch((err) => console.error("[BOOK] 绘本生成失败:", err))
+  }).catch((err) => {
+    const msg = err instanceof Error ? err.message : "绘本生成失败";
+    setUserGeneratingError(userID, msg).catch(() => {});
+    console.error("[BOOK] 绘本生成失败:", err);
+  })
     .finally(async () => {
       generatingUsers.delete(userID);
       await clearUserGenerating(userID).catch(() => {});
@@ -518,30 +635,90 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
   };
 
   const tempBook = await getTempBook(req.user.userID);
+  const genState = await getUserGeneratingState(req.user.userID);
   const generating = generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID);
+  const generatingSince = genState.generatingSince;
+  const generationError = genState.generatingError;
+  const parseDbDateTimeMs = (value: string): number | null => {
+    const iso = value.includes("T") ? value : value.replace(" ", "T");
+    const ts = new Date(`${iso}Z`).getTime();
+    return Number.isFinite(ts) ? ts : null;
+  };
+  const generatingSlow = (() => {
+    if (!generatingSince) return false;
+    const sinceMs = parseDbDateTimeMs(generatingSince);
+    if (!sinceMs) return false;
+    return Date.now() - sinceMs > 3 * 60 * 1000;
+  })();
+
+  if (generationError && !tempBook && !generating) {
+    res.json({ ...base, generating: false, generatingSince, generatingSlow, generationError, book: null });
+    return;
+  }
   if (tempBook) {
-    let preview = tempBook.preview;
-    if (isPlaceholderPreview(preview)) {
-      const storyId = extractStoryId(tempBook.content);
-      if (storyId) {
-        const resolved = await resolvePreviewFromBackend(storyId);
-        if (resolved) {
-          preview = resolved;
-          await saveTempBook({
-            userID: tempBook.userID,
-            bookID: tempBook.bookID,
-            title: tempBook.title,
-            preview,
-            description: tempBook.description,
-            content: tempBook.content,
-            regenerateCount: tempBook.regenerateCount,
-          });
+    const storyId = extractStoryId(tempBook.content);
+    const resolved = storyId ? await resolveDraftFromBackendIfReady(storyId) : null;
+    if (!resolved) {
+      const ensureBook = (req.query as { ensureBook?: string }).ensureBook === "1";
+      if (ensureBook && storyId && !generating) {
+        console.info("[HOME][ENSURE] start", {
+          userID: req.user.userID,
+          storyId,
+          generating,
+          generatingSince,
+          hasGenerationError: !!generationError,
+        });
+        const analysis = await analyzeStoryImages(storyId);
+        if (analysis && analysis.exists) {
+          if (analysis.generationError) {
+            setUserGeneratingError(req.user.userID, analysis.generationError).catch(() => {});
+            console.info("[HOME][ENSURE] story_error", { userID: req.user.userID, storyId });
+            res.json({ ...base, generating: false, generatingSince, generatingSlow, generationError: analysis.generationError, book: null });
+            return;
+          } else if (analysis.generationStatus && analysis.generationStatus !== "READY") {
+            console.info("[HOME][ENSURE] backend_running_skip", { userID: req.user.userID, storyId, status: analysis.generationStatus, ready: analysis.ready, total: analysis.total });
+          } else
+          if (analysis.ready > 0) {
+            console.info("[HOME][ENSURE] partial_images", { userID: req.user.userID, storyId, ready: analysis.ready, total: analysis.total });
+            fetch(`${FASTAPI_URL}/api/v1/story/${storyId}/ensure_images`, { method: "POST" }).catch(() => {});
+          } else {
+            console.info("[HOME][ENSURE] no_images_restart_generate", { userID: req.user.userID, storyId, total: analysis.total });
+            triggerAutoBookGeneration(req.user.userID, avatar);
+          }
+        } else if (analysis && !analysis.exists) {
+          console.info("[HOME][ENSURE] story_missing_restart_generate", { userID: req.user.userID, storyId });
+          triggerAutoBookGeneration(req.user.userID, avatar);
+        } else {
+          console.info("[HOME][ENSURE] analysis_failed_skip", { userID: req.user.userID, storyId });
         }
       }
+      if (generationError && !generating) {
+        console.info("[HOME][ENSURE] return_error", { userID: req.user.userID, storyId: storyId ?? null, generating, generatingSince });
+        res.json({ ...base, generating: false, generatingSince, generatingSlow, generationError, book: null });
+        return;
+      }
+      res.json({ ...base, generating: true, generatingSince, generatingSlow, book: null });
+      return;
     }
+
+    const preview = resolved.preview;
+    const content = resolved.content;
+    const meta = extractBookMeta(content);
+    await saveTempBook({
+      userID: tempBook.userID,
+      bookID: tempBook.bookID,
+      title: meta?.title || tempBook.title,
+      preview,
+      description: meta?.summary || tempBook.description,
+      content,
+      regenerateCount: tempBook.regenerateCount,
+    });
+
     res.json({
       ...base,
       generating,
+      generatingSince,
+      generatingSlow,
       book: {
         bookID: tempBook.bookID,
         title: tempBook.title,
@@ -567,6 +744,8 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     res.json({
       ...base,
       generating,
+      generatingSince,
+      generatingSlow,
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
@@ -581,11 +760,11 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
 
   if (!generating) {
     triggerAutoBookGeneration(req.user.userID, avatar);
-    res.json({ ...base, generating: true, book: null });
+    res.json({ ...base, generating: true, generatingSince, generatingSlow, book: null });
     return;
   }
 
-  res.json({ ...base, generating, book: null });
+  res.json({ ...base, generating, generatingSince, generatingSlow, book: null });
 });
 
 app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -809,57 +988,123 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     dissatisfaction_reason: promptReason || promptNote || "用户要求重新生成",
   };
 
-  generatingUsers.add(req.user.userID);
-  await setUserGenerating(req.user.userID).catch(() => {});
-  try {
-  const response = await fetch(`${FASTAPI_URL}/api/v1/story/regenerate`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(regenBody),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    console.error("[BOOK] 重新生成失败:", response.status, text);
-    res.status(502).json({ message: "绘本重新生成失败" });
+  if (generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID)) {
+    res.json({ ok: true });
     return;
   }
+  generatingUsers.add(req.user.userID);
+  clearUserGeneratingError(req.user.userID).catch(() => {});
+  await setUserGenerating(req.user.userID).catch(() => {});
+  res.json({ ok: true });
 
-  const data = (await response.json()) as {
-    draft: {
-      story_id: string;
-      book_meta: { title: string; summary: string };
-      pages: unknown[];
-      ending: unknown;
-    };
-  };
-  const draft = data.draft;
+  (async () => {
+    try {
+      let response: Response | null = null;
+      let backoff = 2;
+      const startedAt = Date.now();
+      const degradeAfterMs = Number(process.env.BOOK_REGENERATE_DEGRADE_AFTER_SEC || "180") * 1000;
+      const maxWaitMs = Number(process.env.BOOK_REGENERATE_MAX_WAIT_SEC || "1200") * 1000;
+      let degraded = false;
+      while (true) {
+        const elapsed = Date.now() - startedAt;
+        if (!degraded && elapsed >= degradeAfterMs) {
+          regenBody.pages = Math.min(4, regenBody.pages);
+          regenBody.difficulty = "easy";
+          regenBody.interaction_density = "low";
+          degraded = true;
+        }
+        if (elapsed >= maxWaitMs) {
+          throw new Error("绘本重新生成等待超时");
+        }
+        try {
+          response = await fetch(`${FASTAPI_URL}/api/v1/story/regenerate`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(regenBody),
+          });
+        } catch {
+          response = null;
+        }
+        if (response && response.ok) break;
+        if (response) {
+          const status = response.status;
+          if (status === 401 || status === 403 || status === 400 || status === 422) {
+            const text = await response.text().catch(() => "");
+            throw new Error(`FastAPI鉴权/参数错误 (${status}): ${text}`);
+          }
+          if (status === 500) {
+            const text = await response.text().catch(() => "");
+            if (
+              text.includes("LLM request failed (401") ||
+              text.includes("LLM request failed (403") ||
+              text.includes("STORYTEXT_OPENAI_") && text.includes("not set")
+            ) {
+              throw new Error(`生成服务配置错误 (500): ${text}`);
+            }
+          }
+          if (status !== 429 && status !== 500 && status !== 502 && status !== 503 && status !== 504) {
+            const text = await response.text().catch(() => "");
+            throw new Error(`FastAPI story/regenerate failed (${status}): ${text}`);
+          }
+        }
+        await new Promise((r) => setTimeout(r, Math.min(backoff, 60) * 1000));
+        backoff = Math.min(Math.floor(backoff * 1.7), 60);
+      }
 
-  await saveTempBook({
-    userID: req.user.userID,
-    bookID: draft.story_id,
-    title: draft.book_meta.title,
-    preview: createBookPreviewImage(),
-    description: draft.book_meta.summary,
-    content: JSON.stringify(draft),
-    regenerateCount: tempBook.regenerateCount + 1,
-  });
+      const data = (await response.json()) as {
+        draft: {
+          story_id: string;
+          book_meta: { title: string; summary: string };
+          pages: unknown[];
+          ending: unknown;
+        };
+      };
+      const draft = data.draft;
+      const nextRegenCount = tempBook.regenerateCount + 1;
 
-  res.json({
-    ok: true,
-    book: {
-      bookID: draft.story_id,
-      title: draft.book_meta.title,
-      preview: createBookPreviewImage(),
-      description: draft.book_meta.summary,
-      confirmed: false,
-      regenerateCount: tempBook.regenerateCount + 1,
-    },
-  });
-  } finally {
-    generatingUsers.delete(req.user.userID);
-    await clearUserGenerating(req.user.userID).catch(() => {});
-  }
+      await saveTempBook({
+        userID: req.user!.userID,
+        bookID: draft.story_id,
+        title: draft.book_meta.title,
+        preview: createBookPreviewImage(),
+        description: draft.book_meta.summary,
+        content: JSON.stringify(draft),
+        regenerateCount: nextRegenCount,
+      });
+
+      while (true) {
+        if (Date.now() - startedAt >= maxWaitMs) {
+          throw new Error("插图生成等待超时");
+        }
+        const analysis = await analyzeStoryImages(draft.story_id);
+        if (analysis?.generationError) {
+          throw new Error(analysis.generationError);
+        }
+        const resolved = await resolveDraftFromBackendIfReady(draft.story_id);
+        if (resolved) {
+          const meta = extractBookMeta(resolved.content);
+          await saveTempBook({
+            userID: req.user!.userID,
+            bookID: draft.story_id,
+            title: meta?.title || draft.book_meta.title,
+            preview: resolved.preview,
+            description: meta?.summary || draft.book_meta.summary,
+            content: resolved.content,
+            regenerateCount: nextRegenCount,
+          });
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "绘本重新生成失败";
+      setUserGeneratingError(req.user!.userID, msg).catch(() => {});
+      console.error("[BOOK] 重新生成失败:", err);
+    } finally {
+      generatingUsers.delete(req.user!.userID);
+      await clearUserGenerating(req.user!.userID).catch(() => {});
+    }
+  })();
 });
 
 app.get("/api/food/heatmap", authRequired, async (req: AuthenticatedRequest, res) => {

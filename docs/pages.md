@@ -90,7 +90,7 @@
 - **功能**：
   - **顶部 header**（始终可见）：昵称问候、面板切换按钮（“查看绘本 / 记录进食”）、"历史绘本"入口、退出登录
   - **左侧面板**：虚拟形象合成渲染 + 正反馈文字气泡（显示在虚拟形象图上方，醒目展示；可点击朗读气泡内容）
-  - 反馈语：进食记录提交后通过 backend LLM 生成（使用 `backend/prompts/feedback_words_prompt*.md`）
+  - 反馈语：进食记录提交后通过 backend LLM 生成（使用 `backend/prompts/feedback_words_prompt.md`）
   - **右侧面板**：通过头部按钮切换“绘本预览 / 进食记录”，互不影响
     - **绘本预览**（默认展示）：绘本卡片，含三种子状态：
       - 生成中（`bookGenerating=true && !book`）：封面区域显示 `.book-gen-shimmer` 动画 + 标题/描述区显示 `.skeleton-shimmer` 占位；底部显示"绘本生成中…"占位文字
@@ -104,12 +104,17 @@
   - "重新生成"按钮打开 RegenModal 底部弹层（在主页面内完成，不再跳转至 `/noa/books/create`）
   - 绘本生成触发从“读完已确认绘本后自动生成”切换为主流程，进食记录不再触发生成
   - 轮询（每 3 秒）`GET /api/home/status`，以 `generating: false` 作为终止条件（不再依赖 book 是否存在），确保刷新后生成状态可恢复
+  - **生成补全**：当用户在右侧切换到“查看绘本”时，请求会携带 `ensureBook=1`，服务端会检查临时绘本是否插图齐全；若缺图且当前不在生成中，则：
+    - 已有部分插图：仅补齐缺失页插图（调用 backend `/api/v1/story/{story_id}/ensure_images`）
+    - 尚无任何插图：重新触发一次完整生成
+  - **生成超时/服务中断兜底**：若 `generating_since` 超过阈值（`BOOK_*_MAX_WAIT_SEC`），会自动结束 `generating` 并写入 `generationError`，前端提示截图联系管理员（避免无限等待）
 - **关键实现**：`frontend/src/pages/noa/HomePage.tsx`
 
 **API**
 
 - `GET /api/home/status`
   - **Headers**：`Authorization: Bearer <token>`
+  - **Query（可选）**：`ensureBook=1`（仅在“查看绘本”面板下启用，用于补全缺失插图/重启生成）
   - **Response 200（有未确认绘本，生成完成）**
     ```json
     {
@@ -125,6 +130,9 @@
       "feedbackText": "太棒了！你又进步了一点点。",
       "themeFood": "胡萝卜",
       "generating": false,
+      "generatingSince": null,
+      "generatingSlow": false,
+      "generationError": null,
       "book": {
         "bookID": "uuid",
         "title": "小宇的美味冒险",
@@ -142,6 +150,22 @@
       "feedbackText": "...",
       "themeFood": "胡萝卜",
       "generating": true,
+      "generatingSince": "2026-03-13 12:00:00",
+      "generatingSlow": false,
+      "generationError": null,
+      "book": null
+    }
+    ```
+  - **Response 200（生成失败/超时，需要用户截图联系管理员）**
+    ```json
+    {
+      "avatar": { "...": "..." },
+      "feedbackText": "...",
+      "themeFood": "胡萝卜",
+      "generating": false,
+      "generatingSince": null,
+      "generatingSlow": false,
+      "generationError": "生成任务超时或服务中断，请重新生成或联系管理员。",
       "book": null
     }
     ```
@@ -152,6 +176,9 @@
       "feedbackText": "...",
       "themeFood": "胡萝卜",
       "generating": false,
+      "generatingSince": null,
+      "generatingSlow": false,
+      "generationError": null,
       "book": {
         "bookID": "uuid",
         "title": "小宇的美味冒险",
@@ -162,7 +189,7 @@
       }
     }
     ```
-  > `generating: true` 表示服务器正在异步生成绘本（初次生成）或同步等待 FastAPI 重新生成。客户端以此字段决定是否继续轮询，并在页面刷新后恢复生成动效（不丢失状态）。`book` 字段可为 `null`（尚未生成完成或未提交进食记录）。
+  > `generating: true` 表示 user-api 认为当前用户存在“生成中的后台任务”。为了避免“服务故障导致无限等待”，`generating_since` 会按 `BOOK_*_MAX_WAIT_SEC` 自动过期并落到 `generationError`。当前设计下，绘本卡片不会提前展示：只有当故事文案与所有页插图都齐全时才返回 `book`（否则 `book=null` 继续展示生成中）。
 
 - `POST /api/food/log`
   - **Headers**：`Authorization: Bearer <token>`
@@ -206,18 +233,10 @@
     }
     ```
   > 均为选填；缺省时 user-api 会使用默认值：`story_type=interactive`、`difficulty=medium`、`pages=6`、`interaction_density=medium`；`target_food` 缺省时使用用户档案的目标食物。
-  - **Response 200**
+  - **Response 200（异步启动，立即返回）**
     ```json
     {
-      "ok": true,
-      "book": {
-        "bookID": "uuid",
-        "title": "新标题",
-        "preview": "data:image/svg+xml;utf8,...",
-        "description": "...",
-        "confirmed": false,
-        "regenerateCount": 1
-      }
+      "ok": true
     }
     ```
   - **Response 400**

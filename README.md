@@ -6,7 +6,7 @@
 
 | 服务 | 技术栈 | 端口 | 说明 |
 |------|--------|------|------|
-| **backend** | FastAPI + SQLAlchemy | 8000 | 故事生成、LLM、TTS、会话/反馈/SUS 数据 |
+| **backend** | FastAPI + sqlite | 8000 | 故事文案/插图生成、TTS/转写、会话/反馈/SUS 数据 |
 | **user-api** | Express + sql.js | 3001 | 用户管理、Avatar、进食记录、绘本 CRUD |
 | **frontend** | React 19 + Vite + Tailwind 4 | 5173 | 前端 SPA（`/noa/*` 路由） |
 
@@ -43,9 +43,15 @@ cp user-api/.env.example user-api/.env
 # STORYTEXT_OPENAI_URI=https://api.openai.com/v1/chat/completions
 # STORYTEXT_OPENAI_MODEL=gpt-5
 # STORYTEXT_OPENAI_TIMEOUT_SEC=120
+# STORYTEXT_OPENAI_TIMEOUT_MAX_SEC=600
+# STORYTEXT_OPENAI_MAX_TOTAL_SEC=7200
+# STORYTEXT_OPENAI_BACKOFF_SEC=2
+# STORYTEXT_OPENAI_BACKOFF_MAX_SEC=60
 # STORYIMAGE_OPENAI_API_KEY=sk-xxxx
 # STORYIMAGE_OPENAI_URI=https://api.openai.com/v1/images/generations
 # STORYIMAGE_OPENAI_MODEL=gpt-image-1-mini
+# STORYIMAGE_OPENAI_TIMEOUT_SEC=60
+# STORYIMAGE_OPENAI_TIMEOUT_MAX_SEC=180
 # TRANSCIBE_OPENAI_API_KEY=sk-xxxx
 # TRANSCIBE_OPENAI_URI=https://api.openai.com/v1/audio/transcriptions
 # TRANSCIBE_OPENAI_MODEL=gpt-4o-transcribe-diarize
@@ -60,6 +66,18 @@ cp user-api/.env.example user-api/.env
 ```
 
 > **注意**：frontend 目录下已有 `.env` 和 `.env.development`，无需另行创建。
+
+user-api 可选增加（用于生成故障处理与体验优化）：
+
+```bash
+# 生成等待上限（秒）。超过会自动结束 generating，并写入 generationError（前端提示截图联系管理员）
+BOOK_GENERATE_MAX_WAIT_SEC=1200
+BOOK_REGENERATE_MAX_WAIT_SEC=1200
+
+# 长时间生成自动降级（秒）。超过后将 pages 降到最多 4，并将 difficulty=easy、interactive_density=low
+BOOK_GENERATE_DEGRADE_AFTER_SEC=180
+BOOK_REGENERATE_DEGRADE_AFTER_SEC=180
+```
 
 ## 启动
 
@@ -115,11 +133,12 @@ SGGG/
 
 ## 关键流程
 
-- 绘本生成：读完已确认绘本 → 自动生成新绘本（无需录入进食触发）
+- 绘本生成：读完已确认绘本 → 主页面自动触发生成（后台任务，不阻塞请求）
 - 进食记录：主页面随时提交（今日食物/打分/描述必填），仅写入进食日志与反馈
 - 形象情绪：进食记录提交后按分数映射 emotion（0-3），主页面展示对应情绪形象（直到下次进食）
 - 主页面切换：头部按钮在“绘本预览 / 进食记录”之间切换
-- 绘本预览图：默认 SVG 占位；全部插图生成后展示第一页插图 URL
+- 绘本预览图：默认 SVG 占位；全部插图生成完成后展示第一页插图 URL
+- 生成故障处理：生成超时/服务中断会自动结束 generating 并提示截图联系管理员（避免一直卡住）
 
 ## 形象资源
 
@@ -140,7 +159,7 @@ SGGG/
 | GET | `/api/home/status` | 主页聚合数据（含 `generating` 字段，刷新后恢复生成状态） | Bearer |
 | POST | `/api/food/log` | 提交进食记录（`foodName/score/content` 必填，不触发绘本生成） | Bearer |
 | POST | `/api/book/confirm` | 确认临时绘本 | Bearer |
-| POST | `/api/book/regenerate` | 重新生成临时绘本（参数均可选，缺省使用默认值） | Bearer |
+| POST | `/api/book/regenerate` | 重新生成临时绘本（后台执行，接口立即返回 `{ok:true}`，完成后主页状态会更新） | Bearer |
 | GET | `/api/books/history` | 历史绘本列表 | Bearer |
 | GET | `/api/books/:bookId` | 绘本详情 | Bearer |
 | POST | `/api/voice/transcribe` | 语音转写（multipart 文件上传，转发到 backend） | Bearer |
@@ -155,8 +174,9 @@ SGGG/
 |------|------|------|
 | POST | `/api/v1/session/start` | 创建故事会话 |
 | GET | `/api/v1/story/{story_id}` | 获取故事 |
-| POST | `/api/v1/story/generate` | 生成故事（接受 JITAI 字段：food_history / reading_context） |
-| POST | `/api/v1/story/regenerate` | 重新生成故事（接受 pages / difficulty / interaction_density） |
+| POST | `/api/v1/story/generate` | 创建 story 并启动后台生成（返回占位 draft；最终结果用 story_id 轮询获取） |
+| POST | `/api/v1/story/regenerate` | 创建新 story 并启动后台重新生成（返回占位 draft） |
+| POST | `/api/v1/story/{story_id}/ensure_images` | 仅补齐缺失插图（已生成部分插图时不会重复生成） |
 | POST | `/api/v1/feedback/submit` | 提交反馈 |
 | POST | `/api/v1/sus/submit` | 提交 SUS 问卷 |
 | POST | `/api/v1/telemetry/report` | 遥测上报 |
@@ -165,6 +185,12 @@ SGGG/
 | POST | `/api/v1/voice/transcribe` | 语音转写 |
 | GET | `/api/v1/export/child/{id}` | 导出儿童数据 |
 | GET | `/api/v1/admin/stats` | 后端统计数据 |
+
+用于 E2E/故障演练（需 `ADMIN_API_KEY`）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/admin/test/llm_delay?seconds=10` | 模拟“文案 LLM 很慢”（仅测试用途） |
 
 ## 登录与首次登录
 
@@ -236,7 +262,7 @@ SGGG/
 │   ├── main.py
 │   ├── prompt.py          # LLM prompt 定义
 │   ├── llm.py             # LLM 调用 (OpenAI/DashScope)
-│   ├── models.py          # SQLAlchemy 模型
+│   ├── models.py          # Pydantic 请求/响应模型
 │   ├── database.py
 │   ├── routers/           # API 路由模块
 │   └── requirements.txt

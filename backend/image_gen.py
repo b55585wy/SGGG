@@ -29,7 +29,7 @@ def _save_locally_bytes(raw: bytes, ext: str = ".png") -> Optional[str]:
         return None
 
 
-def _post_json(uri: str, payload: dict, api_key: str) -> dict:
+def _post_json(uri: str, payload: dict, api_key: str, timeout_sec: int) -> dict:
     print(f"[INFO] IMG request start uri={uri}")
     headers = {"Content-Type": "application/json"}
     if "openai.azure.com" in uri:
@@ -39,7 +39,7 @@ def _post_json(uri: str, payload: dict, api_key: str) -> dict:
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(uri, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
             body = resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8")
@@ -61,6 +61,9 @@ def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
 
     full_prompt = f"{global_style}. {prompt}" if global_style else prompt
 
+    timeout_sec = int(os.getenv("STORYIMAGE_OPENAI_TIMEOUT_SEC", "60"))
+    max_timeout_sec = int(os.getenv("STORYIMAGE_OPENAI_TIMEOUT_MAX_SEC", "180"))
+
     for attempt in range(MAX_RETRIES):
         try:
             payload = {
@@ -71,7 +74,7 @@ def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
                 payload["response_format"] = "b64_json"
             if "/deployments/" not in uri:
                 payload["model"] = model
-            rsp = _post_json(uri, payload, api_key)
+            rsp = _post_json(uri, payload, api_key, timeout_sec)
             data = rsp.get("data", [])
             if data:
                 b64 = data[0].get("b64_json")
@@ -83,7 +86,7 @@ def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
                 url = data[0].get("url")
                 if url:
                     try:
-                        with urllib.request.urlopen(url, timeout=60) as resp:
+                        with urllib.request.urlopen(url, timeout=timeout_sec) as resp:
                             raw = resp.read()
                         saved = _save_locally_bytes(raw, ".png")
                         if saved:
@@ -93,6 +96,10 @@ def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
             print(f"[IMG] attempt {attempt+1}: empty image data")
         except Exception as e:
             print(f"[IMG] attempt {attempt+1} exception: {e}")
+            msg = str(e)
+            timeout_like = "timed out" in msg.lower() or "timeout" in msg.lower()
+            if timeout_like:
+                timeout_sec = min(int(timeout_sec * 1.5), max_timeout_sec)
 
         if attempt < MAX_RETRIES - 1:
             time.sleep(RETRY_DELAYS[attempt])
