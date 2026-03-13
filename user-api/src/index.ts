@@ -194,6 +194,7 @@ async function generateTempBookForUser(params: {
       interactive_density: "medium",
       language: "zh-CN",
     },
+    child_id: params.userID,
   };
 
   const response = await fetch(`${FASTAPI_URL}/api/v1/story/generate`, {
@@ -372,11 +373,21 @@ app.delete("/api/admin/users/:userID", adminRequired, async (req, res) => {
   }
   try {
     const deleted = await deleteUser(userID);
-    if (deleted) {
-      res.json({ ok: true, message: "删除成功" });
-    } else {
+    if (!deleted) {
       res.status(404).json({ message: "用户不存在" });
+      return;
     }
+    // cascade: clean up backend (sessions, telemetry, feedback, etc.)
+    try {
+      const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+      await fetch(`${backendUrl}/api/v1/admin/users/${encodeURIComponent(userID)}`, {
+        method: "DELETE",
+        headers: { "x-admin-key": process.env.ADMIN_API_KEY || "" },
+      });
+    } catch (_) {
+      // backend cleanup is best-effort; user-api data already deleted
+    }
+    res.json({ ok: true, message: "删除成功" });
   } catch (e) {
     res.status(500).json({ message: "删除失败" });
   }
@@ -1032,6 +1043,7 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     sessionType: typeof body.sessionType === "string" ? body.sessionType : "experiment",
     tryLevel: typeof body.tryLevel === "string" ? body.tryLevel : null,
     abortReason: typeof body.abortReason === "string" ? body.abortReason : null,
+    skipAutoBookGeneration: body.skipAutoBookGeneration === true,
   });
   const bookId = typeof body.bookId === "string" ? body.bookId : null;
   if (body.completed === true && bookId && !body.skipAutoBookGeneration) {

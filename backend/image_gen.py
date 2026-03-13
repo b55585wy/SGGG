@@ -15,11 +15,13 @@ MAX_RETRIES = 3
 RETRY_DELAYS = [2, 5, 10]  # seconds between retries
 
 
-def _save_locally_bytes(raw: bytes, ext: str = ".png") -> Optional[str]:
+def _save_locally_bytes(raw: bytes, ext: str = ".png", child_id: Optional[str] = None) -> Optional[str]:
     """保存图片字节到本地，返回永久本地 URL。失败返回 None。"""
     try:
         os.makedirs(_IMAGES_DIR, exist_ok=True)
-        img_name = _uuid.uuid4().hex + ext
+        safe_id = child_id.replace(os.sep, "_").replace("/", "_") if child_id else ""
+        prefix = f"{safe_id}_" if safe_id else ""
+        img_name = prefix + _uuid.uuid4().hex + ext
         path = os.path.join(_IMAGES_DIR, img_name)
         with open(path, "wb") as f:
             f.write(raw)
@@ -48,7 +50,7 @@ def _post_json(uri: str, payload: dict, api_key: str) -> dict:
     return json.loads(body) if body else {}
 
 
-def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
+def generate_page_image(prompt: str, global_style: str = "", child_id: Optional[str] = None) -> Optional[str]:
     """生成单页插图，带重试。返回本地永久 URL，失败返回 None。"""
     uri = os.getenv("STORYIMAGE_OPENAI_URI")
     api_key = os.getenv("STORYIMAGE_OPENAI_API_KEY")
@@ -77,7 +79,7 @@ def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
                 b64 = data[0].get("b64_json")
                 if b64:
                     raw = base64.b64decode(b64)
-                    saved = _save_locally_bytes(raw, ".png")
+                    saved = _save_locally_bytes(raw, ".png", child_id)
                     if saved:
                         return saved
                 url = data[0].get("url")
@@ -85,7 +87,7 @@ def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
                     try:
                         with urllib.request.urlopen(url, timeout=60) as resp:
                             raw = resp.read()
-                        saved = _save_locally_bytes(raw, ".png")
+                        saved = _save_locally_bytes(raw, ".png", child_id)
                         if saved:
                             return saved
                     except Exception:
@@ -101,7 +103,7 @@ def generate_page_image(prompt: str, global_style: str = "") -> Optional[str]:
     return None
 
 
-def generate_cover_image(title: str, theme_food: str, global_style: str = "") -> Optional[str]:
+def generate_cover_image(title: str, theme_food: str, global_style: str = "", child_id: Optional[str] = None) -> Optional[str]:
     """生成绘本封面图，带重试。返回本地永久 URL，失败返回 None。"""
     uri = os.getenv("STORYIMAGE_OPENAI_URI")
     api_key = os.getenv("STORYIMAGE_OPENAI_API_KEY")
@@ -129,14 +131,14 @@ def generate_cover_image(title: str, theme_food: str, global_style: str = "") ->
             if data:
                 b64 = data[0].get("b64_json")
                 if b64:
-                    saved = _save_locally_bytes(base64.b64decode(b64), ".png")
+                    saved = _save_locally_bytes(base64.b64decode(b64), ".png", child_id)
                     if saved:
                         return saved
                 url = data[0].get("url")
                 if url:
                     try:
                         with urllib.request.urlopen(url, timeout=60) as resp:
-                            saved = _save_locally_bytes(resp.read(), ".png")
+                            saved = _save_locally_bytes(resp.read(), ".png", child_id)
                             if saved:
                                 return saved
                     except Exception:
@@ -152,7 +154,7 @@ def generate_cover_image(title: str, theme_food: str, global_style: str = "") ->
     return None
 
 
-def generate_images_for_pages(pages: list, global_style: str) -> None:
+def generate_images_for_pages(pages: list, global_style: str, child_id: Optional[str] = None) -> None:
     """为所有页面生成插图（最多 2 个并发），失败页面重试后仍跳过。"""
     if not os.getenv("STORYIMAGE_OPENAI_API_KEY") or not os.getenv("STORYIMAGE_OPENAI_URI") or not os.getenv("STORYIMAGE_OPENAI_MODEL"):
         print("[IMG] STORYIMAGE_OPENAI_* not set, skipping image generation")
@@ -164,7 +166,7 @@ def generate_images_for_pages(pages: list, global_style: str) -> None:
     print(f"[INFO] IMG batch start pages={total}")
 
     def gen_one(page: dict):
-        url = generate_page_image(page.get("image_prompt", ""), global_style)
+        url = generate_page_image(page.get("image_prompt", ""), global_style, child_id)
         if url:
             page["image_url"] = url
             return True

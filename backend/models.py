@@ -44,6 +44,7 @@ class GenerateRequest(BaseModel):
     story_config: StoryConfig
     history_context: Optional[HistoryContext] = None
     custom_prompt: Optional[str] = None
+    child_id: Optional[str] = None
 
 
 # ── Story Regenerate ──────────────────────────────────────────

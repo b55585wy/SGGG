@@ -28,7 +28,7 @@ def _build_draft(story_content: dict, story_id: str) -> dict:
     }
 
 
-def _generate_assets_bg(story_id: str, draft_copy: dict):
+def _generate_assets_bg(story_id: str, draft_copy: dict, child_id: str | None = None):
     """后台线程：预生成整本语音 + 页面插图 + 封面图后更新数据库。"""
     if os.getenv("TTS_PREGENERATE_ON_STORY", "true").lower() not in ("0", "false", "no", "off"):
         try:
@@ -44,12 +44,13 @@ def _generate_assets_bg(story_id: str, draft_copy: dict):
     book_meta = draft_copy.get("book_meta", {})
     global_style = book_meta.get("global_visual_style", "")
     print(f"[INFO] IMG generation start story_id={story_id}")
-    generate_images_for_pages(draft_copy.get("pages", []), global_style)
+    generate_images_for_pages(draft_copy.get("pages", []), global_style, child_id)
 
     cover_url = generate_cover_image(
         title=book_meta.get("title", ""),
         theme_food=book_meta.get("theme_food", ""),
         global_style=global_style,
+        child_id=child_id,
     )
     if cover_url:
         draft_copy.setdefault("book_meta", {})["cover_image_url"] = cover_url
@@ -101,17 +102,19 @@ def story_generate(req: GenerateRequest):
     draft["child_profile"] = child_profile
     draft["meal_context"] = meal_context
     draft["story_config"] = story_config
+    if req.child_id:
+        draft["child_id"] = req.child_id
 
     with get_db() as db:
         db.execute(
-            "INSERT INTO stories (story_id, regen_count, story_json) VALUES (?, 0, ?)",
-            (story_id, json.dumps(draft)),
+            "INSERT INTO stories (story_id, child_id, regen_count, story_json) VALUES (?, ?, 0, ?)",
+            (story_id, req.child_id, json.dumps(draft)),
         )
 
     # 后台异步生成图片，不阻塞接口返回
     threading.Thread(
         target=_generate_assets_bg,
-        args=(story_id, copy.deepcopy(draft)),
+        args=(story_id, copy.deepcopy(draft), req.child_id),
         daemon=True,
     ).start()
 
@@ -169,11 +172,14 @@ def story_regenerate(req: RegenerateRequest):
     draft["child_profile"] = prev_draft.get("child_profile") or {}
     draft["meal_context"] = meal_context
     draft["story_config"] = story_config
+    child_id = prev_draft.get("child_id")
+    if child_id:
+        draft["child_id"] = child_id
 
     with get_db() as db:
         db.execute(
-            "INSERT INTO stories (story_id, parent_story_id, regen_count, story_json) VALUES (?, ?, ?, ?)",
-            (story_id, req.previous_story_id, 0, json.dumps(draft)),
+            "INSERT INTO stories (story_id, parent_story_id, child_id, regen_count, story_json) VALUES (?, ?, ?, ?, ?)",
+            (story_id, req.previous_story_id, child_id, 0, json.dumps(draft)),
         )
         db.execute(
             "UPDATE stories SET regen_count = regen_count + 1 WHERE story_id = ?",
@@ -183,7 +189,7 @@ def story_regenerate(req: RegenerateRequest):
     # 后台异步生成图片，不阻塞接口返回
     threading.Thread(
         target=_generate_assets_bg,
-        args=(story_id, copy.deepcopy(draft)),
+        args=(story_id, copy.deepcopy(draft), child_id),
         daemon=True,
     ).start()
 

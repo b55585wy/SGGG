@@ -1,7 +1,11 @@
+import glob
+import json
+import os
 import sqlite3
 from contextlib import contextmanager
 
 DB_PATH = "storybook.db"
+_IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "images")
 
 
 def init_db():
@@ -145,9 +149,14 @@ def get_telemetry_stats() -> dict:
         row = conn.execute("""
             SELECT
                 COUNT(*) as total_events,
-                COUNT(DISTINCT session_id) as unique_sessions,
-                AVG(ts_client_ms) as avg_dwell_ms
+                COUNT(DISTINCT session_id) as unique_sessions
             FROM telemetry_events
+        """).fetchone()
+
+        dwell_row = conn.execute("""
+            SELECT AVG(json_extract(payload, '$.duration_ms')) as avg_dwell_ms
+            FROM telemetry_events
+            WHERE event_type = 'page_dwell' AND payload IS NOT NULL
         """).fetchone()
 
         type_dist = conn.execute("""
@@ -159,9 +168,69 @@ def get_telemetry_stats() -> dict:
         return {
             "totalEvents": row["total_events"] or 0,
             "uniqueSessions": row["unique_sessions"] or 0,
-            "avgDwellMs": round(row["avg_dwell_ms"] or 0, 1),
+            "avgDwellMs": round(dwell_row["avg_dwell_ms"] or 0, 1),
             "byType": {r["event_type"]: r["cnt"] for r in type_dist},
         }
+
+
+def delete_user_data(child_id: str) -> dict:
+    """Delete all backend data (sessions, telemetry, feedback, sus, stories) for a user."""
+    with get_db() as conn:
+        # collect session_ids first for cascade
+        session_ids = [
+            r["session_id"]
+            for r in conn.execute(
+                "SELECT session_id FROM sessions WHERE child_id = ?", (child_id,)
+            ).fetchall()
+        ]
+        counts: dict[str, int] = {}
+        if session_ids:
+            placeholders = ",".join("?" for _ in session_ids)
+            for table in ("telemetry_events", "feedback", "sus_responses"):
+                cur = conn.execute(
+                    f"DELETE FROM {table} WHERE session_id IN ({placeholders})",
+                    session_ids,
+                )
+                counts[table] = cur.rowcount
+        cur = conn.execute("DELETE FROM sessions WHERE child_id = ?", (child_id,))
+        counts["sessions"] = cur.rowcount
+        # --- clean up image files before deleting stories ---
+        deleted_files = 0
+        story_rows = conn.execute(
+            "SELECT story_json FROM stories WHERE child_id = ?", (child_id,)
+        ).fetchall()
+        for row in story_rows:
+            try:
+                draft = json.loads(row["story_json"])
+            except Exception:
+                continue
+            cover = (draft.get("book_meta") or {}).get("cover_image_url", "")
+            urls = [cover] if cover else []
+            for page in draft.get("pages", []):
+                u = page.get("image_url", "")
+                if u:
+                    urls.append(u)
+            for url in urls:
+                fname = url.rsplit("/", 1)[-1] if "/" in url else ""
+                if fname:
+                    fpath = os.path.join(_IMAGES_DIR, fname)
+                    try:
+                        os.remove(fpath)
+                        deleted_files += 1
+                    except FileNotFoundError:
+                        pass
+        # glob fallback: catch any orphaned images with child_id prefix
+        safe_cid = child_id.replace(os.sep, "_").replace("/", "_")
+        for fpath in glob.glob(os.path.join(_IMAGES_DIR, f"{safe_cid}_*")):
+            try:
+                os.remove(fpath)
+                deleted_files += 1
+            except FileNotFoundError:
+                pass
+        counts["image_files"] = deleted_files
+        cur = conn.execute("DELETE FROM stories WHERE child_id = ?", (child_id,))
+        counts["stories"] = cur.rowcount
+        return counts
 
 
 @contextmanager
