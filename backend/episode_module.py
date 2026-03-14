@@ -296,20 +296,25 @@ Input interpretation:
 - recent_story is OPTIONAL. If present, use it only to preserve precise local continuity, avoid repeated scene beats, and keep near-term details coherent. If it is absent, rely on recap_and_goal and story_arc instead. Do NOT require recent_story.
 - basic_constraints contains hard production limits unless they conflict with safety. Treat episode_page_count, per-page Chinese length targets, interaction budgets, and safety rules as hard constraints.
 - temporal_characteristics is the current source of truth for avatar appearance/state and any user-driven current overrides such as the current food instance, temporary scene-specific outfit/accessory changes, or other visual state details. A persistent base character reference image will be provided separately during image generation and should be treated as the primary source of the child's facial features and default appearance.
+- If run_config.effective_inputs.food_override_must_follow is true and run_config.effective_inputs.food_override_hint is non-empty, treat that food override as a hard requirement for this episode.
 
 Generation responsibilities:
 1) Choose the most suitable episode pattern from story_arc.episode_pattern_library if it exists. If the library is missing, infer the best-fitting pattern from the story arc's series premise, recurring elements, and the recap/micro goal.
-2) Decide one concrete food instance for this episode if the story arc only gives a food category. If temporal_characteristics specifies a concrete current food override, prefer that when it stays coherent with the story arc and safety rules.
+2) Decide one concrete food instance for this episode if the story arc only gives a food category. If run_config.effective_inputs.food_override_must_follow is true, you MUST use run_config.effective_inputs.food_override_hint as the concrete food instance for this episode and must NOT substitute a sibling item from the same category. Otherwise, if temporal_characteristics specifies a concrete current food override, prefer that when it stays coherent with the story arc and safety rules.
 3) Build a page-level episode plan internally that preserves continuity, keeps the target food central, and naturally embeds sensory description, health/nutrition-oriented food knowledge, and role-model behavior.
 4) Output only the final structured JSON.
 
 Story requirements:
 - Strictly follow the recurring story world. Use story_arc to preserve the world setting, recurring travel logic, helper/guide roles, recurring objects, opening/closing rituals, and signature phrases when they help continuity.
 - Keep the picky-eating anchor central. The target food category and the chosen concrete food instance for this episode must stay central, not decorative.
+- When a hard food override is active, keep that exact override food instance central across the full episode, not just a single mention.
 - Maintain a low-pressure, non-coercive, non-shaming, non-transactional tone. No force, no blame, no threats, no punishment, and no medical or nutritional diagnosis.
 - Exploration should stay grounded in real-life, everyday, bright, familiar contexts. Gentle imagination is allowed, but do NOT drift so far into fantasy that the food is no longer anchored in reality.
 - The recap and micro goal guide continuity, but the micro goal is not a rigid behavioral stage ladder. Use it as a high-level narrative/content direction.
 - The current episode should feel generative and fresh while still recognizably belonging to the same series.
+- Chinese writing style must be natural, spoken, and parent-read-aloud friendly for ages 3–6.
+- Avoid translationese and over-literal written style. Prefer short, concrete, everyday spoken Chinese over abstract/formal phrasing.
+- For page text, prioritize "scene + action + feeling" expression. Avoid stacked abstract nouns and policy/report-like tone.
 - Each page_text_cn should contain enough concrete narrative content for shared reading: at least one meaningful scene/action plus at least one of the following: sensory detail, health/nutrition-oriented food knowledge, role-model behavior, or a continuity cue.
 - Across the full episode, naturally weave in all three content elements: sensory descriptions, health/nutrition-oriented food knowledge, and role-model narrative. These should feel embedded in story, not like lectures.
 - For the "knowledge" element, prefer child-friendly health/nutrition relevance (for example, energy, growth, body function, or balanced eating context) tied to the target food and current scene.
@@ -359,6 +364,8 @@ Self-check before finalizing:
 - Check safety rules from basic_constraints.safety_rules.
 - Check continuity against story_arc, recap_and_goal, and recent_story if provided.
 - Check that the target food remains central.
+- Check language naturalness: child-facing Chinese should sound like real spoken storytelling, not translated or bureaucratic prose.
+- If a hard food override is active, check that pages and image prompt suffixes consistently stay on that exact override food instance (no substitution to another same-category item).
 - Check that the three content elements appear across the episode.
 - Check page count, Han-character counts, interaction budget, choice-point limits, record_voice limits, preferred interaction density, and image-prompt consistency.
 - If any problem is found, revise before finalizing.
@@ -384,6 +391,15 @@ def build_run_config(
     page_range = basic_constraints["words_per_page_target_cn"]
     total_range = basic_constraints["word_count_cn_profiles"]["standard"]
     three_element_minimums = basic_constraints["three_element_minimums"]
+    food_override_hint = _extract_food_override(temporal_characteristics)
+    target_food_category = story_arc.get("target_food_category") if isinstance(story_arc.get("target_food_category"), str) else ""
+    food_override_must_follow = bool(
+        isinstance(food_override_hint, str)
+        and food_override_hint.strip()
+        and isinstance(target_food_category, str)
+        and target_food_category.strip()
+        and food_override_hint.strip() != target_food_category.strip()
+    )
 
     return {
         "effective_inputs": {
@@ -393,11 +409,17 @@ def build_run_config(
             "word_count_cn_profile_standard": total_range,
             "image_count_target": basic_constraints["image_count_target"],
             "three_element_minimums": three_element_minimums,
-            "food_override_hint": _extract_food_override(temporal_characteristics),
+            "food_override_hint": food_override_hint,
+            "food_override_must_follow": food_override_must_follow,
         },
         "prompt_emphasis": {
             "continuity_priority": "Honor recurring world logic, helper roles, rituals, recurring objects, and recent continuity without turning framework-only details into fake past events.",
             "episode_freshness": "Keep the episode fresh by varying the focal food trait, place detail, helper moment, or comparison thread while staying coherent with the same series.",
+            "language_naturalness_priority": (
+                "Use natural, child-facing spoken Chinese with short concrete sentences suitable for read-aloud. "
+                "Avoid translationese (e.g., overly literal wording, stacked abstract nouns, formal report tone). "
+                "Prefer warm colloquial wording used in everyday parent-child conversation."
+            ),
             "interaction_priority": (
                 "Allowed interaction types are choice, record_voice, tap, drag, and mimic. "
                 f"Hard caps: tap/drag/mimic <= {basic_constraints['interaction_constraints']['micro_interactions_max_per_episode']}, "
@@ -409,6 +431,10 @@ def build_run_config(
             "knowledge_scope_priority": "When satisfying the knowledge element, prioritize age-appropriate health/nutrition relevance of the target food in everyday child language. Avoid relying only on botany/origin trivia unless clearly linked to health/nutrition meaning.",
             "recent_story_policy": "recent_story is optional. Use it only to sharpen local carry-over details, not to replace recap_and_goal.",
             "temporal_override_policy": "Treat temporal_characteristics as the current truth for food and temporary scene-specific visual overrides. A persistent base avatar reference image is assumed to define the child's face, facial features, hairstyle, and default appearance, so text should not invent or lock those details unless the user explicitly requests a temporary change.",
+            "food_override_policy": (
+                "If effective_inputs.food_override_must_follow is true, the episode must use effective_inputs.food_override_hint as the exact concrete food instance throughout pages and image prompt suffixes. "
+                "Do not switch to another same-category food."
+            ),
             "image_prompt_packaging": "Store shared reusable English prompt components only once inside visual_canon. Do not output final_image_prompt_en. Each page_image_prompt_package should contain only image_prompt_suffix_en for downstream prompt assembly.",
         },
     }

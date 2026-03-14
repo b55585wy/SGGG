@@ -29,7 +29,7 @@ class MealContext(BaseModel):
 class StoryConfig(BaseModel):
     story_type: str
     difficulty: str = "medium"
-    pages: int = 8
+    pages: int = 12
     interactive_density: str = "medium"
     must_include_positive_feedback: bool = True
     language: str = "zh-CN"
@@ -48,13 +48,14 @@ class GenerateRequest(BaseModel):
 class RegenerateRequest(BaseModel):
     previous_story_id: str
     target_food: str
-    story_type: str
+    story_type: Optional[str] = None
     dissatisfaction_reason: str
     dislike_reason: Optional[str] = None
     pages: Optional[int] = None
     difficulty: Optional[str] = None
     interaction_density: Optional[str] = None
     temporal_characteristics: Optional[dict[str, Any]] = None
+    story_arc: Optional[dict[str, Any]] = None
 
 
 # ── Session ───────────────────────────────────────────────────

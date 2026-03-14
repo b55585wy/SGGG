@@ -248,6 +248,17 @@ async function resolveDraftFromBackendIfReady(storyId: string): Promise<{ previe
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
+const STORY_TYPE_TO_INTEREST_THEME: Record<string, string> = {
+  curious_discovery: "grounded_expository_exploration",
+  everyday_routine: "everyday_cause_effect_routine",
+  light_fantasy: "light_fantasy_grounded_social_world",
+  journey_discovery: "journey_discovery_framework",
+};
+
+function mapStoryTypeToInterestTheme(storyType: string): string | null {
+  return STORY_TYPE_TO_INTEREST_THEME[storyType] ?? null;
+}
+
 async function generateStoryArcViaBackend(userProfile: Record<string, unknown>): Promise<unknown> {
   const response = await fetch(`${FASTAPI_URL}/api/v1/continuity/story_arc/generate`, {
     method: "POST",
@@ -401,9 +412,9 @@ async function generateTempBookForUser(params: {
       }),
     },
     story_config: {
-      story_type: "interactive",
+      story_type: "light_fantasy",
       difficulty: autoDifficulty,
-      pages: 6,
+      pages: 12,
       interactive_density: "medium",
       language: "zh-CN",
     },
@@ -1205,23 +1216,29 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
 
   const storyType =
     body && typeof body === "object" && typeof (body as { story_type?: unknown }).story_type === "string"
-      ? (body as { story_type: string }).story_type
-      : "interactive";
+      ? (body as { story_type: string }).story_type.trim()
+      : "";
+  const storyTypeOverride = storyType.length > 0 ? storyType : null;
+  const mappedInterestTheme = storyTypeOverride ? mapStoryTypeToInterestTheme(storyTypeOverride) : null;
+  if (storyTypeOverride && !mappedInterestTheme) {
+    res.status(400).json({ message: "story_type 非法" });
+    return;
+  }
 
   const regenPages =
     body && typeof body === "object" && typeof (body as { pages?: unknown }).pages === "number"
       ? Math.min(12, Math.max(4, (body as { pages: number }).pages))
-      : 6;
+      : null;
 
   const regenDifficulty =
     body && typeof body === "object" && typeof (body as { difficulty?: unknown }).difficulty === "string"
       ? (body as { difficulty: string }).difficulty
-      : "medium";
+      : null;
 
   const regenInteractionDensity =
     body && typeof body === "object" && typeof (body as { interaction_density?: unknown }).interaction_density === "string"
       ? (body as { interaction_density: string }).interaction_density
-      : "medium";
+      : null;
 
   // Optional: temporary food override for this regeneration only
   const targetFoodOverride =
@@ -1229,13 +1246,81 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
       ? (body as { target_food: string }).target_food.trim()
       : null;
 
-  const regenBody = {
+  let storyArcOverride: Record<string, unknown> | null = null;
+  if (storyTypeOverride && mappedInterestTheme) {
+    const existing = await getUserStoryArc(req.user.userID);
+    let seedProfile: Record<string, unknown> | null = null;
+    if (existing?.sourceProfileJson) {
+      try {
+        const parsed = JSON.parse(existing.sourceProfileJson) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          seedProfile = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // ignore invalid historical profile
+      }
+    }
+
+    const existingInterestThemes = Array.isArray(seedProfile?.interest_theme)
+      ? (seedProfile.interest_theme as unknown[]).filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter((v) => v.length > 0)
+      : [];
+    const shouldRemapInterestTheme = existingInterestThemes.length === 0 || !existingInterestThemes.includes(mappedInterestTheme);
+
+    if (shouldRemapInterestTheme) {
+      try {
+        const sourceProfile = buildStoryArcUserProfile({
+          userID: req.user.userID,
+          themeFood: avatar.themeFood,
+          nickname: avatar.nickname,
+          gender: avatar.gender,
+          age: null,
+        }, {
+          seedProfile,
+          extraProfile: { interest_theme: [mappedInterestTheme] },
+        });
+        const generated = await generateStoryArcViaBackend(sourceProfile);
+        if (!generated || typeof generated !== "object" || Array.isArray(generated)) {
+          throw new Error("regenerate story_arc payload invalid");
+        }
+        storyArcOverride = generated as Record<string, unknown>;
+        await saveUserStoryArc({
+          userID: req.user.userID,
+          storyArcJson: JSON.stringify(storyArcOverride),
+          sourceProfileJson: JSON.stringify(sourceProfile),
+        });
+      } catch (e) {
+        console.error("[BOOK] regenerate story_arc remap failed:", e);
+        res.status(502).json({ message: "story_arc 重新生成失败" });
+        return;
+      }
+    } else if (existing?.storyArcJson) {
+      try {
+        const parsedArc = JSON.parse(existing.storyArcJson) as unknown;
+        if (parsedArc && typeof parsedArc === "object" && !Array.isArray(parsedArc)) {
+          storyArcOverride = parsedArc as Record<string, unknown>;
+        }
+      } catch {
+        // ignore invalid historical story_arc payload
+      }
+    }
+  }
+
+  const regenBody: {
+    previous_story_id: string;
+    target_food: string;
+    story_type?: string;
+    pages?: number;
+    difficulty?: string;
+    interaction_density?: string;
+    story_arc?: Record<string, unknown>;
+    dissatisfaction_reason: string;
+    temporal_characteristics: {
+      selected_food_instance: string;
+      child_avatar: ReturnType<typeof buildChildAvatarTemporalState>;
+    };
+  } = {
     previous_story_id: tempBook.bookID,
     target_food: targetFoodOverride || avatar.themeFood,
-    story_type: storyType,
-    pages: regenPages,
-    difficulty: regenDifficulty,
-    interaction_density: regenInteractionDensity,
     dissatisfaction_reason: promptReason || promptNote || "用户要求重新生成",
     temporal_characteristics: {
       selected_food_instance: targetFoodOverride || avatar.themeFood,
@@ -1249,6 +1334,11 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
       }),
     },
   };
+  if (storyTypeOverride) regenBody.story_type = storyTypeOverride;
+  if (regenPages !== null) regenBody.pages = regenPages;
+  if (regenDifficulty !== null) regenBody.difficulty = regenDifficulty;
+  if (regenInteractionDensity !== null) regenBody.interaction_density = regenInteractionDensity;
+  if (storyArcOverride) regenBody.story_arc = storyArcOverride;
 
   generatingUsers.add(req.user.userID);
   await setUserGenerating(req.user.userID).catch(() => {});

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning } from '@phosphor-icons/react';
@@ -33,6 +33,12 @@ export default function ReaderPage() {
   const sessionStartRef = useRef(new Date().toISOString());
   const readingEndedAtRef = useRef<string | null>(null);
   const interactionCountRef = useRef(0);
+  const readerVoice = useMemo<'zhimiao' | 'zhishuo'>(() => {
+    const gender = typeof (draft as { child_profile?: { gender?: unknown } } | null)?.child_profile?.gender === 'string'
+      ? String((draft as { child_profile?: { gender?: string } }).child_profile?.gender).toLowerCase()
+      : '';
+    return gender === 'male' ? 'zhishuo' : 'zhimiao';
+  }, [draft]);
 
   useEffect(() => {
     try {
@@ -101,14 +107,14 @@ export default function ReaderPage() {
           const optionsText = p.branch_choices
             .map((c, idx) => `选项${idx + 1}：${c.label}`)
             .join('。');
-          tts.speak(instruction, 'zhimiao', () => tts.speak(`${optionsText}。`, 'zhimiao'));
+          tts.speak(instruction, readerVoice, () => tts.speak(`${optionsText}。`, readerVoice));
           return;
         }
-        tts.speak(instruction, 'zhimiao');
+        tts.speak(instruction, readerVoice);
       }
       : undefined;
-    tts.speak(p.text, 'zhimiao', onEnd);
-  }, [tts]);
+    tts.speak(p.text, readerVoice, onEnd);
+  }, [tts, readerVoice]);
 
   useEffect(() => {
     autoReadRef.current = autoReadEnabled;

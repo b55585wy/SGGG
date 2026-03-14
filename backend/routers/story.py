@@ -150,9 +150,10 @@ def story_regenerate(req: RegenerateRequest):
         raise HTTPException(429, detail={"error": {"code": "REGEN_LIMIT_REACHED", "message": "max 2 regenerations"}})
 
     prev_draft = json.loads(row["story_json"])
-    story_config = prev_draft.get("story_config") or {"story_type": req.story_type, "pages": 8, "interactive_density": "medium", "language": "zh-CN"}
+    story_config = prev_draft.get("story_config") or {"story_type": "light_fantasy", "pages": 12, "interactive_density": "medium", "language": "zh-CN"}
     # 用户重新生成时选择的新参数覆盖旧配置
-    story_config["story_type"] = req.story_type
+    if isinstance(req.story_type, str) and req.story_type.strip():
+        story_config["story_type"] = req.story_type.strip()
     if req.pages is not None:
         story_config["pages"] = req.pages
     if req.difficulty is not None:
@@ -162,7 +163,7 @@ def story_regenerate(req: RegenerateRequest):
 
     meal_context = prev_draft.get("meal_context") or {"target_food": req.target_food, "meal_score": 3, "meal_text": ""}
     meal_context["target_food"] = req.target_food
-    story_arc = prev_draft.get("story_arc") or {}
+    story_arc = req.story_arc or prev_draft.get("story_arc") or {}
     recap_and_goal = prev_draft.get("recap_and_goal") or {}
     temporal_characteristics = prev_draft.get("temporal_characteristics") or {}
     temporal_characteristics = {
@@ -181,6 +182,11 @@ def story_regenerate(req: RegenerateRequest):
             recap_and_goal=recap_and_goal,
             temporal_characteristics=temporal_characteristics,
             recent_story=prev_draft.get("recent_story"),
+            regenerate_overrides={
+                "pages": req.pages,
+                "difficulty": req.difficulty,
+                "interaction_density": req.interaction_density,
+            },
         )
         print("[INFO] story_regenerate episode_module done")
     except RateLimitError:

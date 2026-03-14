@@ -1,11 +1,10 @@
 export type BehaviorLevel = 'Lv1' | 'Lv2' | 'Lv3';
 
 export type StoryType =
-  | 'adventure'
-  | 'daily_life'
-  | 'fantasy'
-  | 'animal_friend'
-  | 'superhero';
+  | 'curious_discovery'
+  | 'everyday_routine'
+  | 'light_fantasy'
+  | 'journey_discovery';
 
 export type InteractionType =
   | 'none'
@@ -148,7 +147,7 @@ export interface GenerateResponse {
 export interface RegenerateRequest {
   previous_story_id: string;
   target_food: string;
-  story_type: StoryType;
+  story_type?: StoryType;
   dissatisfaction_reason: DissatisfactionReason;
   dislike_reason?: string;
 }

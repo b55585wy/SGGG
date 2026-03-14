@@ -8,11 +8,10 @@ import { useChildren } from '@/hooks/useChildren';
 import type { StoryType } from '@/types/story';
 
 const STORY_TYPES: { value: StoryType; label: string }[] = [
-  { value: 'adventure',    label: '🗺️ 冒险故事' },
-  { value: 'daily_life',   label: '🏠 日常生活' },
-  { value: 'fantasy',      label: '✨ 奇幻世界' },
-  { value: 'animal_friend',label: '🐾 动物朋友' },
-  { value: 'superhero',    label: '🦸 超级英雄' },
+  { value: 'curious_discovery', label: '🔍 好奇发现' },
+  { value: 'everyday_routine',  label: '🏠 日常小事' },
+  { value: 'light_fantasy',     label: '✨ 轻趣幻想' },
+  { value: 'journey_discovery', label: '🗺️ 奇妙探索' },
 ];
 
 const MOODS: { value: string; label: string }[] = [
@@ -44,9 +43,9 @@ export default function GeneratePage() {
   const [mealText, setMealText] = useState('');
   const [possibleReason, setPossibleReason] = useState('');
   const [sessionMood, setSessionMood] = useState('neutral');
-  const [storyType, setStoryType] = useState<StoryType>('adventure');
+  const [storyType, setStoryType] = useState<StoryType>('light_fantasy');
   const [difficulty, setDifficulty] = useState('medium');
-  const [pages, setPages] = useState(8);
+  const [pages, setPages] = useState(12);
   const [interactiveDensity, setInteractiveDensity] = useState('medium');
   const [storyOpen, setStoryOpen] = useState(false);
 

@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,7 +53,7 @@ def _run_episode_module(cwd: str, code: str) -> Any:
         capture_output=True,
         text=True,
         env=_build_azure_compat_env(),
-        timeout=int(os.getenv("EPISODE_MODULE_TIMEOUT_SEC", "240")),
+        timeout=int(os.getenv("EPISODE_MODULE_TIMEOUT_SEC", "300")),
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "episode module execution failed")
@@ -61,6 +62,36 @@ def _run_episode_module(cwd: str, code: str) -> Any:
 
 def _safe_str(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _humanize_spoken_cn(text: str, *, for_title: bool = False) -> str:
+    normalized = _safe_str(text)
+    if not normalized:
+        return ""
+
+    replacements = [
+        ("本次", "这次"),
+        ("此次", "这次"),
+        ("进行", "做"),
+        ("通过", "用"),
+        ("并且", "还"),
+        ("以及", "和"),
+        ("从而", "这样就"),
+        ("儿童", "小朋友"),
+        ("小朋友们", "小朋友"),
+    ]
+    for src, dst in replacements:
+        normalized = normalized.replace(src, dst)
+
+    normalized = re.sub(r"\s+", "", normalized)
+    normalized = re.sub(r"[。]{2,}", "。", normalized)
+
+    if for_title:
+        normalized = normalized.strip("。！？!?；;，,:：")
+        if normalized.startswith("关于"):
+            normalized = normalized[2:].strip()
+
+    return normalized
 
 
 def _extract_theme_food(story_arc: Optional[dict], meal_context: Optional[dict], temporal_characteristics: Optional[dict]) -> str:
@@ -80,24 +111,24 @@ def _extract_theme_food(story_arc: Optional[dict], meal_context: Optional[dict],
 def _extract_title(recap_and_goal: Optional[dict], story_arc: Optional[dict], theme_food: str) -> str:
     mg = (recap_and_goal or {}).get("micro_goal")
     if isinstance(mg, dict):
-        title = _safe_str(mg.get("title"))
+        title = _humanize_spoken_cn(mg.get("title"), for_title=True)
         if title:
             return title
-    title = _safe_str((story_arc or {}).get("title"))
+    title = _humanize_spoken_cn((story_arc or {}).get("title"), for_title=True)
     if title:
         return title
-    return f"{theme_food}的新发现"
+    return f"今天认识{theme_food}"
 
 
 def _extract_summary(recap_and_goal: Optional[dict], pages: list[dict[str, Any]]) -> str:
     recap = (recap_and_goal or {}).get("recap")
     if isinstance(recap, dict):
-        text = _safe_str(recap.get("text_cn"))
+        text = _humanize_spoken_cn(recap.get("text_cn"))
         if text:
-            return text
+            return text[:120]
     page_texts = [_safe_str(page.get("page_text_cn")) for page in pages[:2]]
     page_texts = [text for text in page_texts if text]
-    return " ".join(page_texts)[:120]
+    return _humanize_spoken_cn(" ".join(page_texts))[:120]
 
 
 def _behavior_anchor_for_page(index: int, total: int) -> str:
@@ -155,6 +186,88 @@ def _build_avatar_feedback(meal_context: Optional[dict], theme_food: str) -> dic
     }
 
 
+def _safe_int(value: Any) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_lower_str(value: Any) -> str:
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
+def _load_base_basic_constraints(module_dir: Path) -> dict[str, Any]:
+    path = module_dir / "basic_constraints.json"
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _build_basic_constraints_override(
+    *,
+    module_dir: Path,
+    regenerate_overrides: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    if not isinstance(regenerate_overrides, dict):
+        return None
+
+    has_override = any(v is not None for v in regenerate_overrides.values())
+    if not has_override:
+        return None
+
+    merged = _load_base_basic_constraints(module_dir)
+
+    pages_raw = regenerate_overrides.get("pages")
+    pages = _safe_int(pages_raw)
+    if pages is not None:
+        page_count = max(4, min(12, pages))
+        merged["episode_page_count"] = page_count
+        merged["image_count_target"] = [page_count, page_count]
+
+    difficulty = _safe_lower_str(regenerate_overrides.get("difficulty"))
+    difficulty_word_ranges = {
+        "easy": [50, 70],
+        "medium": [60, 80],
+        "hard": [70, 90],
+    }
+    if difficulty in difficulty_word_ranges:
+        merged["words_per_page_target_cn"] = difficulty_word_ranges[difficulty]
+
+    interaction_density = _safe_lower_str(regenerate_overrides.get("interaction_density"))
+    density_to_micro_limit = {
+        "low": 2,
+        "medium": 3,
+        "high": 4,
+    }
+    if interaction_density in density_to_micro_limit:
+        interaction_constraints = (
+            merged.get("interaction_constraints")
+            if isinstance(merged.get("interaction_constraints"), dict)
+            else {}
+        )
+        interaction_constraints["micro_interactions_max_per_episode"] = density_to_micro_limit[interaction_density]
+        merged["interaction_constraints"] = interaction_constraints
+
+    page_count = _safe_int(merged.get("episode_page_count")) or 12
+    words_range = merged.get("words_per_page_target_cn")
+    if isinstance(words_range, list) and len(words_range) >= 2:
+        low = _safe_int(words_range[0]) or 60
+        high = _safe_int(words_range[1]) or 80
+        if low > high:
+            low, high = high, low
+        merged["word_count_cn_profiles"] = {"standard": [page_count * low, page_count * high]}
+
+    return merged
+
+
 def generate_story_from_episode(
     *,
     child_profile: dict[str, Any],
@@ -164,6 +277,7 @@ def generate_story_from_episode(
     recap_and_goal: dict[str, Any],
     temporal_characteristics: Optional[dict[str, Any]] = None,
     recent_story: Any = None,
+    regenerate_overrides: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     module_dir = Path(__file__).resolve().parent
     required_files = [
@@ -178,10 +292,15 @@ def generate_story_from_episode(
                 raise RuntimeError(f"missing required file: {name}")
             shutil.copy(src, Path(tmpdir) / name)
 
+        runtime_basic_constraints = _build_basic_constraints_override(
+            module_dir=module_dir,
+            regenerate_overrides=regenerate_overrides,
+        )
+
         payload = {
             "story_arc": story_arc,
             "recap_and_goal": recap_and_goal,
-            "basic_constraints": None,
+            "basic_constraints": runtime_basic_constraints,
             "temporal_characteristics": temporal_characteristics or {},
             "recent_story": recent_story,
         }
@@ -242,7 +361,7 @@ def generate_story_from_episode(
             "title": _extract_title(recap_and_goal, story_arc, theme_food),
             "subtitle": _safe_str((((story_arc or {}).get("series_premise") or {}).get("one_sentence_logline"))),
             "theme_food": theme_food,
-            "story_type": story_config.get("story_type", "interactive"),
+            "story_type": story_config.get("story_type", "light_fantasy"),
             "target_behavior_level": "Lv3",
             "summary": _extract_summary(recap_and_goal, pages_raw),
             "design_logic": "延续既有故事世界与 recap/micro goal，以低压力方式围绕目标食物展开新的探索情节。",

@@ -148,10 +148,10 @@ const REASONS = [
 ]
 
 const STORY_TYPES = [
-  { value: 'interactive', label: '好奇发现', Icon: GameController },
-  { value: 'adventure',   label: '日常小事', Icon: Compass },
-  { value: 'social',      label: '轻趣幻想', Icon: UsersThree },
-  { value: 'sensory',     label: '奇妙探索', Icon: Palette },
+  { value: 'curious_discovery', label: '好奇发现', Icon: GameController },
+  { value: 'everyday_routine',  label: '日常小事', Icon: Compass },
+  { value: 'light_fantasy',     label: '轻趣幻想', Icon: UsersThree },
+  { value: 'journey_discovery', label: '奇妙探索', Icon: Palette },
 ]
 
 const spring = { type: 'spring' as const, stiffness: 120, damping: 22 }
@@ -175,10 +175,14 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   const [reason, setReason] = useState('')
   const [foodOverride, setFoodOverride] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [storyType, setStoryType] = useState('interactive')
+  const [storyType, setStoryType] = useState('light_fantasy')
+  const [storyTypeTouched, setStoryTypeTouched] = useState(false)
   const [difficulty, setDifficulty] = useState('medium')
-  const [pages, setPages] = useState(6)
+  const [pages, setPages] = useState(12)
   const [interactionDensity, setInteractionDensity] = useState('medium')
+  const [difficultyTouched, setDifficultyTouched] = useState(false)
+  const [pagesTouched, setPagesTouched] = useState(false)
+  const [interactionDensityTouched, setInteractionDensityTouched] = useState(false)
 
   const reachedLimit = regenerateCount >= 2
   const canSubmit = !reachedLimit
@@ -186,14 +190,15 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   function onSubmit() {
     // Close immediately — fire API in background
     onSuccess()
-    postJson('/api/book/regenerate', {
+    const payload: Record<string, unknown> = {
       reason: reason || undefined,
       target_food: foodOverride.trim() || undefined,
-      story_type: storyType,
-      difficulty,
-      pages,
-      interaction_density: interactionDensity,
-    }).catch(() => { /* silently handle */ })
+    }
+    if (storyTypeTouched) payload.story_type = storyType
+    if (difficultyTouched) payload.difficulty = difficulty
+    if (pagesTouched) payload.pages = pages
+    if (interactionDensityTouched) payload.interaction_density = interactionDensity
+    postJson('/api/book/regenerate', payload).catch(() => { /* silently handle */ })
   }
 
   return (
@@ -270,7 +275,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                   <button
                     key={value}
                     type="button"
-                    onClick={() => setStoryType(value)}
+                    onClick={() => { setStoryType(value); setStoryTypeTouched(true) }}
                     className="flex items-center gap-2 py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
                     style={
                       storyType === value
@@ -325,7 +330,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                           <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>难度</label>
-                          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className="form-input">
+                          <select value={difficulty} onChange={(e) => { setDifficulty(e.target.value); setDifficultyTouched(true) }} className="form-input">
                             <option value="easy">简单</option>
                             <option value="medium">中等</option>
                             <option value="hard">困难</option>
@@ -333,7 +338,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                         </div>
                         <div className="space-y-1.5">
                           <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>交互密度</label>
-                          <select value={interactionDensity} onChange={(e) => setInteractionDensity(e.target.value)} className="form-input">
+                          <select value={interactionDensity} onChange={(e) => { setInteractionDensity(e.target.value); setInteractionDensityTouched(true) }} className="form-input">
                             <option value="low">少</option>
                             <option value="medium">中</option>
                             <option value="high">多</option>
@@ -342,7 +347,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                       </div>
                       <div className="space-y-1.5">
                         <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>页数 <span className="font-mono">{pages}</span></label>
-                        <input type="range" min={4} max={12} value={pages} onChange={(e) => setPages(Number(e.target.value))} className="w-full accent-[var(--color-accent)]" />
+                        <input type="range" min={4} max={12} value={pages} onChange={(e) => { setPages(Number(e.target.value)); setPagesTouched(true) }} className="w-full accent-[var(--color-accent)]" />
                       </div>
                     </div>
                   </motion.div>

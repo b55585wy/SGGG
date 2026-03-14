@@ -14,9 +14,9 @@ router = APIRouter(prefix="/api/v1", tags=["tts", "transcribe"])
 
 # edge-tts 中文神经网络声音，无需 API Key
 VOICE_MAP = {
-    "zhimiao":  "zh-CN-XiaoxiaoNeural",   # 温柔女声（默认，绘本推荐）
+    "zhimiao":  "zh-CN-YunxiaNeural",     # 女声
     "zhiying":  "zh-CN-XiaohanNeural",    # 活泼女声
-    "zhishuo":  "zh-CN-YunxiNeural",      # 自然男声
+    "zhishuo":  "zh-CN-YunyangNeural",    # 男声
 }
 DEFAULT_VOICE = "zhimiao"
 
