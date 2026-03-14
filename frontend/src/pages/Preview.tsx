@@ -98,6 +98,7 @@ export default function PreviewPage() {
           <p className="text-xs font-semibold tracking-wider text-[var(--color-muted)] uppercase mb-2">结尾预览</p>
           <p className="text-sm">{draft.ending.positive_feedback}</p>
           <p className="text-xs text-[var(--color-muted)] mt-2">下一个目标：{draft.ending.next_micro_goal}</p>
+          <p className="text-xs text-[var(--color-muted)] mt-2">线下小任务：{draft.ending.post_read_task || `这周选一个日常时刻，和家长围绕${m.theme_food}做一次“发现任务”：找到它、说一个特点、记录一句感受。`}</p>
         </motion.div>
       </div>
 

@@ -37,7 +37,7 @@ DEFAULT_BASIC_CONSTRAINTS: Dict[str, Any] = {
     "words_per_page_target_cn": [60, 80],
     "word_count_cn_profiles": {"standard": [720, 960]},
     "three_element_minimums": {
-        "sensory_min_per_episode": 2,
+        "sensory_min_per_episode": 1,
         "knowledge_min_per_episode": 1,
         "role_model_min_per_episode": 1,
     },
@@ -204,12 +204,12 @@ def _normalize_basic_constraints(basic_constraints: Optional[Dict[str, Any]]) ->
     minimums = _ensure_dict(
         merged.get("three_element_minimums"),
         {
-            "sensory_min_per_episode": 2,
+            "sensory_min_per_episode": 1,
             "knowledge_min_per_episode": 1,
             "role_model_min_per_episode": 1,
         },
     )
-    minimums["sensory_min_per_episode"] = max(1, _ensure_int(minimums.get("sensory_min_per_episode"), 2))
+    minimums["sensory_min_per_episode"] = max(1, _ensure_int(minimums.get("sensory_min_per_episode"), 1))
     minimums["knowledge_min_per_episode"] = max(1, _ensure_int(minimums.get("knowledge_min_per_episode"), 1))
     minimums["role_model_min_per_episode"] = max(1, _ensure_int(minimums.get("role_model_min_per_episode"), 1))
     merged["three_element_minimums"] = minimums
@@ -291,7 +291,7 @@ Your job:
 - Produce only the final JSON package. Plan internally first, but do NOT reveal your hidden planning.
 
 Input interpretation:
-- story_arc is the stable series bible. Treat it as the source of truth for world concept, recurring elements, helper roles, rituals, phrases, food anchor rules, and overall series tone.
+- story_arc is the stable series bible. Treat it as the source of truth for world concept, recurring elements, helper roles, rituals, phrases, and overall series tone.
 - recap_and_goal contains the child-facing recap, the high-level micro goal, and continuity hooks. Use it to decide what should continue next.
 - recent_story is OPTIONAL. If present, use it only to preserve precise local continuity, avoid repeated scene beats, and keep near-term details coherent. If it is absent, rely on recap_and_goal and story_arc instead. Do NOT require recent_story.
 - basic_constraints contains hard production limits unless they conflict with safety. Treat episode_page_count, per-page Chinese length targets, interaction budgets, and safety rules as hard constraints.
@@ -300,25 +300,26 @@ Input interpretation:
 
 Generation responsibilities:
 1) Choose the most suitable episode pattern from story_arc.episode_pattern_library if it exists. If the library is missing, infer the best-fitting pattern from the story arc's series premise, recurring elements, and the recap/micro goal.
-2) Decide one concrete food instance for this episode if the story arc only gives a food category. If run_config.effective_inputs.food_override_must_follow is true, you MUST use run_config.effective_inputs.food_override_hint as the concrete food instance for this episode and must NOT substitute a sibling item from the same category. Otherwise, if temporal_characteristics specifies a concrete current food override, prefer that when it stays coherent with the story arc and safety rules.
-3) Build a page-level episode plan internally that preserves continuity, keeps the target food central, and naturally embeds sensory description, health/nutrition-oriented food knowledge, and role-model behavior.
+2) Decide one concrete food instance for this episode. If run_config.effective_inputs.food_override_must_follow is true, you MUST use run_config.effective_inputs.food_override_hint as the concrete food instance for this episode and must NOT substitute another item.
+3) Build a page-level episode plan internally that preserves continuity, keeps the target food central, and can flexibly draw from sensory description, health/nutrition-oriented food knowledge, and role-model behavior as optional storytelling ingredients.
 4) Output only the final structured JSON.
 
 Story requirements:
 - Strictly follow the recurring story world. Use story_arc to preserve the world setting, recurring travel logic, helper/guide roles, recurring objects, opening/closing rituals, and signature phrases when they help continuity.
-- Keep the picky-eating anchor central. The target food category and the chosen concrete food instance for this episode must stay central, not decorative.
+- Keep the picky-eating anchor central. The concrete target food instance for this episode must stay central, not decorative.
 - When a hard food override is active, keep that exact override food instance central across the full episode, not just a single mention.
 - Maintain a low-pressure, non-coercive, non-shaming, non-transactional tone. No force, no blame, no threats, no punishment, and no medical or nutritional diagnosis.
-- Exploration should stay grounded in real-life, everyday, bright, familiar contexts. Gentle imagination is allowed, but do NOT drift so far into fantasy that the food is no longer anchored in reality.
+- Prefer relatable, everyday, bright, familiar anchors for exploration. Gentle imagination, playful detours, or light fantasy are welcome when they remain coherent, child-friendly, and still connected to the food storyline.
 - The recap and micro goal guide continuity, but the micro goal is not a rigid behavioral stage ladder. Use it as a high-level narrative/content direction.
 - The current episode should feel generative and fresh while still recognizably belonging to the same series.
 - Chinese writing style must be natural, spoken, and parent-read-aloud friendly for ages 3–6.
 - Avoid translationese and over-literal written style. Prefer short, concrete, everyday spoken Chinese over abstract/formal phrasing.
 - For page text, prioritize "scene + action + feeling" expression. Avoid stacked abstract nouns and policy/report-like tone.
-- Each page_text_cn should contain enough concrete narrative content for shared reading: at least one meaningful scene/action plus at least one of the following: sensory detail, health/nutrition-oriented food knowledge, role-model behavior, or a continuity cue.
-- Across the full episode, naturally weave in all three content elements: sensory descriptions, health/nutrition-oriented food knowledge, and role-model narrative. These should feel embedded in story, not like lectures.
-- For the "knowledge" element, prefer child-friendly health/nutrition relevance (for example, energy, growth, body function, or balanced eating context) tied to the target food and current scene.
-- Purely taxonomic/botanical/origin trivia (for example, only describing seeds, vines, or market facts) does NOT by itself satisfy the knowledge element unless it is explicitly connected to child-facing health/nutrition meaning.
+- Each page_text_cn should contain enough concrete narrative content for shared reading: at least one meaningful scene/action plus at least one vivid cue such as feeling, sensory detail, role relation, continuity signal, or light knowledge point.
+- Treat sensory/knowledge/role-model as a flexible palette across episodes, not a rigid per-episode checklist. One episode may emphasize one or two elements more than the others.
+- "Look/smell/touch" interactions are welcome, but avoid letting the whole episode become repetitive invitation loops. Keep variation through scene events, comparison, mini-mystery, helper dynamics, humor, or small mission momentum.
+- When using the "knowledge" element, prefer child-friendly health/nutrition relevance (for example, energy, growth, body function, or balanced eating context) tied to the target food and current scene.
+- Taxonomic/botanical/origin trivia can be used as supporting flavor, and is strongest when linked to child-facing meaning instead of standing alone.
 
 Interaction requirements:
 - Keep the interaction shape compatible with a lightweight interactive storybook flow.
@@ -355,6 +356,9 @@ Visual and image prompt requirements:
 - Preserve the same recognizable child/avatar and recurring helper across pages mainly through identity continuity, age impression, body proportions, and overall illustration style.
 - If a scene genuinely calls for a special outfit, costume, protective wear, seasonal layer, or other temporary clothing change, you may mention only that scene-specific change clearly and lightly, while still assuming the same underlying base character identity from the reference image.
 - Preserve recurring world and object continuity from story_arc, such as stations, maps, cards, notebooks, toy trains, helpers, and palette cues, when relevant.
+- Treat the following as a default recommended composition baseline for image prompts:
+  "Children's picture-book illustration with a cinematic composition. Characters should occupy about 35-55% of the frame. Emphasize scene-driven storytelling rather than close-up character portraits. Besides the main characters and the primary action, include a clear scene anchor, several props related to the action, and at least one layer of background everyday-life details. Use clear foreground, midground, and background layering to create a readable, story-rich, lived-in environment. Avoid extreme close-ups, oversized heads, empty backgrounds, and implausible human scale."
+- This composition baseline is a strong recommendation, not an absolute hard lock for every page. If a specific page genuinely requires tighter focus (for example, a key detail reveal or interaction-specific close framing), you may partially relax the baseline while still keeping environment readability and plausible scale.
 - page_image_prompt_packages should contain ONLY the page-specific English suffix for each page. Do NOT output final_image_prompt_en or any per-page fully assembled prompt.
 - Each image_prompt_suffix_en must be detailed enough for stable generation: scene location, camera framing, main action, key objects, emotion, lighting/mood, page-specific continuity details, and any truly needed temporary scene-specific clothing change. Do NOT restate stable facial features or default outfit details that should come from the persistent reference image.
 - The downstream caller will assemble the final image prompt externally by combining visual_canon with each page's image_prompt_suffix_en.
@@ -392,13 +396,9 @@ def build_run_config(
     total_range = basic_constraints["word_count_cn_profiles"]["standard"]
     three_element_minimums = basic_constraints["three_element_minimums"]
     food_override_hint = _extract_food_override(temporal_characteristics)
-    target_food_category = story_arc.get("target_food_category") if isinstance(story_arc.get("target_food_category"), str) else ""
     food_override_must_follow = bool(
         isinstance(food_override_hint, str)
         and food_override_hint.strip()
-        and isinstance(target_food_category, str)
-        and target_food_category.strip()
-        and food_override_hint.strip() != target_food_category.strip()
     )
 
     return {
@@ -428,12 +428,22 @@ def build_run_config(
                 "Use low-pressure tap/drag/mimic interactions so that the episode usually has 3-4 tap/drag/mimic pages while staying within micro_interactions_max_per_episode. "
                 "choice and record_voice are optional and do not consume that tap/drag/mimic budget."
             ),
-            "knowledge_scope_priority": "When satisfying the knowledge element, prioritize age-appropriate health/nutrition relevance of the target food in everyday child language. Avoid relying only on botany/origin trivia unless clearly linked to health/nutrition meaning.",
+            "knowledge_scope_priority": "When the episode uses knowledge content, prioritize age-appropriate health/nutrition relevance of the target food in everyday child language. Botany/origin details may appear as supporting flavor, and work best when linked to child-facing meaning.",
+            "element_balance_priority": (
+                "Treat sensory/knowledge/role-model as optional narrative ingredients rather than a rigid checklist. "
+                "Smell/touch/look beats are welcome but should not dominate the whole episode repeatedly; rotate narrative momentum with comparison, helper moments, mini-mystery, or scene-event progress."
+            ),
             "recent_story_policy": "recent_story is optional. Use it only to sharpen local carry-over details, not to replace recap_and_goal.",
             "temporal_override_policy": "Treat temporal_characteristics as the current truth for food and temporary scene-specific visual overrides. A persistent base avatar reference image is assumed to define the child's face, facial features, hairstyle, and default appearance, so text should not invent or lock those details unless the user explicitly requests a temporary change.",
             "food_override_policy": (
                 "If effective_inputs.food_override_must_follow is true, the episode must use effective_inputs.food_override_hint as the exact concrete food instance throughout pages and image prompt suffixes. "
                 "Do not switch to another same-category food."
+            ),
+            "image_composition_recommendation": (
+                "Default recommendation for image prompt writing: cinematic children's picture-book composition; characters roughly 35-55% of frame; "
+                "scene-driven storytelling over portrait close-up; clear scene anchor + several action-related props + at least one background everyday-life layer; "
+                "readable foreground/midground/background layering; avoid extreme close-up, oversized heads, empty backgrounds, and implausible scale. "
+                "If a page truly needs tight focus for key narrative clarity, partially relax this recommendation while preserving environment readability."
             ),
             "image_prompt_packaging": "Store shared reusable English prompt components only once inside visual_canon. Do not output final_image_prompt_en. Each page_image_prompt_package should contain only image_prompt_suffix_en for downstream prompt assembly.",
         },

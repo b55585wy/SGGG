@@ -14,6 +14,7 @@ BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
 _IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "images")
 
 MAX_RETRIES = 3
+PAGE_MAX_RETRIES = 2
 RETRY_DELAYS = [2, 5, 10]  # seconds between retries
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _FRONTEND_PUBLIC_DIR = (_REPO_ROOT / "frontend" / "public").resolve()
@@ -284,7 +285,7 @@ def generate_interaction_delta_image(
         print("[IMG] interaction diff skipped: base image bytes unavailable")
         return None
 
-    for attempt in range(MAX_RETRIES):
+    for attempt in range(PAGE_MAX_RETRIES):
         try:
             prompt = _build_interaction_delta_prompt(
                 base_prompt=base_prompt,
@@ -374,10 +375,10 @@ def generate_page_image(prompt: str, global_style: str = "", reference_image_pat
             mode = "edits" if reference_requested else "generations"
             print(f"[IMG] attempt {attempt+1} {mode} exception: {e}")
 
-        if attempt < MAX_RETRIES - 1:
+        if attempt < PAGE_MAX_RETRIES - 1:
             time.sleep(RETRY_DELAYS[attempt])
 
-    print(f"[IMG] all {MAX_RETRIES} attempts failed for prompt: {full_prompt[:80]}...")
+    print(f"[IMG] all {PAGE_MAX_RETRIES} attempts failed for prompt: {full_prompt[:80]}...")
     return None
 
 

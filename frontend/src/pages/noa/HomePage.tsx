@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { clearToken, getToken } from '@/lib/auth'
 import { getJson, postJson } from '@/lib/ncApi'
 import AvatarEditModal from '@/components/AvatarEditModal'
+import RegenModal, { POST_COMPLETE_REGEN_PAYLOAD_KEY } from '@/components/RegenModal'
 import { useTTS } from '@/hooks/useTTS'
 import { buildEmotionAvatarImageSrc, buildBasicAvatarImageSrc, basicAvatarDefaults, type BasicAvatarColor, type BasicAvatarEmotion, type BasicAvatarGender, type BasicAvatarGlasses, type BasicAvatarShirt, type BasicAvatarUnderdress } from '@/lib/basicAvatar'
 import {
@@ -16,15 +17,7 @@ import {
   SignOut,
   PencilSimple,
   SmileyWink,
-  X,
   ForkKnife,
-  SlidersHorizontal,
-  GameController,
-  Compass,
-  UsersThree,
-  Palette,
-  CaretDown,
-  CaretUp,
 } from '@phosphor-icons/react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -50,8 +43,10 @@ type HomeStatusResponse = {
     title: string
     preview: string
     description: string
+    storyType?: string
     confirmed: boolean
     regenerateCount: number
+    rollbackCount?: number
   } | null
 }
 
@@ -135,289 +130,7 @@ function buildRecordingFilename(blob: Blob): string {
   return `recording.${audioExtFromMime(blob.type || '')}`
 }
 
-// ─── Regen Modal ─────────────────────────────────────────────────────────────
-
-const REASONS = [
-  { value: 'too_long',            label: '太长了' },
-  { value: 'too_short',           label: '太短了' },
-  { value: 'too_scary',           label: '太恐怖了' },
-  { value: 'too_preachy',         label: '太说教了' },
-  { value: 'not_cute',            label: '不够可爱' },
-  { value: 'style_inconsistent',  label: '风格不统一' },
-  { value: 'interaction_unclear', label: '互动不清晰' },
-  { value: 'repetitive',          label: '内容重复' },
-  { value: 'wrong_age_level',     label: '年龄不符合' },
-  { value: 'other',               label: '其他' },
-]
-
-const STORY_TYPES = [
-  { value: 'curious_discovery', label: '好奇发现', Icon: GameController },
-  { value: 'everyday_routine',  label: '日常小事', Icon: Compass },
-  { value: 'light_fantasy',     label: '轻趣幻想', Icon: UsersThree },
-  { value: 'journey_discovery', label: '奇妙探索', Icon: Palette },
-]
-
 const spring = { type: 'spring' as const, stiffness: 120, damping: 22 }
-const reasonVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.04 } },
-}
-const reasonItem = {
-  hidden: { opacity: 0, y: 6 },
-  show: { opacity: 1, y: 0, transition: spring },
-}
-
-type RegenModalProps = {
-  themeFood: string
-  regenerateCount: number
-  onClose: () => void
-  onSuccess: () => void
-}
-
-function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenModalProps) {
-  const [reason, setReason] = useState('')
-  const [foodOverride, setFoodOverride] = useState('')
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [storyType, setStoryType] = useState('light_fantasy')
-  const [storyTypeTouched, setStoryTypeTouched] = useState(false)
-  const [difficulty, setDifficulty] = useState('medium')
-  const [pages, setPages] = useState(12)
-  const [interactionDensity, setInteractionDensity] = useState('medium')
-  const [difficultyTouched, setDifficultyTouched] = useState(false)
-  const [pagesTouched, setPagesTouched] = useState(false)
-  const [interactionDensityTouched, setInteractionDensityTouched] = useState(false)
-
-  const reachedLimit = regenerateCount >= 2
-  const canSubmit = !reachedLimit
-
-  function onSubmit() {
-    // Close immediately — fire API in background
-    onSuccess()
-    const payload: Record<string, unknown> = {
-      reason: reason || undefined,
-      target_food: foodOverride.trim() || undefined,
-    }
-    if (storyTypeTouched) payload.story_type = storyType
-    if (difficultyTouched) payload.difficulty = difficulty
-    if (pagesTouched) payload.pages = pages
-    if (interactionDensityTouched) payload.interaction_density = interactionDensity
-    postJson('/api/book/regenerate', payload).catch(() => { /* silently handle */ })
-  }
-
-  return (
-    <>
-      {/* Backdrop */}
-      <motion.div
-        key="backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(6px)' }}
-        onClick={onClose}
-      />
-
-      {/* Centered floating card */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
-        <motion.div
-          key="dialog"
-          initial={{ opacity: 0, scale: 0.93, y: -10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.93, y: -10 }}
-          transition={spring}
-          className="pointer-events-auto flex flex-col w-full"
-          style={{
-            maxWidth: 520,
-            maxHeight: '80dvh',
-            background: 'white',
-            borderRadius: '2rem',
-            boxShadow: '0 32px 80px -12px rgba(0,0,0,0.18), 0 0 0 1px rgba(231,229,228,0.6)',
-          }}
-        >
-          {/* Header */}
-          <div
-            className="shrink-0 flex items-center justify-between px-6 pt-5 pb-4 border-b"
-            style={{ borderColor: 'var(--color-border-light)' }}
-          >
-            <div>
-              <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
-                重新生成
-              </h2>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--color-muted)' }}>
-                已使用 <span className="font-mono font-semibold">{regenerateCount}</span>/2 次
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full transition-all active:scale-[0.93]"
-              style={{
-                background: 'var(--color-warm-100)',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--color-muted)',
-              }}
-            >
-              <X size={15} weight="bold" />
-            </button>
-          </div>
-
-          {/* Scrollable body */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-
-            {/* Story type (required) */}
-            <section>
-              <div className="flex items-baseline gap-2 mb-3">
-                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>01</span>
-                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>故事类型</span>
-                <span className="text-xs ml-auto" style={{ color: 'var(--color-muted)' }}>可选</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {STORY_TYPES.map(({ value, label, Icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => { setStoryType(value); setStoryTypeTouched(true) }}
-                    className="flex items-center gap-2 py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
-                    style={
-                      storyType === value
-                        ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' }
-                        : { borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }
-                    }
-                  >
-                    <Icon size={14} weight="duotone" />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            {/* Food override (optional) */}
-            <section>
-              <div className="flex items-baseline gap-2 mb-3">
-                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>02</span>
-                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>临时换个食物</span>
-                {themeFood && (
-                  <span className="text-xs ml-auto px-2 py-0.5 rounded-full font-mono" style={{ color: 'var(--color-muted)', background: 'var(--color-warm-100)', border: '1px solid var(--color-border-light)' }}>
-                    当前 {themeFood}
-                  </span>
-                )}
-              </div>
-              <div className="relative">
-                <ForkKnife size={14} weight="duotone" className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--color-muted)' }} />
-                <input
-                  value={foodOverride}
-                  onChange={(e) => setFoodOverride(e.target.value)}
-                  placeholder={themeFood ? `换掉"${themeFood}"，仅此次生效` : '输入食物名称'}
-                  className="form-input"
-                  style={{ paddingLeft: 32 }}
-                />
-              </div>
-            </section>
-
-            {/* Advanced (collapsible) */}
-            <section>
-              <button type="button" onClick={() => setShowAdvanced((v: boolean) => !v)} className="flex items-center gap-2 w-full text-left" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>03</span>
-                <SlidersHorizontal size={12} weight="bold" style={{ color: 'var(--color-muted)' }} />
-                <span className="text-sm font-bold tracking-tight flex-1" style={{ color: 'var(--color-foreground)' }}>故事设置</span>
-                <span className="text-xs" style={{ color: 'var(--color-muted)' }}>可选</span>
-                {showAdvanced ? <CaretUp size={11} weight="bold" style={{ color: 'var(--color-muted)' }} /> : <CaretDown size={11} weight="bold" style={{ color: 'var(--color-muted)' }} />}
-              </button>
-              <div className="mt-2" style={{ borderTop: '1px solid var(--color-border-light)' }} />
-              <AnimatePresence>
-                {showAdvanced && (
-                  <motion.div key="advanced" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={spring} className="overflow-hidden">
-                    <div className="pt-3 space-y-4">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>难度</label>
-                          <select value={difficulty} onChange={(e) => { setDifficulty(e.target.value); setDifficultyTouched(true) }} className="form-input">
-                            <option value="easy">简单</option>
-                            <option value="medium">中等</option>
-                            <option value="hard">困难</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>交互密度</label>
-                          <select value={interactionDensity} onChange={(e) => { setInteractionDensity(e.target.value); setInteractionDensityTouched(true) }} className="form-input">
-                            <option value="low">少</option>
-                            <option value="medium">中</option>
-                            <option value="high">多</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>页数 <span className="font-mono">{pages}</span></label>
-                        <input type="range" min={4} max={12} value={pages} onChange={(e) => { setPages(Number(e.target.value)); setPagesTouched(true) }} className="w-full accent-[var(--color-accent)]" />
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </section>
-
-            {/* Reason (optional) */}
-            <section>
-              <div className="flex items-baseline gap-2 mb-3">
-                <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>04</span>
-                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>重新生成原因</span>
-                <span className="text-xs ml-auto" style={{ color: 'var(--color-muted)' }}>可选</span>
-              </div>
-              <motion.div className="grid grid-cols-2 gap-2" variants={reasonVariants} initial="hidden" animate="show">
-                {REASONS.map((r) => (
-                  <motion.button
-                    key={r.value}
-                    variants={reasonItem}
-                    type="button"
-                    onClick={() => setReason(r.value)}
-                    whileTap={{ scale: 0.96 }}
-                    className="py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
-                    style={
-                      reason === r.value
-                        ? { borderColor: 'var(--color-accent)', background: 'var(--color-accent-light)', color: 'var(--color-accent)' }
-                        : { borderColor: 'var(--color-border-light)', background: '#fafaf9', color: 'var(--color-foreground)' }
-                    }
-                  >
-                    {r.label}
-                  </motion.button>
-                ))}
-              </motion.div>
-            </section>
-          </div>
-
-          {/* Footer */}
-          <div className="shrink-0 px-6 py-4 border-t" style={{ borderColor: 'var(--color-border-light)' }}>
-            {reachedLimit ? (
-              <div className="text-center text-sm py-3 rounded-2xl font-medium" style={{ color: 'var(--color-muted)', background: 'var(--color-warm-100)' }}>
-                已达到重新生成上限（2/2）
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={onSubmit}
-                disabled={!canSubmit}
-                className="w-full py-3.5 rounded-full font-bold text-sm text-white transition-all active:scale-[0.98]"
-                style={{
-                  background: canSubmit
-                    ? 'linear-gradient(135deg, #059669, #047857)'
-                    : 'var(--color-muted)',
-                  cursor: canSubmit ? 'pointer' : 'not-allowed',
-                  border: 'none',
-                  boxShadow: canSubmit ? '0 8px 24px -4px rgba(5,150,105,0.38)' : 'none',
-                }}
-              >
-                提交并重新生成 →
-              </button>
-            )}
-          </div>
-        </motion.div>
-      </div>
-    </>
-  )
-}
-
 // ─── Inline Food Log ──────────────────────────────────────────────────────────
 
 type InlineFoodLogProps = {
@@ -883,6 +596,26 @@ export default function HomePage() {
   }, [status?.book?.bookID, status?.book?.preview, bookGenerating, refreshStatus, status])
 
   useEffect(() => {
+    const b = status?.book
+    if (!b || b.confirmed || bookGenerating) return
+    const raw = sessionStorage.getItem(POST_COMPLETE_REGEN_PAYLOAD_KEY)
+    if (!raw) return
+    sessionStorage.removeItem(POST_COMPLETE_REGEN_PAYLOAD_KEY)
+    let payload: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        payload = parsed as Record<string, unknown>
+      }
+    } catch {
+      payload = {}
+    }
+    setStatus((prev: HomeStatusResponse | null) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
+    setBookGenerating(true)
+    postJson('/api/book/regenerate', payload).catch(() => { /* silently handle */ })
+  }, [status?.book?.bookID, status?.book?.confirmed, bookGenerating, status])
+
+  useEffect(() => {
     const lastPath = sessionStorage.getItem('lastPath')
     if (lastPath && lastPath !== '/noa/home') {
       sessionStorage.removeItem('homeFeedbackText')
@@ -908,6 +641,20 @@ export default function HomePage() {
     }
   }
 
+  async function onRollbackBook() {
+    setError('')
+    try {
+      await postJson('/api/book/rollback', {})
+      await refreshStatus()
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e &&
+        typeof (e as { message?: unknown }).message === 'string'
+          ? (e as { message: string }).message : '回退失败'
+      setError(message)
+    }
+  }
+
   async function onLogout() {
     await postJson('/api/auth/logout', {}).catch(() => {})
     clearToken()
@@ -920,6 +667,7 @@ export default function HomePage() {
   const previewSrc = normalizePreview(book?.preview)
   const confirmDisabled = !book || book.confirmed || !previewSrc || previewSrc.startsWith('data:image/svg+xml') || bookGenerating
   const regenerateReached = book ? book.regenerateCount >= 2 : false
+  const rollbackAvailable = Boolean(book && !book.confirmed && (book.rollbackCount ?? 0) > 0 && !bookGenerating)
 
   if (loading) return <LoadingSkeleton />
 
@@ -1301,6 +1049,21 @@ export default function HomePage() {
                         <ArrowsClockwise size={14} weight="bold" />
                         重新生成 ({book.regenerateCount}/2)
                       </button>
+                      <button
+                        onClick={onRollbackBook}
+                        disabled={!rollbackAvailable}
+                        className="w-full py-3 rounded-full font-bold text-sm border flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
+                        style={{
+                          borderColor: 'var(--color-border-light)',
+                          background: 'white',
+                          color: rollbackAvailable ? 'var(--color-foreground)' : 'var(--color-muted)',
+                          cursor: rollbackAvailable ? 'pointer' : 'not-allowed',
+                          opacity: rollbackAvailable ? 1 : 0.4,
+                        }}
+                      >
+                        <ArrowsClockwise size={14} weight="bold" />
+                        回退上一版 ({book.rollbackCount ?? 0})
+                      </button>
                     </div>
                   ) : bookGenerating ? (
                     <div
@@ -1378,12 +1141,14 @@ export default function HomePage() {
         {showRegenModal && (
           <RegenModal
             themeFood={status?.themeFood ?? ''}
+            currentStoryType={book?.storyType ?? 'light_fantasy'}
             regenerateCount={book?.regenerateCount ?? 0}
             onClose={() => setShowRegenModal(false)}
-            onSuccess={() => {
+            onSubmit={(payload) => {
               setShowRegenModal(false)
               setStatus((prev: HomeStatusResponse | null) => (prev ? ({ ...prev, book: null } as HomeStatusResponse) : null))
               setBookGenerating(true)
+              postJson('/api/book/regenerate', payload).catch(() => { /* silently handle */ })
             }}
           />
         )}

@@ -7,7 +7,7 @@
         "standard": [720,960]
         },
       "three_element_minimums": {
-        "sensory_min_per_episode": 2,
+        "sensory_min_per_episode": 1,
         "knowledge_min_per_episode": 1,
         "role_model_min_per_episode": 1
       },

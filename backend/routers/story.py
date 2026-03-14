@@ -87,6 +87,7 @@ def story_generate(req: GenerateRequest):
     try:
         print("[INFO] story_generate episode_module start")
         content = generate_story_from_episode(
+            theme_food=req.theme_food or req.meal_context.target_food,
             child_profile=child_profile,
             meal_context=meal_context,
             story_config=story_config,
@@ -175,6 +176,7 @@ def story_regenerate(req: RegenerateRequest):
     try:
         print("[INFO] story_regenerate episode_module start")
         content = generate_story_from_episode(
+            theme_food=req.theme_food or req.target_food,
             child_profile=prev_draft.get("child_profile") or {},
             meal_context=meal_context,
             story_config=story_config,

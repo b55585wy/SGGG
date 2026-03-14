@@ -169,6 +169,9 @@ Requirements:
 - continuity_hooks.next_episode_seed should be a one-sentence teaser or high-level seed, NOT a mini plot outline or step-by-step instruction set.
 - Be concise. Prefer concrete continuity cues (food, place, recurring object, helper, repeated phrase, unresolved small event, comparison thread) over abstract summary.
 - To reduce exact repetition, prefer a next-step that preserves continuity while slightly shifting at least one of the following when supported by the input: the food trait in focus, the place detail, the recurring object use, the helper moment, the small visitor/event, or the emphasized element (sensory / knowledge / role_model).
+- Recap-and-goal must explicitly implement "continuity + variation": keep 1-2 core carry-over anchors, and clearly change at least one story-structure axis for the next episode (for example: opening trigger, who leads the action, exploration path, comparison target, or how discovery is revealed).
+- Avoid near-duplicate episode skeletons across consecutive episodes. Do not output a next direction that is effectively the same sequence with only wording swaps.
+- If the latest episode already used one dominant structure, prefer a different but coherent structure next (for example: from "observe then explain" to "question then test", from "guide-led demo" to "child-led try", or from "single-item close look" to "contrast/comparison framing").
 - If multiple continuation points exist, choose the one that is most coherent, specific enough to be useful, and most generative for downstream episode writing.
 
 System alignment:
@@ -191,6 +194,11 @@ def build_run_config(story_framework: Optional[Dict[str, Any]]) -> Dict[str, Any
         "prompt_emphasis": {
             "framework_usage": "Use story_framework to strengthen stable series identity and recurring continuity machinery when grounded, without claiming unseen events.",
             "micro_goal_granularity": "Keep the micro goal high-level, interesting, and generative for downstream episode writing; do not pre-script the next episode beat by beat.",
+            "anti_repetition_priority": (
+                "For recap and micro_goal, enforce continuity + variation: preserve 1-2 core carry-over anchors while changing at least one story-structure axis "
+                "(opening trigger, action leader, exploration path, comparison frame, or discovery reveal style). "
+                "Avoid near-duplicate episode skeletons in consecutive episodes."
+            ),
         },
     }
 
@@ -234,7 +242,7 @@ def build_response_format() -> Dict[str, Any]:
                             },
                             "text_cn": {
                                 "type": "string",
-                                "description": "A high-level, interesting narrative direction or curiosity hook for the next episode in simple Chinese. Do not script exact scene beats or step-by-step actions."
+                                "description": "A high-level, interesting narrative direction or curiosity hook for the next episode in simple Chinese. Do not script exact scene beats or step-by-step actions. Must preserve continuity while signaling at least one meaningful structure-level variation from the latest episode."
                             },
                             "focus_type": {
                                 "type": "string",
@@ -275,7 +283,7 @@ def build_response_format() -> Dict[str, Any]:
                             },
                             "next_episode_seed": {
                                 "type": "string",
-                                "description": "One-sentence teaser or high-level seed for downstream episode generation, leaving exact stop, scene beats, and invitation wording open."
+                                "description": "One-sentence teaser or high-level seed for downstream episode generation, leaving exact stop, scene beats, and invitation wording open. It should indicate continuity plus freshness rather than repeating the previous episode skeleton."
                             },
                         },
                     },

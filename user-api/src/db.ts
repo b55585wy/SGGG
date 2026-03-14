@@ -135,6 +135,33 @@ function ensureSchema(db: Database) {
     );
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS temp_book_backups (
+      backup_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      book_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      preview TEXT NOT NULL,
+      description TEXT NOT NULL,
+      content TEXT NOT NULL,
+      regenerate_count INTEGER NOT NULL DEFAULT 0,
+      backed_up_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_temp_book_backups_user_time ON temp_book_backups(user_id, backed_up_at DESC);`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS pending_auto_stories (
+      user_id TEXT PRIMARY KEY,
+      story_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      regenerate_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+  db.run(`
     CREATE TABLE IF NOT EXISTS history_books (
       book_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -1126,6 +1153,28 @@ export type TempBook = {
   updatedAt: string;
 };
 
+export type TempBookBackup = {
+  backupID: string;
+  userID: string;
+  bookID: string;
+  title: string;
+  preview: string;
+  description: string;
+  content: string;
+  regenerateCount: number;
+  backedUpAt: string;
+};
+
+export type PendingAutoStory = {
+  userID: string;
+  storyID: string;
+  title: string;
+  summary: string;
+  regenerateCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type HistoryBook = {
   bookID: string;
   userID: string;
@@ -1235,9 +1284,225 @@ export async function saveTempBook(params: {
   await persistDb(db);
 }
 
+export async function backupTempBook(params: TempBook) {
+  const db = await getDb();
+  const backupID = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    INSERT INTO temp_book_backups (
+      backup_id,
+      user_id,
+      book_id,
+      title,
+      preview,
+      description,
+      content,
+      regenerate_count,
+      backed_up_at
+    )
+    VALUES (
+      $backup_id,
+      $user_id,
+      $book_id,
+      $title,
+      $preview,
+      $description,
+      $content,
+      $regenerate_count,
+      $backed_up_at
+    );
+    `,
+    {
+      $backup_id: backupID,
+      $user_id: params.userID,
+      $book_id: params.bookID,
+      $title: params.title,
+      $preview: params.preview,
+      $description: params.description,
+      $content: params.content,
+      $regenerate_count: params.regenerateCount,
+      $backed_up_at: now,
+    },
+  );
+  db.run(
+    `
+    DELETE FROM temp_book_backups
+    WHERE user_id = $user_id
+      AND backup_id NOT IN (
+        SELECT backup_id
+        FROM temp_book_backups
+        WHERE user_id = $user_id
+        ORDER BY backed_up_at DESC
+        LIMIT 2
+      );
+    `,
+    { $user_id: params.userID },
+  );
+  await persistDb(db);
+}
+
+export async function getLatestTempBookBackup(userID: string): Promise<TempBookBackup | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT backup_id, user_id, book_id, title, preview, description, content, regenerate_count, backed_up_at
+    FROM temp_book_backups
+    WHERE user_id = $user_id
+    ORDER BY backed_up_at DESC
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as {
+      backup_id: string;
+      user_id: string;
+      book_id: string;
+      title: string;
+      preview: string;
+      description: string;
+      content: string;
+      regenerate_count: number;
+      backed_up_at: string;
+    };
+    return {
+      backupID: row.backup_id,
+      userID: row.user_id,
+      bookID: row.book_id,
+      title: row.title,
+      preview: row.preview,
+      description: row.description,
+      content: row.content,
+      regenerateCount: row.regenerate_count ?? 0,
+      backedUpAt: row.backed_up_at,
+    };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function countTempBookBackups(userID: string): Promise<number> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT COUNT(*) AS cnt
+    FROM temp_book_backups
+    WHERE user_id = $user_id;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return 0;
+    const row = stmt.getAsObject() as unknown as { cnt: number };
+    return typeof row.cnt === "number" ? row.cnt : 0;
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function deleteTempBookBackup(backupID: string) {
+  const db = await getDb();
+  db.run("DELETE FROM temp_book_backups WHERE backup_id = $backup_id;", { $backup_id: backupID });
+  await persistDb(db);
+}
+
+export async function savePendingAutoStory(params: {
+  userID: string;
+  storyID: string;
+  title: string;
+  summary: string;
+  regenerateCount: number;
+}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    INSERT INTO pending_auto_stories (
+      user_id,
+      story_id,
+      title,
+      summary,
+      regenerate_count,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $user_id,
+      $story_id,
+      $title,
+      $summary,
+      $regenerate_count,
+      $created_at,
+      $updated_at
+    )
+    ON CONFLICT(user_id) DO UPDATE SET
+      story_id = $story_id,
+      title = $title,
+      summary = $summary,
+      regenerate_count = $regenerate_count,
+      updated_at = $updated_at;
+    `,
+    {
+      $user_id: params.userID,
+      $story_id: params.storyID,
+      $title: params.title,
+      $summary: params.summary,
+      $regenerate_count: params.regenerateCount,
+      $created_at: now,
+      $updated_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
+export async function getPendingAutoStory(userID: string): Promise<PendingAutoStory | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT user_id, story_id, title, summary, regenerate_count, created_at, updated_at
+    FROM pending_auto_stories
+    WHERE user_id = $user_id
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as {
+      user_id: string;
+      story_id: string;
+      title: string;
+      summary: string;
+      regenerate_count: number;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      userID: row.user_id,
+      storyID: row.story_id,
+      title: row.title,
+      summary: row.summary,
+      regenerateCount: row.regenerate_count ?? 0,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function clearPendingAutoStory(userID: string) {
+  const db = await getDb();
+  db.run("DELETE FROM pending_auto_stories WHERE user_id = $user_id;", { $user_id: userID });
+  await persistDb(db);
+}
+
 export async function clearTempBook(userID: string) {
   const db = await getDb();
   db.run("DELETE FROM temp_books WHERE user_id = $user_id;", { $user_id: userID });
+  db.run("DELETE FROM temp_book_backups WHERE user_id = $user_id;", { $user_id: userID });
   await persistDb(db);
 }
 
@@ -1401,7 +1666,9 @@ export async function deleteUser(userID: string): Promise<boolean> {
       return false;
     }
     db.run("BEGIN TRANSACTION");
+    db.run("DELETE FROM pending_auto_stories WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM temp_books WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM temp_book_backups WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM history_books WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM user_avatar_states WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM user_story_arcs WHERE user_id = $user_id", { $user_id: userID });

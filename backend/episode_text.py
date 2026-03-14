@@ -94,13 +94,73 @@ def _humanize_spoken_cn(text: str, *, for_title: bool = False) -> str:
     return normalized
 
 
-def _extract_theme_food(story_arc: Optional[dict], meal_context: Optional[dict], temporal_characteristics: Optional[dict]) -> str:
+def _contains_ascii(text: str) -> bool:
+    return any(("a" <= ch.lower() <= "z") or ("0" <= ch <= "9") for ch in text)
+
+
+def _count_cjk(text: str) -> int:
+    return sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+
+
+def _sanitize_title_candidate(title: str) -> str:
+    cleaned = _humanize_spoken_cn(title, for_title=True)
+    if not cleaned:
+        return ""
+
+    # Remove common numbering prefixes like "第1集：".
+    cleaned = re.sub(r"^第?[0-9一二三四五六七八九十]+[集篇章]?[：:、\\-]?", "", cleaned)
+    # Remove obvious id-like fragments that leak from user ids.
+    cleaned = re.sub(r"[A-Za-z0-9_]{2,}", "", cleaned)
+    cleaned = cleaned.strip("，,。！？!?；;：:- ")
+
+    if "：" in cleaned:
+        left, right = cleaned.split("：", 1)
+        if right and (len(left) >= 8 or _contains_ascii(left)):
+            cleaned = right.strip("，,。！？!?；;：:- ")
+
+    return cleaned
+
+
+def _is_natural_title(title: str) -> bool:
+    if not title:
+        return False
+    if _contains_ascii(title):
+        return False
+    cjk = _count_cjk(title)
+    if cjk < 4:
+        return False
+    if len(title) > 16:
+        return False
+    return True
+
+
+def _fallback_natural_title(theme_food: str, recap_and_goal: Optional[dict]) -> str:
+    mg = recap_and_goal.get("micro_goal") if isinstance(recap_and_goal, dict) else {}
+    text = _humanize_spoken_cn(mg.get("text_cn") if isinstance(mg, dict) else "")
+
+    if any(k in text for k in ["声音", "沙沙", "咔", "脆"]):
+        return f"{theme_food}会发出什么声音"
+    if any(k in text for k in ["闻", "气味", "香"]):
+        return f"{theme_food}闻起来像什么"
+    if any(k in text for k in ["摸", "触", "手感", "软", "硬", "滑"]):
+        return f"{theme_food}摸起来怎么样"
+    if any(k in text for k in ["比较", "不一样", "区别"]):
+        return f"{theme_food}有什么不一样"
+    return f"今天认识{theme_food}"
+
+
+def _extract_theme_food(
+    explicit_theme_food: Optional[str],
+    story_arc: Optional[dict],
+    meal_context: Optional[dict],
+    temporal_characteristics: Optional[dict],
+) -> str:
     candidates = [
+        explicit_theme_food,
         (temporal_characteristics or {}).get("selected_food_instance"),
         (temporal_characteristics or {}).get("food_override"),
         ((temporal_characteristics or {}).get("food") or {}).get("selected_food_instance") if isinstance((temporal_characteristics or {}).get("food"), dict) else None,
         (meal_context or {}).get("target_food"),
-        (story_arc or {}).get("target_food_category"),
     ]
     for candidate in candidates:
         if isinstance(candidate, str) and candidate.strip():
@@ -111,13 +171,13 @@ def _extract_theme_food(story_arc: Optional[dict], meal_context: Optional[dict],
 def _extract_title(recap_and_goal: Optional[dict], story_arc: Optional[dict], theme_food: str) -> str:
     mg = (recap_and_goal or {}).get("micro_goal")
     if isinstance(mg, dict):
-        title = _humanize_spoken_cn(mg.get("title"), for_title=True)
-        if title:
+        title = _sanitize_title_candidate(str(mg.get("title") or ""))
+        if _is_natural_title(title):
             return title
-    title = _humanize_spoken_cn((story_arc or {}).get("title"), for_title=True)
-    if title:
+    title = _sanitize_title_candidate(str((story_arc or {}).get("title") or ""))
+    if _is_natural_title(title):
         return title
-    return f"今天认识{theme_food}"
+    return _fallback_natural_title(theme_food, recap_and_goal)
 
 
 def _extract_summary(recap_and_goal: Optional[dict], pages: list[dict[str, Any]]) -> str:
@@ -129,6 +189,42 @@ def _extract_summary(recap_and_goal: Optional[dict], pages: list[dict[str, Any]]
     page_texts = [_safe_str(page.get("page_text_cn")) for page in pages[:2]]
     page_texts = [text for text in page_texts if text]
     return _humanize_spoken_cn(" ".join(page_texts))[:120]
+
+
+def _extract_post_read_task(recap_and_goal: Optional[dict], pages: list[dict[str, Any]], theme_food: str) -> str:
+    food = _safe_str(theme_food) or "今天故事里的食物"
+    mg = (recap_and_goal or {}).get("micro_goal")
+    goal_text = _humanize_spoken_cn(mg.get("text_cn") if isinstance(mg, dict) else "")
+
+    interaction_texts: list[str] = []
+    page_texts: list[str] = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        text_cn = _safe_str(page.get("page_text_cn"))
+        if text_cn:
+            page_texts.append(text_cn)
+        interaction = page.get("interaction")
+        if not isinstance(interaction, dict):
+            continue
+        instruction = _safe_str(interaction.get("instruction"))
+        if instruction:
+            interaction_texts.append(instruction)
+        if len(interaction_texts) >= 3:
+            break
+
+    signals = f"{goal_text} {' '.join(interaction_texts)} {' '.join(page_texts[:2])}"
+    if any(k in signals for k in ["地图", "车站", "站点", "出发", "路线", "邻里", "市场"]):
+        return f"本周找一天和家长一起去买菜，帮家长在摊位上找到一次{food}，并说出它和故事里最像的地方。"
+    if any(k in signals for k in ["比较", "区别", "一样", "不一样", "像", "不同"]):
+        return f"晚饭前和家长选两样食材（其中一个是{food}），做一个“哪里一样/哪里不一样”小对比并各说一句发现。"
+    if any(k in signals for k in ["记录", "笔记", "画", "小册", "卡片", "标记"]):
+        return f"和家长做一张“{food}观察卡”：画一画它、写一个你起的新名字，下次继续补充一条新发现。"
+    if any(k in signals for k in ["帮忙", "一起", "准备", "厨房", "摆", "洗"]):
+        return f"下次做饭时，请孩子和家长一起完成一个准备小步骤（如挑选、清洗或摆盘{food}），结束后说一句“我今天帮到的地方”。"
+    if any(k in signals for k in ["分享", "讲", "朋友", "家人", "角色", "列车长"]):
+        return f"饭后请孩子当“小小讲解员”，用一句话给家人介绍今天的{food}，家长再补一句鼓励反馈。"
+    return f"这周选一个日常时刻，和家长围绕{food}做一次“发现任务”：找到它、说一个特点、记录一句感受。"
 
 
 def _behavior_anchor_for_page(index: int, total: int) -> str:
@@ -270,6 +366,7 @@ def _build_basic_constraints_override(
 
 def generate_story_from_episode(
     *,
+    theme_food: Optional[str] = None,
     child_profile: dict[str, Any],
     meal_context: dict[str, Any],
     story_config: dict[str, Any],
@@ -336,7 +433,7 @@ def generate_story_from_episode(
     if not isinstance(pages_raw, list) or not pages_raw:
         raise ValueError("episode output pages missing or empty")
 
-    theme_food = _extract_theme_food(story_arc, meal_context, temporal_characteristics)
+    theme_food = _extract_theme_food(theme_food, story_arc, meal_context, temporal_characteristics)
     total_pages = len(pages_raw)
     pages: list[dict[str, Any]] = []
     for idx, page in enumerate(pages_raw, start=1):
@@ -371,6 +468,7 @@ def generate_story_from_episode(
         "ending": {
             "positive_feedback": "你又陪着故事里的食物朋友往前走了一小步。",
             "next_micro_goal": _safe_str((((recap_and_goal or {}).get("micro_goal") or {}).get("text_cn"))),
+            "post_read_task": _extract_post_read_task(recap_and_goal, pages_raw, theme_food),
         },
         "avatar_feedback": _build_avatar_feedback(meal_context, theme_food),
         "visual_canon": visual_canon,

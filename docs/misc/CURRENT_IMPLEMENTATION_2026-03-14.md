@@ -108,7 +108,7 @@ cd frontend && npm run dev
   - `episode_page_count = 12`
   - `words_per_page_target_cn = [60, 80]`
   - `word_count_cn_profiles.standard = [720, 960]`
-  - `sensory_min_per_episode = 2`
+  - `sensory_min_per_episode = 1`
   - `knowledge_min_per_episode = 1`
   - `role_model_min_per_episode = 1`
   - `micro_interactions_max_per_episode = 4`
@@ -237,4 +237,3 @@ cd frontend && npm run dev
 - backend 故事与图片：`backend/routers/story.py`、`backend/episode_text.py`、`backend/episode_module.py`、`backend/image_gen.py`
 - 阅读器：`frontend/src/pages/Reader.tsx`
 - 主页（生成/重生成/进食）：`frontend/src/pages/noa/HomePage.tsx`
-

@@ -35,6 +35,7 @@ class StoryConfig(BaseModel):
     language: str = "zh-CN"
 
 class GenerateRequest(BaseModel):
+    theme_food: Optional[str] = None
     child_profile: ChildProfile
     meal_context: MealContext
     story_config: StoryConfig
@@ -47,6 +48,7 @@ class GenerateRequest(BaseModel):
 # ── Story Regenerate ──────────────────────────────────────────
 class RegenerateRequest(BaseModel):
     previous_story_id: str
+    theme_food: Optional[str] = None
     target_food: str
     story_type: Optional[str] = None
     dissatisfaction_reason: str

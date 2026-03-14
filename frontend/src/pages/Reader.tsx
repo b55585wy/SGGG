@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { SpeakerHigh, SpeakerSlash, CaretRight, CaretLeft, SignOut, Warning } from '@phosphor-icons/react';
 import { InteractionLayer } from '@/components/InteractionLayer';
 import { FeedbackModal, type FeedbackDoneData } from '@/components/FeedbackModal';
+import RegenModal, { POST_COMPLETE_REGEN_PAYLOAD_KEY } from '@/components/RegenModal';
 import { useSession } from '@/hooks/useSession';
 import { useTelemetry } from '@/hooks/useTelemetry';
 import { useTTS } from '@/hooks/useTTS';
@@ -20,6 +21,7 @@ export default function ReaderPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pageIdx, setPageIdx] = useState(0);
   const [showAbortFeedback, setShowAbortFeedback] = useState(false);
+  const [showCompleteRegenModal, setShowCompleteRegenModal] = useState(false);
   const [autoReadEnabled, setAutoReadEnabled] = useState(false);
   const [interactionFrameShown, setInteractionFrameShown] = useState<Record<string, boolean>>({});
   const autoReadRef = useRef(false);
@@ -30,6 +32,7 @@ export default function ReaderPage() {
   const sessionStartRef = useRef(new Date().toISOString());
   const readingEndedAtRef = useRef<string | null>(null);
   const interactionCountRef = useRef(0);
+  const completionHandledRef = useRef(false);
   const readerVoice = useMemo<'zhimiao' | 'zhishuo'>(() => {
     const gender = typeof (draft as { child_profile?: { gender?: unknown } } | null)?.child_profile?.gender === 'string'
       ? String((draft as { child_profile?: { gender?: string } }).child_profile?.gender).toLowerCase()
@@ -176,6 +179,25 @@ export default function ReaderPage() {
     track('page_dwell', { duration_ms: Date.now() - enterRef.current }, p.page_id);
   }, [draft, session, pageIdx, track]);
 
+  const completeSessionAndGoHome = useCallback((regenPayload?: Record<string, unknown>) => {
+    if (!draft || !session || completionHandledRef.current) return;
+    completionHandledRef.current = true;
+    if (regenPayload) {
+      try {
+        sessionStorage.setItem(POST_COMPLETE_REGEN_PAYLOAD_KEY, JSON.stringify(regenPayload));
+      } catch { /* ignore */ }
+    }
+    if (!readingEndedAtRef.current) readingEndedAtRef.current = new Date().toISOString();
+    track('story_complete', { completion_rate: 1.0 }, draft.pages[draft.pages.length - 1].page_id);
+    flush();
+    void logReadingSession(draft.pages.length, true);
+    clearSession();
+    localStorage.removeItem('storybook_draft');
+    localStorage.removeItem('storybook_book_id');
+    localStorage.removeItem('storybook_source');
+    navigate('/noa/home');
+  }, [draft, session, track, flush, logReadingSession, clearSession, navigate]);
+
   const goTo = useCallback((next: number) => {
     if (!draft) return;
     tts.stop();
@@ -186,15 +208,7 @@ export default function ReaderPage() {
     }
     if (next >= draft.pages.length) {
       if (session) {
-        if (!readingEndedAtRef.current) readingEndedAtRef.current = new Date().toISOString();
-        track('story_complete', { completion_rate: 1.0 }, draft.pages[draft.pages.length - 1].page_id);
-        flush();
-        void logReadingSession(draft.pages.length, true);
-        clearSession();
-        localStorage.removeItem('storybook_draft');
-        localStorage.removeItem('storybook_book_id');
-        localStorage.removeItem('storybook_source');
-        navigate('/noa/home');
+        setShowCompleteRegenModal(true);
       } else {
         // Read-only mode — just go home
         clearSession();
@@ -210,7 +224,7 @@ export default function ReaderPage() {
       lastAutoReadKeyRef.current = null;
     }
     setPageIdx(next);
-  }, [draft, pageIdx, session, trackDwell, track, flush, tts, clearSession, navigate, logReadingSession]);
+  }, [draft, pageIdx, session, trackDwell, track, tts, clearSession, navigate]);
 
   const onInteractionStart = useCallback((interactionType: string, eventKey: string) => {
     if (!draft) return;
@@ -317,6 +331,11 @@ export default function ReaderPage() {
     )
     && !!page.interaction_image_url;
   const currentImageUrl = showInteractionFrame ? page.interaction_image_url : page.image_url;
+  const postReadTask = (
+    typeof draft.ending.post_read_task === 'string' && draft.ending.post_read_task.trim()
+      ? draft.ending.post_read_task.trim()
+      : `这周选一个日常时刻，和家长围绕${draft.book_meta?.theme_food || '今天故事里的食物'}做一次“发现任务”：找到它、说一个特点、记录一句感受。`
+  );
 
   return (
     <div
@@ -459,6 +478,7 @@ export default function ReaderPage() {
                   >
                     <p className="text-sm font-medium" style={{ color: 'var(--color-accent)' }}>{draft.ending.positive_feedback}</p>
                     <p className="text-xs mt-2" style={{ color: 'var(--color-accent-hover)' }}>下一个目标：{draft.ending.next_micro_goal}</p>
+                    <p className="text-xs mt-2" style={{ color: 'var(--color-accent-hover)' }}>线下小任务：{postReadTask}</p>
                   </motion.div>
                 )}
               </motion.div>
@@ -496,6 +516,23 @@ export default function ReaderPage() {
 
       {showAbortFeedback && session && (
         <FeedbackModal status="ABORTED" session_id={session.session_id} onDone={onAbortFeedbackDone} />
+      )}
+
+      {showCompleteRegenModal && session && (
+        <RegenModal
+          themeFood={draft.book_meta?.theme_food ?? ''}
+          currentStoryType={draft.book_meta?.story_type ?? 'light_fantasy'}
+          regenerateCount={0}
+          mode="next_episode"
+          onClose={() => {
+            setShowCompleteRegenModal(false);
+            completeSessionAndGoHome();
+          }}
+          onSubmit={(payload) => {
+            setShowCompleteRegenModal(false);
+            completeSessionAndGoHome(payload);
+          }}
+        />
       )}
 
     </div>

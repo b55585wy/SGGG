@@ -56,12 +56,15 @@ VALID_MODES = [
     "realistic_everyday",
     "light_fantasy_familiar",
     "hybrid_expository_narrative",
+    "journey_discovery_framework",
 ]
+DEFAULT_PREFERRED_STORY_MODE = "light_fantasy_familiar"
 
 TEMPLATE_ID_BY_MODE = {
     "realistic_everyday": "T2_everyday_cause_effect_routine",
     "light_fantasy_familiar": "T3_light_fantasy_grounded_social_world",
     "hybrid_expository_narrative": "T1_grounded_expository_exploration",
+    "journey_discovery_framework": "T4_journey_discovery_framework",
 }
 
 T4_TEMPLATE_ID = "T4_journey_discovery_framework"
@@ -223,7 +226,7 @@ def normalize_user_profile(user_profile_dict: Dict[str, Any]) -> Dict[str, Any]:
 
     preferred_story_mode = optional_preferences.get("preferred_story_mode")
     if preferred_story_mode not in VALID_MODES:
-        optional_preferences["preferred_story_mode"] = "unspecified"
+        optional_preferences["preferred_story_mode"] = DEFAULT_PREFERRED_STORY_MODE
 
     out["optional_preferences"] = optional_preferences
     return out
@@ -293,9 +296,9 @@ Core purpose (hard boundaries):
 - Optimize willingness-to-try (approach, smell, lick, tiny bite), NOT quantity or completion.
 - Use non-mealtime, low-pressure, sustainable playful narrative.
 - Avoid shaming, threats, coercion, punishment language, moralizing commands, transactional reward framing, stigmatizing language, and medical advice.
-- If fantasy is used, it must be light and grounded in real life.
-- Do not create a fully imaginary world.
-- Do not use magic to solve eating-related challenges.
+- Prefer light fantasy that keeps emotional or situational links to everyday child life; full realism is not required on every beat.
+- Imaginative settings are allowed when they remain child-safe and keep the food/trying-food thread meaningful.
+- Avoid deus-ex-machina magic that instantly resolves eating-related challenges without child agency.
 
 Structure expectations:
     - Output a stable recurring story world, such as a stable protagonist/avatar slot plus a stable world/background under which different later events, visitors, or discoveries can happen.
@@ -305,7 +308,8 @@ Structure expectations:
 Design-principle usage:
 - Explicitly use the provided design_consideration as intervention guidance.
 - Align the framework with the following priorities already reflected in the design_consideration: cognitive/experiential change and willingness-to-try over eating completion or quantity; non-mealtime low-pressure long-term reinforcement; avoidance of taskification and transaction framing; and low-burden, non-coercive parent-in-the-loop scaffolding when relevant.
-- The framework should naturally support three recurring content elements across later stories: sensory descriptions, contextualized food knowledge, and role-model narratives. Support them at background/world level, but do NOT output episode libraries, per-episode patterns, or quotas.
+- The framework can support three recurring content elements across later stories (sensory descriptions, contextualized food knowledge, and role-model narratives), but treat them as a flexible palette rather than a fixed per-episode mandate.
+- Do not imply that every episode must center the same "look/smell/touch" routine; leave room for varied story engines and tones while preserving continuity.
 - Use basic_constraints as compatibility guidance for later story generation.
 - Treat basic_constraints.safety_rules as hard safety guardrails.
 - Treat basic_constraints.language, interaction constraints, and downstream story-form constraints as reference inputs for compatibility, but do NOT surface page-count logic or per-episode quotas in the framework output.
@@ -340,7 +344,7 @@ def build_run_config(
             "target_food_category": user_profile_dict.get("target_food_category", "unspecified"),
             "interest_theme": user_profile_dict.get("interest_theme", []),
             "optional_preferences": {
-                "preferred_story_mode": select_preferred_mode(user_profile_dict) or "unspecified",
+                "preferred_story_mode": select_preferred_mode(user_profile_dict) or DEFAULT_PREFERRED_STORY_MODE,
                 "avoid_topics": _normalize_string_list(optional_preferences.get("avoid_topics", [])),
                 "language_level": optional_preferences.get("language_level", "unspecified"),
             },

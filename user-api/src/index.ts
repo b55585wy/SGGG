@@ -36,8 +36,12 @@ import {
   saveTempBook,
   saveUserAvatar,
   saveUserStoryArc,
+  backupTempBook,
+  countTempBookBackups,
+  deleteTempBookBackup,
   getUserStoryArc,
   clearTempBook,
+  getLatestTempBookBackup,
   setFirstLoginFlag,
   deleteUser,
   getAdminStats,
@@ -47,6 +51,9 @@ import {
   getUserGeneratingState,
   setUserGeneratingError,
   clearUserGeneratingError,
+  savePendingAutoStory,
+  getPendingAutoStory,
+  clearPendingAutoStory,
   exportAllUsers,
   exportAllFoodLogs,
   exportAllReadingSessions,
@@ -136,6 +143,7 @@ const pendingAutoStories = new Map<string, PendingAutoStory>();
 function clearUserRuntimeGenerationState(userID: string) {
   generatingUsers.delete(userID);
   pendingAutoStories.delete(userID);
+  void clearPendingAutoStory(userID).catch(() => {});
 }
 
 const app = express();
@@ -198,13 +206,14 @@ function extractStoryId(content: string): string | null {
   }
 }
 
-function extractBookMeta(content: string): { title: string; summary: string } | null {
+function extractBookMeta(content: string): { title: string; summary: string; storyType?: string } | null {
   try {
-    const parsed = JSON.parse(content) as { book_meta?: { title?: string; summary?: string } };
+    const parsed = JSON.parse(content) as { book_meta?: { title?: string; summary?: string; story_type?: string } };
     const title = typeof parsed.book_meta?.title === "string" ? parsed.book_meta.title : "";
     const summary = typeof parsed.book_meta?.summary === "string" ? parsed.book_meta.summary : "";
-    if (!title && !summary) return null;
-    return { title, summary };
+    const storyType = typeof parsed.book_meta?.story_type === "string" ? parsed.book_meta.story_type : undefined;
+    if (!title && !summary && !storyType) return null;
+    return { title, summary, storyType };
   } catch {
     return null;
   }
@@ -248,15 +257,104 @@ async function resolveDraftFromBackendIfReady(storyId: string): Promise<{ previe
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
-const STORY_TYPE_TO_INTEREST_THEME: Record<string, string> = {
-  curious_discovery: "grounded_expository_exploration",
-  everyday_routine: "everyday_cause_effect_routine",
-  light_fantasy: "light_fantasy_grounded_social_world",
+const PREFERRED_STORY_MODES = [
+  "realistic_everyday",
+  "light_fantasy_familiar",
+  "hybrid_expository_narrative",
+  "journey_discovery_framework",
+] as const;
+type PreferredStoryMode = (typeof PREFERRED_STORY_MODES)[number];
+const DEFAULT_PREFERRED_STORY_MODE: PreferredStoryMode = "light_fantasy_familiar";
+const PREFERRED_STORY_MODE_SET = new Set<string>(PREFERRED_STORY_MODES);
+const STORY_ARC_BUNDLE_SCHEMA = "story_arc_bundle_v1";
+const STORY_ARC_SOURCE_BUNDLE_SCHEMA = "story_arc_source_bundle_v1";
+const STORY_TYPE_TO_PREFERRED_STORY_MODE: Record<string, string> = {
+  curious_discovery: "hybrid_expository_narrative",
+  everyday_routine: "realistic_everyday",
+  light_fantasy: "light_fantasy_familiar",
   journey_discovery: "journey_discovery_framework",
 };
+const PREFERRED_MODE_TO_INTEREST_THEME: Record<PreferredStoryMode, string> = {
+  realistic_everyday: "everyday_cause_effect_routine",
+  light_fantasy_familiar: "light_fantasy_grounded_social_world",
+  hybrid_expository_narrative: "grounded_expository_exploration",
+  journey_discovery_framework: "journey_discovery_framework",
+};
 
-function mapStoryTypeToInterestTheme(storyType: string): string | null {
-  return STORY_TYPE_TO_INTEREST_THEME[storyType] ?? null;
+function normalizePreferredStoryMode(mode: unknown): PreferredStoryMode | null {
+  if (typeof mode !== "string") return null;
+  const normalized = mode.trim();
+  if (!normalized || !PREFERRED_STORY_MODE_SET.has(normalized)) return null;
+  return normalized as PreferredStoryMode;
+}
+
+function mapStoryTypeToPreferredStoryMode(storyType: string): PreferredStoryMode | null {
+  return normalizePreferredStoryMode(STORY_TYPE_TO_PREFERRED_STORY_MODE[storyType]);
+}
+
+function sanitizeSingleStoryArc(storyArc: unknown): Record<string, unknown> {
+  if (!storyArc || typeof storyArc !== "object" || Array.isArray(storyArc)) return {};
+  const arc = { ...(storyArc as Record<string, unknown>) };
+  delete arc.target_food_category;
+  delete arc.food_anchor_rule;
+  return arc;
+}
+
+function extractStoryTypeFromBookContent(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content) as { book_meta?: { story_type?: unknown } };
+    return typeof parsed.book_meta?.story_type === "string" ? parsed.book_meta.story_type : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseStoryArcBundle(storyArc: unknown): {
+  defaultMode: PreferredStoryMode;
+  arcsByMode: Partial<Record<PreferredStoryMode, Record<string, unknown>>>;
+} {
+  const defaultMode = DEFAULT_PREFERRED_STORY_MODE;
+  if (!storyArc || typeof storyArc !== "object" || Array.isArray(storyArc)) {
+    return { defaultMode, arcsByMode: {} };
+  }
+  const obj = storyArc as Record<string, unknown>;
+  const modeFromPayload = normalizePreferredStoryMode(obj.default_preferred_story_mode);
+  const finalDefault = modeFromPayload ?? defaultMode;
+
+  const byModeRaw = obj.arcs_by_mode;
+  if (
+    obj._schema === STORY_ARC_BUNDLE_SCHEMA &&
+    byModeRaw &&
+    typeof byModeRaw === "object" &&
+    !Array.isArray(byModeRaw)
+  ) {
+    const arcsByMode: Partial<Record<PreferredStoryMode, Record<string, unknown>>> = {};
+    for (const mode of PREFERRED_STORY_MODES) {
+      const candidate = sanitizeSingleStoryArc((byModeRaw as Record<string, unknown>)[mode]);
+      if (Object.keys(candidate).length > 0) arcsByMode[mode] = candidate;
+    }
+    return { defaultMode: finalDefault, arcsByMode };
+  }
+
+  // Backward compatibility: historical single-arc payload.
+  const legacy = sanitizeSingleStoryArc(obj);
+  const arcsByMode: Partial<Record<PreferredStoryMode, Record<string, unknown>>> = {};
+  if (Object.keys(legacy).length > 0) arcsByMode[finalDefault] = legacy;
+  return { defaultMode: finalDefault, arcsByMode };
+}
+
+function pickStoryArcForStoryType(storyArc: unknown, storyType: string | null | undefined): Record<string, unknown> | null {
+  const { arcsByMode, defaultMode } = parseStoryArcBundle(storyArc);
+  const preferredMode = storyType ? mapStoryTypeToPreferredStoryMode(storyType) : null;
+  const preferredArc = preferredMode ? arcsByMode[preferredMode] : null;
+  if (preferredArc) return preferredArc;
+  const defaultArc = arcsByMode[defaultMode];
+  if (defaultArc) return defaultArc;
+  for (const mode of PREFERRED_STORY_MODES) {
+    const fallback = arcsByMode[mode];
+    if (fallback) return fallback;
+  }
+  return null;
 }
 
 async function generateStoryArcViaBackend(userProfile: Record<string, unknown>): Promise<unknown> {
@@ -382,6 +480,7 @@ async function generateTempBookForUser(params: {
       age: 5,
       gender: params.gender,
     },
+    theme_food: params.themeFood,
     meal_context: {
       target_food: params.themeFood,
       meal_score: mapScore(params.mealScore),
@@ -487,7 +586,7 @@ async function triggerAutoBookGeneration(userID: string, avatar: {
         try {
           const parsed = JSON.parse(storyArc.storyArcJson) as unknown;
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            storyFramework = parsed as Record<string, unknown>;
+            storyFramework = pickStoryArcForStoryType(parsed, "light_fantasy");
           }
         } catch {
           // ignore invalid story_arc payload
@@ -521,8 +620,16 @@ async function triggerAutoBookGeneration(userID: string, avatar: {
         summary: launched.summary,
         regenerateCount: 0,
       });
+      await savePendingAutoStory({
+        userID,
+        storyID: launched.storyId,
+        title: launched.title,
+        summary: launched.summary,
+        regenerateCount: 0,
+      });
     } catch (err) {
       pendingAutoStories.delete(userID);
+      await clearPendingAutoStory(userID).catch(() => {});
       generatingUsers.delete(userID);
       await clearUserGenerating(userID).catch(() => {});
       const message = err instanceof Error && err.message ? err.message : "绘本生成失败，请截图联系管理员";
@@ -534,12 +641,11 @@ async function triggerAutoBookGeneration(userID: string, avatar: {
 
 async function generateAndSaveStoryArcBase(params: {
   userID: string;
-  themeFood: string;
   nickname?: string | null;
   gender?: string | null;
   age?: number | null;
   extraProfile?: StoryArcExtraProfile | null;
-  trigger: "register" | "avatar_save" | "theme_change";
+  trigger: "register" | "avatar_save";
 }) {
   const existing = await getUserStoryArc(params.userID);
   let seedProfile: Record<string, unknown> | null = null;
@@ -547,28 +653,84 @@ async function generateAndSaveStoryArcBase(params: {
     try {
       const parsed = JSON.parse(existing.sourceProfileJson) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        seedProfile = parsed as Record<string, unknown>;
+        const parsedObj = parsed as Record<string, unknown>;
+        if (
+          parsedObj._schema === STORY_ARC_SOURCE_BUNDLE_SCHEMA &&
+          parsedObj.profiles_by_mode &&
+          typeof parsedObj.profiles_by_mode === "object" &&
+          !Array.isArray(parsedObj.profiles_by_mode)
+        ) {
+          const profilesByMode = parsedObj.profiles_by_mode as Record<string, unknown>;
+          const preferred = normalizePreferredStoryMode(parsedObj.default_preferred_story_mode);
+          const tryModes: string[] = [
+            preferred ?? DEFAULT_PREFERRED_STORY_MODE,
+            ...PREFERRED_STORY_MODES,
+          ];
+          for (const mode of tryModes) {
+            const candidate = profilesByMode[mode];
+            if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+              seedProfile = candidate as Record<string, unknown>;
+              break;
+            }
+          }
+        } else {
+          seedProfile = parsedObj;
+        }
       }
     } catch {
       // ignore invalid historical data
     }
   }
-  const sourceProfile = buildStoryArcUserProfile({
-    userID: params.userID,
-    themeFood: params.themeFood,
-    nickname: params.nickname ?? null,
-    gender: params.gender ?? null,
-    age: params.age ?? null,
-  }, {
-    seedProfile,
-    extraProfile: params.extraProfile ?? null,
-  });
   console.info(`INFO: story_arc:start userID=${params.userID} trigger=${params.trigger}`);
-  const storyArc = await generateStoryArcViaBackend(sourceProfile);
+  const userOptionalPrefs = (
+    params.extraProfile &&
+    typeof params.extraProfile === "object" &&
+    !Array.isArray(params.extraProfile) &&
+    (params.extraProfile as { optional_preferences?: unknown }).optional_preferences &&
+    typeof (params.extraProfile as { optional_preferences?: unknown }).optional_preferences === "object" &&
+    !Array.isArray((params.extraProfile as { optional_preferences?: unknown }).optional_preferences)
+  )
+    ? ((params.extraProfile as { optional_preferences: Record<string, unknown> }).optional_preferences)
+    : {};
+  const arcsByMode: Partial<Record<PreferredStoryMode, Record<string, unknown>>> = {};
+  const profilesByMode: Partial<Record<PreferredStoryMode, Record<string, unknown>>> = {};
+  for (const mode of PREFERRED_STORY_MODES) {
+    const sourceProfile = buildStoryArcUserProfile({
+      userID: params.userID,
+      nickname: params.nickname ?? null,
+      gender: params.gender ?? null,
+      age: params.age ?? null,
+    }, {
+      seedProfile,
+      extraProfile: {
+        ...(params.extraProfile ?? {}),
+        interest_theme: [PREFERRED_MODE_TO_INTEREST_THEME[mode]],
+        optional_preferences: {
+          ...userOptionalPrefs,
+          preferred_story_mode: mode,
+        },
+      },
+    });
+    const generated = sanitizeSingleStoryArc(await generateStoryArcViaBackend(sourceProfile));
+    if (Object.keys(generated).length > 0) {
+      arcsByMode[mode] = generated;
+      profilesByMode[mode] = sourceProfile;
+    }
+  }
+  const storyArcBundle = {
+    _schema: STORY_ARC_BUNDLE_SCHEMA,
+    default_preferred_story_mode: DEFAULT_PREFERRED_STORY_MODE,
+    arcs_by_mode: arcsByMode,
+  };
+  const sourceProfileBundle = {
+    _schema: STORY_ARC_SOURCE_BUNDLE_SCHEMA,
+    default_preferred_story_mode: DEFAULT_PREFERRED_STORY_MODE,
+    profiles_by_mode: profilesByMode,
+  };
   await saveUserStoryArc({
     userID: params.userID,
-    storyArcJson: JSON.stringify(storyArc),
-    sourceProfileJson: JSON.stringify(sourceProfile),
+    storyArcJson: JSON.stringify(storyArcBundle),
+    sourceProfileJson: JSON.stringify(sourceProfileBundle),
   });
   console.info(`INFO: story_arc:done userID=${params.userID} trigger=${params.trigger}`);
 }
@@ -660,7 +822,6 @@ app.post("/api/admin/users", adminRequired, async (req, res) => {
     try {
       await generateAndSaveStoryArcBase({
         userID,
-        themeFood,
         extraProfile: storyArcProfile,
         trigger: "register",
       });
@@ -825,19 +986,6 @@ app.post("/api/story/theme", authRequired, async (req: AuthenticatedRequest, res
     return;
   }
   await updateUserThemeFood(req.user.userID, themeFood);
-  const avatar = await getUserAvatar(req.user.userID);
-  try {
-    await generateAndSaveStoryArcBase({
-      userID: req.user.userID,
-      themeFood,
-      nickname: avatar?.nickname ?? null,
-      gender: avatar?.gender ?? null,
-      trigger: "theme_change",
-    });
-  } catch (e) {
-    res.status(500).json({ message: "故事主题已更新，但 story_arc 重新生成失败" });
-    return;
-  }
   res.json({ ok: true, themeFood });
 });
 
@@ -886,7 +1034,19 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     generationError: generating ? null : generatingState.generationError,
   };
   if (!tempBook && generating) {
-    const pending = pendingAutoStories.get(req.user.userID);
+    let pending = pendingAutoStories.get(req.user.userID);
+    if (!pending) {
+      const persistedPending = await getPendingAutoStory(req.user.userID);
+      if (persistedPending) {
+        pending = {
+          storyId: persistedPending.storyID,
+          title: persistedPending.title,
+          summary: persistedPending.summary,
+          regenerateCount: persistedPending.regenerateCount,
+        };
+        pendingAutoStories.set(req.user.userID, pending);
+      }
+    }
     if (pending) {
       const resolved = await resolveDraftFromBackendIfReady(pending.storyId);
       if (resolved) {
@@ -901,6 +1061,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
           regenerateCount: pending.regenerateCount,
         });
         pendingAutoStories.delete(req.user.userID);
+        await clearPendingAutoStory(req.user.userID).catch(() => {});
         generatingUsers.delete(req.user.userID);
         await clearUserGenerating(req.user.userID).catch(() => {});
         await clearUserGeneratingError(req.user.userID).catch(() => {});
@@ -915,8 +1076,10 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
             title: meta?.title || pending.title,
             preview: resolved.preview,
             description: meta?.summary || pending.summary,
+            storyType: meta?.storyType,
             confirmed: false,
             regenerateCount: pending.regenerateCount,
+            rollbackCount: 0,
           },
         });
         return;
@@ -924,6 +1087,8 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     }
   }
   if (tempBook) {
+    await clearPendingAutoStory(req.user.userID).catch(() => {});
+    const rollbackCount = await countTempBookBackups(req.user.userID).catch(() => 0);
     let preview = tempBook.preview;
     if (isPlaceholderPreview(preview)) {
       const storyId = extractStoryId(tempBook.content);
@@ -951,8 +1116,10 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
         title: tempBook.title,
         preview,
         description: tempBook.description,
+        storyType: extractBookMeta(tempBook.content)?.storyType,
         confirmed: false,
         regenerateCount: tempBook.regenerateCount,
+        rollbackCount,
       },
     });
     return;
@@ -976,14 +1143,17 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
         title: latestHistory.title,
         preview,
         description: latestHistory.description,
+        storyType: extractBookMeta(latestHistory.content)?.storyType,
         confirmed: true,
         regenerateCount: 0,
+        rollbackCount: 0,
       },
     });
     return;
   }
 
   if (!generating && generatingState.generationError) {
+    await clearPendingAutoStory(req.user.userID).catch(() => {});
     res.json({
       ...base,
       generating: false,
@@ -1207,8 +1377,8 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
       ? (body as { story_type: string }).story_type.trim()
       : "";
   const storyTypeOverride = storyType.length > 0 ? storyType : null;
-  const mappedInterestTheme = storyTypeOverride ? mapStoryTypeToInterestTheme(storyTypeOverride) : null;
-  if (storyTypeOverride && !mappedInterestTheme) {
+  const mappedPreferredStoryMode = storyTypeOverride ? mapStoryTypeToPreferredStoryMode(storyTypeOverride) : null;
+  if (storyTypeOverride && !mappedPreferredStoryMode) {
     res.status(400).json({ message: "story_type 非法" });
     return;
   }
@@ -1233,68 +1403,26 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     body && typeof body === "object" && typeof (body as { target_food?: unknown }).target_food === "string"
       ? (body as { target_food: string }).target_food.trim()
       : null;
+  const persistTargetFood =
+    body && typeof body === "object" && typeof (body as { persist_target_food?: unknown }).persist_target_food === "boolean"
+      ? (body as { persist_target_food: boolean }).persist_target_food
+      : false;
 
   let storyArcOverride: Record<string, unknown> | null = null;
-  if (storyTypeOverride && mappedInterestTheme) {
-    const existing = await getUserStoryArc(req.user.userID);
-    let seedProfile: Record<string, unknown> | null = null;
-    if (existing?.sourceProfileJson) {
-      try {
-        const parsed = JSON.parse(existing.sourceProfileJson) as unknown;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          seedProfile = parsed as Record<string, unknown>;
-        }
-      } catch {
-        // ignore invalid historical profile
-      }
-    }
-
-    const existingInterestThemes = Array.isArray(seedProfile?.interest_theme)
-      ? (seedProfile.interest_theme as unknown[]).filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter((v) => v.length > 0)
-      : [];
-    const shouldRemapInterestTheme = existingInterestThemes.length === 0 || !existingInterestThemes.includes(mappedInterestTheme);
-
-    if (shouldRemapInterestTheme) {
-      try {
-        const sourceProfile = buildStoryArcUserProfile({
-          userID: req.user.userID,
-          themeFood: avatar.themeFood,
-          nickname: avatar.nickname,
-          gender: avatar.gender,
-          age: null,
-        }, {
-          seedProfile,
-          extraProfile: { interest_theme: [mappedInterestTheme] },
-        });
-        const generated = await generateStoryArcViaBackend(sourceProfile);
-        if (!generated || typeof generated !== "object" || Array.isArray(generated)) {
-          throw new Error("regenerate story_arc payload invalid");
-        }
-        storyArcOverride = generated as Record<string, unknown>;
-        await saveUserStoryArc({
-          userID: req.user.userID,
-          storyArcJson: JSON.stringify(storyArcOverride),
-          sourceProfileJson: JSON.stringify(sourceProfile),
-        });
-      } catch (e) {
-        console.error("[BOOK] regenerate story_arc remap failed:", e);
-        res.status(502).json({ message: "story_arc 重新生成失败" });
-        return;
-      }
-    } else if (existing?.storyArcJson) {
-      try {
-        const parsedArc = JSON.parse(existing.storyArcJson) as unknown;
-        if (parsedArc && typeof parsedArc === "object" && !Array.isArray(parsedArc)) {
-          storyArcOverride = parsedArc as Record<string, unknown>;
-        }
-      } catch {
-        // ignore invalid historical story_arc payload
-      }
+  const effectiveStoryType = storyTypeOverride || extractStoryTypeFromBookContent(tempBook.content) || "light_fantasy";
+  const existingStoryArc = await getUserStoryArc(req.user.userID);
+  if (existingStoryArc?.storyArcJson) {
+    try {
+      const parsedArc = JSON.parse(existingStoryArc.storyArcJson) as unknown;
+      storyArcOverride = pickStoryArcForStoryType(parsedArc, effectiveStoryType);
+    } catch {
+      // ignore invalid historical story_arc payload
     }
   }
 
   const regenBody: {
     previous_story_id: string;
+    theme_food: string;
     target_food: string;
     story_type?: string;
     pages?: number;
@@ -1308,6 +1436,7 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     };
   } = {
     previous_story_id: tempBook.bookID,
+    theme_food: targetFoodOverride || avatar.themeFood,
     target_food: targetFoodOverride || avatar.themeFood,
     dissatisfaction_reason: promptReason || promptNote || "用户要求重新生成",
     temporal_characteristics: {
@@ -1331,6 +1460,7 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
   generatingUsers.add(req.user.userID);
   await setUserGenerating(req.user.userID).catch(() => {});
   try {
+  await backupTempBook(tempBook);
   const response = await postJsonWithTimeout(
     `${FASTAPI_URL}/api/v1/story/regenerate`,
     regenBody,
@@ -1363,6 +1493,11 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     content: JSON.stringify(draft),
     regenerateCount: tempBook.regenerateCount + 1,
   });
+  if (persistTargetFood && targetFoodOverride) {
+    await updateUserThemeFood(req.user.userID, targetFoodOverride).catch((err) => {
+      console.warn("[BOOK] 持久化下一集食物失败:", err);
+    });
+  }
   await clearUserGeneratingError(req.user.userID).catch(() => {});
 
   res.json({
@@ -1380,6 +1515,56 @@ app.post("/api/book/regenerate", authRequired, async (req: AuthenticatedRequest,
     generatingUsers.delete(req.user.userID);
     await clearUserGenerating(req.user.userID).catch(() => {});
   }
+});
+
+app.post("/api/book/rollback", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!req.user) {
+    res.status(401).json({ message: "未登录" });
+    return;
+  }
+  const isGeneratingNow = generatingUsers.has(req.user.userID) || await isUserGenerating(req.user.userID);
+  if (isGeneratingNow) {
+    res.status(409).json({ message: "绘本生成中，暂不可回退" });
+    return;
+  }
+  const tempBook = await getTempBook(req.user.userID);
+  if (!tempBook) {
+    res.status(404).json({ message: "未找到待确认绘本" });
+    return;
+  }
+  const latestBackup = await getLatestTempBookBackup(req.user.userID);
+  if (!latestBackup) {
+    res.status(400).json({ message: "没有可回退的版本" });
+    return;
+  }
+
+  // Keep current version as a new backup so user can undo rollback if needed.
+  await backupTempBook(tempBook);
+  const restoredRegenerateCount = Math.max(tempBook.regenerateCount, latestBackup.regenerateCount);
+  await saveTempBook({
+    userID: req.user.userID,
+    bookID: latestBackup.bookID,
+    title: latestBackup.title,
+    preview: latestBackup.preview,
+    description: latestBackup.description,
+    content: latestBackup.content,
+    regenerateCount: restoredRegenerateCount,
+  });
+  await deleteTempBookBackup(latestBackup.backupID);
+  const rollbackCount = await countTempBookBackups(req.user.userID).catch(() => 0);
+
+  res.json({
+    ok: true,
+    book: {
+      bookID: latestBackup.bookID,
+      title: latestBackup.title,
+      preview: latestBackup.preview,
+      description: latestBackup.description,
+      confirmed: false,
+      regenerateCount: restoredRegenerateCount,
+      rollbackCount,
+    },
+  });
 });
 
 app.get("/api/food/heatmap", authRequired, async (req: AuthenticatedRequest, res) => {

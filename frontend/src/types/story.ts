@@ -84,6 +84,7 @@ export interface BookMeta {
 export interface Ending {
   positive_feedback: string;
   next_micro_goal: string;
+  post_read_task?: string;
 }
 
 export interface TelemetrySuggestions {
