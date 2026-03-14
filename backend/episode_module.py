@@ -37,9 +37,9 @@ DEFAULT_BASIC_CONSTRAINTS: Dict[str, Any] = {
     "words_per_page_target_cn": [60, 80],
     "word_count_cn_profiles": {"standard": [720, 960]},
     "three_element_minimums": {
-        "sensory_min_per_episode": 1,
-        "knowledge_min_per_episode": 1,
-        "role_model_min_per_episode": 1,
+        "min_distinct_elements_per_episode": 1,
+        "max_distinct_elements_per_episode": 2,
+        "element_pool": ["sensory", "knowledge", "role_model"],
     },
     "safety_rules": [
         "No shaming or blame.",
@@ -204,14 +204,27 @@ def _normalize_basic_constraints(basic_constraints: Optional[Dict[str, Any]]) ->
     minimums = _ensure_dict(
         merged.get("three_element_minimums"),
         {
-            "sensory_min_per_episode": 1,
-            "knowledge_min_per_episode": 1,
-            "role_model_min_per_episode": 1,
+            "min_distinct_elements_per_episode": 1,
+            "max_distinct_elements_per_episode": 2,
+            "element_pool": ["sensory", "knowledge", "role_model"],
         },
     )
-    minimums["sensory_min_per_episode"] = max(1, _ensure_int(minimums.get("sensory_min_per_episode"), 1))
-    minimums["knowledge_min_per_episode"] = max(1, _ensure_int(minimums.get("knowledge_min_per_episode"), 1))
-    minimums["role_model_min_per_episode"] = max(1, _ensure_int(minimums.get("role_model_min_per_episode"), 1))
+    min_distinct = max(1, min(3, _ensure_int(minimums.get("min_distinct_elements_per_episode"), 1)))
+    max_distinct = max(min_distinct, min(3, _ensure_int(minimums.get("max_distinct_elements_per_episode"), 2)))
+    element_pool_raw = minimums.get("element_pool")
+    allowed_elements = {"sensory", "knowledge", "role_model"}
+    element_pool: List[str] = []
+    if isinstance(element_pool_raw, list):
+        for item in element_pool_raw:
+            if isinstance(item, str):
+                key = item.strip()
+                if key in allowed_elements and key not in element_pool:
+                    element_pool.append(key)
+    if not element_pool:
+        element_pool = ["sensory", "knowledge", "role_model"]
+    minimums["min_distinct_elements_per_episode"] = min_distinct
+    minimums["max_distinct_elements_per_episode"] = max_distinct
+    minimums["element_pool"] = element_pool
     merged["three_element_minimums"] = minimums
 
     safety_rules = merged.get("safety_rules")
@@ -317,7 +330,7 @@ Story requirements:
 - For page text, prioritize "scene + action + feeling" expression. Avoid stacked abstract nouns and policy/report-like tone.
 - Each page_text_cn should contain enough concrete narrative content for shared reading: at least one meaningful scene/action plus at least one vivid cue such as feeling, sensory detail, role relation, continuity signal, or light knowledge point.
 - Treat sensory/knowledge/role-model as a flexible palette across episodes, not a rigid per-episode checklist. One episode may emphasize one or two elements more than the others.
-- "Look/smell/touch" interactions are welcome, but avoid letting the whole episode become repetitive invitation loops. Keep variation through scene events, comparison, mini-mystery, helper dynamics, humor, or small mission momentum.
+- Sensory invitations are welcome, but avoid letting the whole episode become repetitive invitation loops. Keep variation through scene events, comparison, mini-mystery, helper dynamics, humor, or small mission momentum.
 - When using the "knowledge" element, prefer child-friendly health/nutrition relevance (for example, energy, growth, body function, or balanced eating context) tied to the target food and current scene.
 - Taxonomic/botanical/origin trivia can be used as supporting flavor, and is strongest when linked to child-facing meaning instead of standing alone.
 
@@ -335,7 +348,7 @@ Interaction requirements:
 - Branch pages count toward the fixed total episode page budget. Do NOT add extra pages beyond the exact episode_page_count.
 - For a choice page, branch_choices must contain exactly 2 options. For every non-choice page, branch_choices must be an empty array.
 - In addition to an optional choice page, use low-pressure micro interactions drawn from record_voice, tap, drag, and mimic.
-- record_voice is optional, but when used it should feel playful and low-pressure. It can invite the child to say hello to the food, compare a smell, or notice a tiny feeling. It should never test correctness.
+- record_voice is optional, but when used it should feel playful and low-pressure. It can invite the child to greet the food, describe one feeling/detail, or share a tiny observation. It should never test correctness.
 - When basic_constraints.interaction_constraints.micro_interactions_max_per_episode allows it, prefer 3–4 tap/drag/mimic pages in the episode.
 - Use event_key values only for interactive pages. Keep them unique, short, and descriptive in snake_case.
 
@@ -357,7 +370,7 @@ Visual and image prompt requirements:
 - If a scene genuinely calls for a special outfit, costume, protective wear, seasonal layer, or other temporary clothing change, you may mention only that scene-specific change clearly and lightly, while still assuming the same underlying base character identity from the reference image.
 - Preserve recurring world and object continuity from story_arc, such as stations, maps, cards, notebooks, toy trains, helpers, and palette cues, when relevant.
 - Treat the following as a default recommended composition baseline for image prompts:
-  "Children's picture-book illustration with a cinematic composition. Characters should occupy about 35-55% of the frame. Emphasize scene-driven storytelling rather than close-up character portraits. Besides the main characters and the primary action, include a clear scene anchor, several props related to the action, and at least one layer of background everyday-life details. Use clear foreground, midground, and background layering to create a readable, story-rich, lived-in environment. Avoid extreme close-ups, oversized heads, empty backgrounds, and implausible human scale."
+  "Children's picture-book illustration with a cinematic composition. Characters should occupy about 28-45% of the frame (generally below half-frame dominance). Emphasize scene-driven storytelling rather than close-up character portraits. Besides the main characters and the primary action, include a clear scene anchor, multiple props related to the action, and at least one layer of background everyday-life details. Use clear foreground, midground, and background layering to create a readable, story-rich, lived-in environment. Prefer full-body or 3/4-body framing when possible. Avoid extreme close-ups, oversized heads, empty backgrounds, and implausible human scale."
 - This composition baseline is a strong recommendation, not an absolute hard lock for every page. If a specific page genuinely requires tighter focus (for example, a key detail reveal or interaction-specific close framing), you may partially relax the baseline while still keeping environment readability and plausible scale.
 - page_image_prompt_packages should contain ONLY the page-specific English suffix for each page. Do NOT output final_image_prompt_en or any per-page fully assembled prompt.
 - Each image_prompt_suffix_en must be detailed enough for stable generation: scene location, camera framing, main action, key objects, emotion, lighting/mood, page-specific continuity details, and any truly needed temporary scene-specific clothing change. Do NOT restate stable facial features or default outfit details that should come from the persistent reference image.
@@ -370,7 +383,7 @@ Self-check before finalizing:
 - Check that the target food remains central.
 - Check language naturalness: child-facing Chinese should sound like real spoken storytelling, not translated or bureaucratic prose.
 - If a hard food override is active, check that pages and image prompt suffixes consistently stay on that exact override food instance (no substitution to another same-category item).
-- Check that the three content elements appear across the episode.
+- Check run_config.effective_inputs.three_element_minimums: cover at least min_distinct_elements_per_episode and at most max_distinct_elements_per_episode items from element_pool; do NOT force all three elements every episode.
 - Check page count, Han-character counts, interaction budget, choice-point limits, record_voice limits, preferred interaction density, and image-prompt consistency.
 - If any problem is found, revise before finalizing.
 
@@ -431,7 +444,8 @@ def build_run_config(
             "knowledge_scope_priority": "When the episode uses knowledge content, prioritize age-appropriate health/nutrition relevance of the target food in everyday child language. Botany/origin details may appear as supporting flavor, and work best when linked to child-facing meaning.",
             "element_balance_priority": (
                 "Treat sensory/knowledge/role-model as optional narrative ingredients rather than a rigid checklist. "
-                "Smell/touch/look beats are welcome but should not dominate the whole episode repeatedly; rotate narrative momentum with comparison, helper moments, mini-mystery, or scene-event progress."
+                "Use run_config.effective_inputs.three_element_minimums as a soft blend target (typically 1-2 elements emphasized in one episode), "
+                "and avoid overusing the same sensory invitation loop across consecutive pages."
             ),
             "recent_story_policy": "recent_story is optional. Use it only to sharpen local carry-over details, not to replace recap_and_goal.",
             "temporal_override_policy": "Treat temporal_characteristics as the current truth for food and temporary scene-specific visual overrides. A persistent base avatar reference image is assumed to define the child's face, facial features, hairstyle, and default appearance, so text should not invent or lock those details unless the user explicitly requests a temporary change.",
@@ -440,9 +454,9 @@ def build_run_config(
                 "Do not switch to another same-category food."
             ),
             "image_composition_recommendation": (
-                "Default recommendation for image prompt writing: cinematic children's picture-book composition; characters roughly 35-55% of frame; "
-                "scene-driven storytelling over portrait close-up; clear scene anchor + several action-related props + at least one background everyday-life layer; "
-                "readable foreground/midground/background layering; avoid extreme close-up, oversized heads, empty backgrounds, and implausible scale. "
+                "Default recommendation for image prompt writing: cinematic children's picture-book composition; characters roughly 28-45% of frame and usually below half-frame dominance; "
+                "scene-driven storytelling over portrait close-up; clear scene anchor + multiple action-related props + at least one background everyday-life layer; "
+                "readable foreground/midground/background layering; prefer full-body or 3/4-body framing; avoid extreme close-up, oversized heads, empty backgrounds, and implausible scale. "
                 "If a page truly needs tight focus for key narrative clarity, partially relax this recommendation while preserving environment readability."
             ),
             "image_prompt_packaging": "Store shared reusable English prompt components only once inside visual_canon. Do not output final_image_prompt_en. Each page_image_prompt_package should contain only image_prompt_suffix_en for downstream prompt assembly.",

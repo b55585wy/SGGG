@@ -139,7 +139,6 @@ type InlineFoodLogProps = {
 
 function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
   const [foodName, setFoodName] = useState('')
-  const [specificThing, setSpecificThing] = useState('')
   const [foodVoiceLoading, setFoodVoiceLoading] = useState(false)
   const [foodIsRecording, setFoodIsRecording] = useState(false)
   const [foodAudioUrl, setFoodAudioUrl] = useState<string | null>(null)
@@ -174,12 +173,10 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
     try {
       const data = await postJson<FoodLogResponse>('/api/food/log', {
         foodName: foodName.trim(),
-        specificThing: specificThing.trim() || null,
         score,
         content: content.trim(),
       })
       setFoodName('')
-      setSpecificThing('')
       setScore(0)
       setScoreTouched(false)
       setContent('')
@@ -352,17 +349,6 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
           )}
         </div>
 
-        {/* Specific thing */}
-        <div className="space-y-1.5">
-          <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>特定事物（可选）</label>
-          <input
-            value={specificThing}
-            onChange={(e) => setSpecificThing(e.target.value)}
-            placeholder="例如：绿色豆荚、脆脆的边缘、小颗粒感"
-            className="form-input w-full text-sm"
-          />
-        </div>
-
         {/* Score section */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -510,13 +496,7 @@ export default function HomePage() {
         setError(`生成失败：${data.generationError}。请截图此错误信息联系管理员。`)
         return
       }
-      // Restore generating state from server (survives page refresh).
-      // While generating, clear any stale book so the animation shows correctly.
-      if (data.generating) {
-        setStatus((prev: HomeStatusResponse | null) => prev ? ({ ...prev, ...data, book: null } as HomeStatusResponse) : ({ ...data, book: null } as HomeStatusResponse))
-      } else {
-        setStatus(data)
-      }
+      setStatus(data)
       setBookGenerating(!!data.generating)
     } catch (e) {
       if (e && typeof e === 'object' && 'status' in e) {
@@ -570,10 +550,8 @@ export default function HomePage() {
           setError(`生成失败：${data.generationError}。请截图此错误信息联系管理员。`)
           return
         }
-        if (!data.generating) {
-          setStatus(data)
-          setBookGenerating(false)
-        }
+        setStatus(data)
+        setBookGenerating(!!data.generating)
       } catch { /* ignore */ }
     }, 3000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }

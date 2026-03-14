@@ -163,12 +163,12 @@ Requirements:
 - A strong micro goal often centers a child-sized curiosity, contrast, or return pattern (for example: comparing two different food feelings, extending a gentle role-model moment, revisiting a recurring ritual/object, or following a small open curiosity from recent episodes).
 - Unless previous_blocks already point to a specific next item, do NOT force a brand-new specific vegetable, place, visitor, or event into the micro goal.
 - Leave room for downstream episode generation to decide the exact stop, scene choreography, specific fact, and wording of invitations.
-- The micro goal should keep picky-eating storytelling meaningfully in scope by staying connected to the target food, food-related experiences, or one or more of the three recurring content elements: sensory description, contextualized food knowledge, and role-model narrative.
+- The micro goal should keep picky-eating storytelling meaningfully in scope by staying connected to the target food and food-related experiences. It may draw from sensory/knowledge/role-model elements when useful, but do NOT force explicit element labeling.
 - Do NOT analyze child stage, willingness stage, user readiness, or intervention progress. Those are handled by other modules.
 - continuity_hooks should preserve concrete continuity cues for downstream use: recurring objects, repeated phrases, helpers, food/place details, unresolved tiny mysteries, or return patterns.
 - continuity_hooks.next_episode_seed should be a one-sentence teaser or high-level seed, NOT a mini plot outline or step-by-step instruction set.
 - Be concise. Prefer concrete continuity cues (food, place, recurring object, helper, repeated phrase, unresolved small event, comparison thread) over abstract summary.
-- To reduce exact repetition, prefer a next-step that preserves continuity while slightly shifting at least one of the following when supported by the input: the food trait in focus, the place detail, the recurring object use, the helper moment, the small visitor/event, or the emphasized element (sensory / knowledge / role_model).
+- To reduce exact repetition, prefer a next-step that preserves continuity while slightly shifting at least one of the following when supported by the input: the food trait in focus, the place detail, the recurring object use, the helper moment, the small visitor/event, or the interaction shape.
 - Recap-and-goal must explicitly implement "continuity + variation": keep 1-2 core carry-over anchors, and clearly change at least one story-structure axis for the next episode (for example: opening trigger, who leads the action, exploration path, comparison target, or how discovery is revealed).
 - Avoid near-duplicate episode skeletons across consecutive episodes. Do not output a next direction that is effectively the same sequence with only wording swaps.
 - If the latest episode already used one dominant structure, prefer a different but coherent structure next (for example: from "observe then explain" to "question then test", from "guide-led demo" to "child-led try", or from "single-item close look" to "contrast/comparison framing").
@@ -197,7 +197,7 @@ def build_run_config(story_framework: Optional[Dict[str, Any]]) -> Dict[str, Any
             "anti_repetition_priority": (
                 "For recap and micro_goal, enforce continuity + variation: preserve 1-2 core carry-over anchors while changing at least one story-structure axis "
                 "(opening trigger, action leader, exploration path, comparison frame, or discovery reveal style). "
-                "Avoid near-duplicate episode skeletons in consecutive episodes."
+                "Avoid near-duplicate episode skeletons in consecutive episodes, and avoid defaulting to repeated '看一看/闻一闻/小口尝' loops."
             ),
         },
     }
@@ -234,7 +234,7 @@ def build_response_format() -> Dict[str, Any]:
                     "micro_goal": {
                         "type": "object",
                         "additionalProperties": False,
-                        "required": ["title", "text_cn", "focus_type", "rationale"],
+                        "required": ["title", "text_cn", "rationale"],
                         "properties": {
                             "title": {
                                 "type": "string",
@@ -243,16 +243,6 @@ def build_response_format() -> Dict[str, Any]:
                             "text_cn": {
                                 "type": "string",
                                 "description": "A high-level, interesting narrative direction or curiosity hook for the next episode in simple Chinese. Do not script exact scene beats or step-by-step actions. Must preserve continuity while signaling at least one meaningful structure-level variation from the latest episode."
-                            },
-                            "focus_type": {
-                                "type": "string",
-                                "enum": [
-                                    "sensory",
-                                    "knowledge",
-                                    "role_model",
-                                    "mixed",
-                                    "continuity_hook",
-                                ],
                             },
                             "rationale": {
                                 "type": "string",

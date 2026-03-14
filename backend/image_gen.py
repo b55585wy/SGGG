@@ -18,6 +18,15 @@ PAGE_MAX_RETRIES = 2
 RETRY_DELAYS = [2, 5, 10]  # seconds between retries
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _FRONTEND_PUBLIC_DIR = (_REPO_ROOT / "frontend" / "public").resolve()
+_COMPOSITION_ENRICHMENT_GUIDANCE = (
+    "Composition guidance: use a cinematic children picture-book scene with medium-wide framing. "
+    "Keep main characters around 28-42% of the frame and generally below half-frame dominance. "
+    "Prioritize environment storytelling over portrait close-ups: include a clear scene anchor, multiple action-related props, "
+    "and at least one background layer of everyday-life details. "
+    "Build readable foreground-midground-background depth with plausible human scale. "
+    "Prefer full-body or 3/4-body framing when possible. Avoid oversized heads, empty backgrounds, and flat single-layer scenes. "
+    "If a page truly requires tight detail framing, keep enough surrounding context so the environment remains readable."
+)
 
 
 def _safe_str(value: Any) -> str:
@@ -30,6 +39,7 @@ def _assemble_episode_prompt(visual_canon: dict[str, Any], suffix: str) -> str:
         _safe_str(visual_canon.get("character_lock_prompt_en")),
         _safe_str(visual_canon.get("world_lock_prompt_en")),
         _safe_str(suffix),
+        _COMPOSITION_ENRICHMENT_GUIDANCE,
     ]
     negative = _safe_str(visual_canon.get("negative_prompt_en"))
     if negative:
@@ -48,7 +58,10 @@ def _resolve_page_prompt(
         suffix = _safe_str(prompt_pkg.get("image_prompt_suffix_en"))
         if suffix:
             return _assemble_episode_prompt(visual_canon, suffix)
-    return _safe_str(page.get("image_prompt"))
+    fallback = _safe_str(page.get("image_prompt"))
+    if not fallback:
+        return ""
+    return f"{fallback} {_COMPOSITION_ENRICHMENT_GUIDANCE}".strip()
 
 
 def _save_locally_bytes(raw: bytes, ext: str = ".png") -> Optional[str]:
@@ -141,7 +154,8 @@ def _build_reference_guidance(prompt: str) -> str:
     guidance = (
         "Use the supplied child avatar reference image as the exact same child protagonist. "
         "Preserve face, hairstyle, body proportions, and default overall appearance across pages. "
-        "Only change clothing or accessories when the prompt explicitly calls for a temporary scene-specific change."
+        "Only change clothing or accessories when the prompt explicitly calls for a temporary scene-specific change. "
+        "Do not collapse to face-only close-ups; keep readable scene context and plausible character scale."
     )
     return f"{guidance} {prompt}".strip()
 

@@ -477,7 +477,6 @@ export default function ReaderPage() {
                     style={{ background: 'var(--color-accent-light)', border: '1px solid rgba(5,150,105,0.15)' }}
                   >
                     <p className="text-sm font-medium" style={{ color: 'var(--color-accent)' }}>{draft.ending.positive_feedback}</p>
-                    <p className="text-xs mt-2" style={{ color: 'var(--color-accent-hover)' }}>下一个目标：{draft.ending.next_micro_goal}</p>
                     <p className="text-xs mt-2" style={{ color: 'var(--color-accent-hover)' }}>线下小任务：{postReadTask}</p>
                   </motion.div>
                 )}

@@ -12,7 +12,6 @@ export type StorySummaryOutput = {
   micro_goal?: {
     title?: string;
     text_cn?: string;
-    focus_type?: string;
     rationale?: string;
   };
   continuity_hooks?: {

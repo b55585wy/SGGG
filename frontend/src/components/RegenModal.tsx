@@ -156,7 +156,9 @@ export default function RegenModal({
             <section>
               <div className="flex items-baseline gap-2 mb-3">
                 <span className="text-xs font-mono font-semibold" style={{ color: 'var(--color-accent)' }}>02</span>
-                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>临时换个食物</span>
+                <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--color-foreground)' }}>
+                  {isNextEpisodeMode ? '下集食物（会更新默认）' : '临时换个食物'}
+                </span>
                 {themeFood && (
                   <span className="text-xs ml-auto px-2 py-0.5 rounded-full font-mono" style={{ color: 'var(--color-muted)', background: 'var(--color-warm-100)', border: '1px solid var(--color-border-light)' }}>
                     当前 {themeFood}
@@ -168,11 +170,20 @@ export default function RegenModal({
                 <input
                   value={foodOverride}
                   onChange={(e) => setFoodOverride(e.target.value)}
-                  placeholder={themeFood ? `换掉"${themeFood}"，仅此次生效` : '输入食物名称'}
+                  placeholder={
+                    isNextEpisodeMode
+                      ? (themeFood ? `换掉"${themeFood}"，并作为后续默认` : '输入下集食物（会更新默认）')
+                      : (themeFood ? `换掉"${themeFood}"，仅此次生效` : '输入食物名称')
+                  }
                   className="form-input"
                   style={{ paddingLeft: 32 }}
                 />
               </div>
+              <p className="text-xs mt-2" style={{ color: 'var(--color-muted)' }}>
+                {isNextEpisodeMode
+                  ? '填写后：本次下一集会用这个食物，且后续默认食物也会更新为它；不填写则保持当前默认。'
+                  : '仅影响这一次重新生成，不会修改你的默认食物。'}
+              </p>
             </section>
           </div>
 

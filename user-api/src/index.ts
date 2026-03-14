@@ -274,6 +274,12 @@ const STORY_TYPE_TO_PREFERRED_STORY_MODE: Record<string, string> = {
   light_fantasy: "light_fantasy_familiar",
   journey_discovery: "journey_discovery_framework",
 };
+const PREFERRED_STORY_MODE_TO_STORY_TYPE: Record<PreferredStoryMode, string> = {
+  realistic_everyday: "everyday_routine",
+  light_fantasy_familiar: "light_fantasy",
+  hybrid_expository_narrative: "curious_discovery",
+  journey_discovery_framework: "journey_discovery",
+};
 const PREFERRED_MODE_TO_INTEREST_THEME: Record<PreferredStoryMode, string> = {
   realistic_everyday: "everyday_cause_effect_routine",
   light_fantasy_familiar: "light_fantasy_grounded_social_world",
@@ -355,6 +361,73 @@ function pickStoryArcForStoryType(storyArc: unknown, storyType: string | null | 
     if (fallback) return fallback;
   }
   return null;
+}
+
+function resolvePreferredStoryType(storyArc: unknown): string {
+  const { defaultMode } = parseStoryArcBundle(storyArc);
+  return PREFERRED_STORY_MODE_TO_STORY_TYPE[defaultMode] || "light_fantasy";
+}
+
+async function persistStoryTypePreference(userID: string, storyType: string | null | undefined): Promise<void> {
+  if (!storyType || typeof storyType !== "string") return;
+  const preferredMode = mapStoryTypeToPreferredStoryMode(storyType);
+  if (!preferredMode) return;
+  const existing = await getUserStoryArc(userID);
+  if (!existing) return;
+
+  let storyArcJsonNext = existing.storyArcJson;
+  let sourceProfileJsonNext = existing.sourceProfileJson;
+
+  if (existing.storyArcJson) {
+    try {
+      const parsed = JSON.parse(existing.storyArcJson) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const obj = { ...(parsed as Record<string, unknown>) };
+        obj.default_preferred_story_mode = preferredMode;
+        storyArcJsonNext = JSON.stringify(obj);
+      }
+    } catch {
+      // ignore malformed story_arc_json
+    }
+  }
+
+  if (existing.sourceProfileJson) {
+    try {
+      const parsed = JSON.parse(existing.sourceProfileJson) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const obj = { ...(parsed as Record<string, unknown>) };
+        obj.default_preferred_story_mode = preferredMode;
+
+        const profilesByModeRaw = obj.profiles_by_mode;
+        if (profilesByModeRaw && typeof profilesByModeRaw === "object" && !Array.isArray(profilesByModeRaw)) {
+          const profilesByMode = { ...(profilesByModeRaw as Record<string, unknown>) };
+          const selectedRaw = profilesByMode[preferredMode];
+          if (selectedRaw && typeof selectedRaw === "object" && !Array.isArray(selectedRaw)) {
+            const selected = { ...(selectedRaw as Record<string, unknown>) };
+            selected.interest_theme = [PREFERRED_MODE_TO_INTEREST_THEME[preferredMode]];
+            const optionalPreferencesRaw = selected.optional_preferences;
+            const optionalPreferences =
+              optionalPreferencesRaw && typeof optionalPreferencesRaw === "object" && !Array.isArray(optionalPreferencesRaw)
+                ? { ...(optionalPreferencesRaw as Record<string, unknown>) }
+                : {};
+            optionalPreferences.preferred_story_mode = preferredMode;
+            selected.optional_preferences = optionalPreferences;
+            profilesByMode[preferredMode] = selected;
+            obj.profiles_by_mode = profilesByMode;
+          }
+        }
+        sourceProfileJsonNext = JSON.stringify(obj);
+      }
+    } catch {
+      // ignore malformed source_profile_json
+    }
+  }
+
+  await saveUserStoryArc({
+    userID,
+    storyArcJson: storyArcJsonNext,
+    sourceProfileJson: sourceProfileJsonNext,
+  });
 }
 
 async function generateStoryArcViaBackend(userProfile: Record<string, unknown>): Promise<unknown> {
@@ -454,10 +527,12 @@ async function generateTempBookForUser(params: {
   readingSummary: { totalSessions: number; lastCompletionRate: number | null; lastCompleted: boolean | null };
   storySummary?: StorySummaryOutput | null;
   storyArc?: Record<string, unknown> | null;
+  storyType?: string | null;
 }): Promise<{
   storyId: string;
   title: string;
   summary: string;
+  content: string;
 }> {
   const allScores = [params.mealScore, ...params.recentHistory.map((h) => h.score)];
   const trend = calcScoreTrend(allScores);
@@ -511,7 +586,7 @@ async function generateTempBookForUser(params: {
       }),
     },
     story_config: {
-      story_type: "light_fantasy",
+      story_type: params.storyType || "light_fantasy",
       difficulty: autoDifficulty,
       pages: 12,
       interactive_density: "medium",
@@ -552,6 +627,7 @@ async function generateTempBookForUser(params: {
     storyId: draft.story_id,
     title: draft.book_meta.title,
     summary: draft.book_meta.summary,
+    content: JSON.stringify(draft),
   };
 }
 
@@ -564,9 +640,15 @@ async function triggerAutoBookGeneration(userID: string, avatar: {
   avatarUnderdress: string;
   avatarGlasses: string;
 }) {
-  if (generatingUsers.has(userID) || await isUserGenerating(userID)) return;
+  const dbGenerating = await isUserGenerating(userID);
+  if (!dbGenerating && generatingUsers.has(userID)) {
+    generatingUsers.delete(userID);
+  }
+  if (generatingUsers.has(userID) || dbGenerating) return;
   const existingTemp = await getTempBook(userID);
   if (existingTemp) return;
+  pendingAutoStories.delete(userID);
+  await clearPendingAutoStory(userID).catch(() => {});
   generatingUsers.add(userID);
   setUserGenerating(userID).catch(() => {});
 
@@ -582,11 +664,13 @@ async function triggerAutoBookGeneration(userID: string, avatar: {
       const recentBooks = await getRecentHistoryBooks(userID, 3);
       const previousBlocks = buildPreviousBlocks(recentBooks);
       let storyFramework: Record<string, unknown> | null = null;
+      let preferredStoryType = "light_fantasy";
       if (storyArc?.storyArcJson) {
         try {
           const parsed = JSON.parse(storyArc.storyArcJson) as unknown;
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            storyFramework = pickStoryArcForStoryType(parsed, "light_fantasy");
+            preferredStoryType = resolvePreferredStoryType(parsed);
+            storyFramework = pickStoryArcForStoryType(parsed, preferredStoryType);
           }
         } catch {
           // ignore invalid story_arc payload
@@ -613,20 +697,20 @@ async function triggerAutoBookGeneration(userID: string, avatar: {
         readingSummary,
         storySummary,
         storyArc: storyFramework,
+        storyType: preferredStoryType,
       });
-      pendingAutoStories.set(userID, {
-        storyId: launched.storyId,
-        title: launched.title,
-        summary: launched.summary,
-        regenerateCount: 0,
-      });
-      await savePendingAutoStory({
+      await saveTempBook({
         userID,
-        storyID: launched.storyId,
+        bookID: launched.storyId,
         title: launched.title,
-        summary: launched.summary,
+        preview: createBookPreviewImage(),
+        description: launched.summary,
+        content: launched.content,
         regenerateCount: 0,
       });
+      pendingAutoStories.delete(userID);
+      await clearPendingAutoStory(userID).catch(() => {});
+      await clearUserGeneratingError(userID).catch(() => {});
     } catch (err) {
       pendingAutoStories.delete(userID);
       await clearPendingAutoStory(userID).catch(() => {});
@@ -1017,10 +1101,14 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     feedbackText: latestState?.feedbackText || "",
     themeFood: avatar.themeFood,
   };
+  const ensureBook = req.query.ensureBook === "1" || req.query.ensureBook === "true";
 
   const tempBook = await getTempBook(req.user.userID);
   const generatingState = await getUserGeneratingState(req.user.userID);
-  const generating = generatingUsers.has(req.user.userID) || generatingState.generating;
+  if (!generatingState.generating && generatingUsers.has(req.user.userID)) {
+    generatingUsers.delete(req.user.userID);
+  }
+  const generating = generatingState.generating;
   const statusMetaWithBook = {
     generating,
     generatingSince: generating ? generatingState.generatingSince : null,
@@ -1033,7 +1121,7 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     generatingSlow: generating ? generatingState.generatingSlow : false,
     generationError: generating ? null : generatingState.generationError,
   };
-  if (!tempBook && generating) {
+  if (!tempBook) {
     let pending = pendingAutoStories.get(req.user.userID);
     if (!pending) {
       const persistedPending = await getPendingAutoStory(req.user.userID);
@@ -1084,25 +1172,59 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
         });
         return;
       }
+      if (!generating) {
+        pendingAutoStories.delete(req.user.userID);
+        await clearPendingAutoStory(req.user.userID).catch(() => {});
+      }
     }
   }
   if (tempBook) {
     await clearPendingAutoStory(req.user.userID).catch(() => {});
     const rollbackCount = await countTempBookBackups(req.user.userID).catch(() => 0);
     let preview = tempBook.preview;
-    if (isPlaceholderPreview(preview)) {
-      const storyId = extractStoryId(tempBook.content);
-      if (storyId) {
+    let content = tempBook.content;
+    let title = tempBook.title;
+    let description = tempBook.description;
+    let responseGenerating = generating;
+    let responseGeneratingSince = generating ? generatingState.generatingSince : null;
+    let responseGeneratingSlow = generating ? generatingState.generatingSlow : false;
+    const storyId = extractStoryId(content) || tempBook.bookID;
+    if (storyId) {
+      const resolvedDraft = await resolveDraftFromBackendIfReady(storyId);
+      if (resolvedDraft) {
+        const meta = extractBookMeta(resolvedDraft.content);
+        preview = resolvedDraft.preview;
+        content = resolvedDraft.content;
+        title = meta?.title || title;
+        description = meta?.summary || description;
+        await saveTempBook({
+          userID: tempBook.userID,
+          bookID: tempBook.bookID,
+          title,
+          preview,
+          description,
+          content,
+          regenerateCount: tempBook.regenerateCount,
+        });
+        if (responseGenerating) {
+          generatingUsers.delete(req.user.userID);
+          await clearUserGenerating(req.user.userID).catch(() => {});
+          await clearUserGeneratingError(req.user.userID).catch(() => {});
+          responseGenerating = false;
+          responseGeneratingSince = null;
+          responseGeneratingSlow = false;
+        }
+      } else if (isPlaceholderPreview(preview)) {
         const resolved = await resolvePreviewFromBackend(storyId);
         if (resolved) {
           preview = resolved;
           await saveTempBook({
             userID: tempBook.userID,
             bookID: tempBook.bookID,
-            title: tempBook.title,
+            title,
             preview,
-            description: tempBook.description,
-            content: tempBook.content,
+            description,
+            content,
             regenerateCount: tempBook.regenerateCount,
           });
         }
@@ -1110,13 +1232,16 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     }
     res.json({
       ...base,
-      ...statusMetaWithBook,
+      generating: responseGenerating,
+      generatingSince: responseGeneratingSince,
+      generatingSlow: responseGeneratingSlow,
+      generationError: null,
       book: {
         bookID: tempBook.bookID,
-        title: tempBook.title,
+        title,
         preview,
-        description: tempBook.description,
-        storyType: extractBookMeta(tempBook.content)?.storyType,
+        description,
+        storyType: extractBookMeta(content)?.storyType,
         confirmed: false,
         regenerateCount: tempBook.regenerateCount,
         rollbackCount,
@@ -1127,6 +1252,26 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
 
   const latestHistory = await getLatestHistoryBook(req.user.userID);
   if (latestHistory) {
+    let responseGenerating = generating;
+    let responseGeneratingSince = generating ? generatingState.generatingSince : null;
+    let responseGeneratingSlow = generating ? generatingState.generatingSlow : false;
+    if (ensureBook && !generating) {
+      triggerAutoBookGeneration(req.user.userID, avatar);
+      responseGenerating = true;
+      responseGeneratingSince = new Date().toISOString();
+      responseGeneratingSlow = false;
+    }
+    if (ensureBook && responseGenerating) {
+      res.json({
+        ...base,
+        generating: true,
+        generatingSince: responseGeneratingSince,
+        generatingSlow: responseGeneratingSlow,
+        generationError: null,
+        book: null,
+      });
+      return;
+    }
     let preview = latestHistory.preview;
     if (isPlaceholderPreview(preview)) {
       const storyId = extractStoryId(latestHistory.content);
@@ -1137,7 +1282,10 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
     }
     res.json({
       ...base,
-      ...statusMetaWithBook,
+      generating: responseGenerating,
+      generatingSince: responseGeneratingSince,
+      generatingSlow: responseGeneratingSlow,
+      generationError: null,
       book: {
         bookID: latestHistory.bookID,
         title: latestHistory.title,
@@ -1154,12 +1302,14 @@ app.get("/api/home/status", authRequired, async (req: AuthenticatedRequest, res)
 
   if (!generating && generatingState.generationError) {
     await clearPendingAutoStory(req.user.userID).catch(() => {});
+    await clearUserGeneratingError(req.user.userID).catch(() => {});
+    triggerAutoBookGeneration(req.user.userID, avatar);
     res.json({
       ...base,
-      generating: false,
-      generatingSince: null,
+      generating: true,
+      generatingSince: new Date().toISOString(),
       generatingSlow: false,
-      generationError: generatingState.generationError,
+      generationError: null,
       book: null,
     });
     return;
@@ -1200,10 +1350,6 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
     typeof (body as { content?: unknown }).content === "string"
       ? (body as { content: string }).content.trim()
       : "";
-  const specificThing =
-    typeof (body as { specificThing?: unknown }).specificThing === "string"
-      ? (body as { specificThing: string }).specificThing.trim()
-      : "";
   if (!foodName) {
     res.status(400).json({ message: "请输入今日食物" });
     return;
@@ -1239,7 +1385,6 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
       body: JSON.stringify({
         nickname: avatar.nickname,
         picky_food: foodName,
-        specific_thing: specificThing || null,
         self_rating: score,
         self_description: content,
         recent_phrases: recentPhrases,
@@ -1272,7 +1417,6 @@ app.post("/api/food/log", authRequired, async (req: AuthenticatedRequest, res) =
   await insertFoodLog({
     userID: req.user.userID,
     foodName,
-    specificThing: specificThing || null,
     score,
     content,
     voiceData,
@@ -1321,6 +1465,8 @@ app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, re
     const nextTitle = data.draft?.book_meta?.title || tempBook.title;
     const nextDesc = data.draft?.book_meta?.summary || tempBook.description;
     const nextContent = data.draft ? JSON.stringify(data.draft) : tempBook.content;
+    const confirmedStoryType =
+      extractBookMeta(nextContent)?.storyType || extractBookMeta(tempBook.content)?.storyType;
 
     await addHistoryBook({
       bookID: tempBook.bookID,
@@ -1330,7 +1476,12 @@ app.post("/api/book/confirm", authRequired, async (req: AuthenticatedRequest, re
       description: nextDesc,
       content: nextContent,
     });
+    await persistStoryTypePreference(req.user.userID, confirmedStoryType).catch(() => {});
     await clearTempBook(req.user.userID);
+    generatingUsers.delete(req.user.userID);
+    await clearUserGenerating(req.user.userID).catch(() => {});
+    await clearUserGeneratingError(req.user.userID).catch(() => {});
+    await clearPendingAutoStory(req.user.userID).catch(() => {});
     res.json({ ok: true });
     return;
   } catch {
@@ -1760,7 +1911,7 @@ app.post("/api/reading/log", authRequired, async (req: AuthenticatedRequest, res
     abortReason: typeof body.abortReason === "string" ? body.abortReason : null,
   });
   const bookId = typeof body.bookId === "string" ? body.bookId : null;
-  if (body.completed === true && bookId && writeResult.created) {
+  if (body.completed === true && bookId) {
     const history = await getHistoryBookById(req.user.userID, bookId);
     if (history) {
       const avatar = await getUserAvatar(req.user.userID);

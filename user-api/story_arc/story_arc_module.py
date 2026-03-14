@@ -284,6 +284,15 @@ Preference handling:
 - If interest_theme is provided, make sure at least one of series_premise.core_world_concept, world_setting.setting_name, recurring_elements.recurring_object, or recurring_elements.recurring_phrase visibly reflects it.
     - language_level must be considered at framework stage: use it to calibrate naming complexity, phrase simplicity, and familiarity of the world description, while keeping the framework reusable and compact.
 
+Mode differentiation (very important):
+- Ensure each preferred_story_mode leads to a clearly different story engine, not just renamed props.
+- realistic_everyday: emphasize everyday cause-effect routine and family/neighborhood life momentum; minimal fantasy decoration.
+- light_fantasy_familiar: emphasize gentle social whimsy (friendly object/neighbor vibe) while still relatable to child life.
+- hybrid_expository_narrative: emphasize question -> observe/test -> simple explanation -> small carry-over curiosity.
+- journey_discovery_framework: emphasize route/stop progression (depart -> arrive -> discover -> return/mark map).
+- Sensory invitations (look/smell/touch/tiny taste) can appear, but must NOT become the default repetitive engine. Keep variation through event type, helper role, place logic, and discovery mechanism.
+- Do not let recurring_phrase/opening_ritual collapse into near-identical wording across different modes for the same user.
+
 Child-avatar requirement:
 - The framework MUST include a dedicated child virtual avatar representing the child user.
 - If user_profile.nickname is provided, preserve it verbatim as the child's avatar anchor in the framework.
@@ -293,7 +302,7 @@ Child-avatar requirement:
 Core purpose (hard boundaries):
 - This framework is for picky-eating intervention.
 - target_food_category MUST be preserved verbatim and remain a narrative anchor, not decorative background. The same anchor should remain central when later concrete food instances are generated under this framework.
-- Optimize willingness-to-try (approach, smell, lick, tiny bite), NOT quantity or completion.
+- Optimize gentle openness and curiosity toward food exploration, NOT quantity or completion.
 - Use non-mealtime, low-pressure, sustainable playful narrative.
 - Avoid shaming, threats, coercion, punishment language, moralizing commands, transactional reward framing, stigmatizing language, and medical advice.
 - Prefer light fantasy that keeps emotional or situational links to everyday child life; full realism is not required on every beat.
@@ -307,9 +316,9 @@ Structure expectations:
 
 Design-principle usage:
 - Explicitly use the provided design_consideration as intervention guidance.
-- Align the framework with the following priorities already reflected in the design_consideration: cognitive/experiential change and willingness-to-try over eating completion or quantity; non-mealtime low-pressure long-term reinforcement; avoidance of taskification and transaction framing; and low-burden, non-coercive parent-in-the-loop scaffolding when relevant.
+- Align the framework with the following priorities already reflected in the design_consideration: cognitive/experiential change and sustainable positive food engagement over eating completion or quantity; non-mealtime low-pressure long-term reinforcement; avoidance of taskification and transaction framing; and low-burden, non-coercive parent-in-the-loop scaffolding when relevant.
 - The framework can support three recurring content elements across later stories (sensory descriptions, contextualized food knowledge, and role-model narratives), but treat them as a flexible palette rather than a fixed per-episode mandate.
-- Do not imply that every episode must center the same "look/smell/touch" routine; leave room for varied story engines and tones while preserving continuity.
+- Do not imply that every episode must center one fixed sensory routine; leave room for varied story engines and tones while preserving continuity.
 - Use basic_constraints as compatibility guidance for later story generation.
 - Treat basic_constraints.safety_rules as hard safety guardrails.
 - Treat basic_constraints.language, interaction constraints, and downstream story-form constraints as reference inputs for compatibility, but do NOT surface page-count logic or per-episode quotas in the framework output.
@@ -369,6 +378,19 @@ def build_run_config(
 
     return {
         "effective_inputs": effective_inputs,
+        "prompt_emphasis": {
+            "mode_style_anchor": {
+                "realistic_everyday": "Everyday cause-effect routine in familiar life spaces; small household/social events drive the episode.",
+                "light_fantasy_familiar": "Warm whimsical social flavor in a familiar world; gentle fantasy supports emotion and curiosity.",
+                "hybrid_expository_narrative": "Discovery-plus-explanation rhythm: child question, observable clue, simple meaningful explanation, then open curiosity.",
+                "journey_discovery_framework": "Stop-based travel/discovery rhythm: departure cue, route or stop, local discovery, return marker.",
+            },
+            "anti_homogenization": (
+                "Avoid generating four near-identical frameworks that differ only by names. "
+                "Keep each mode's trigger style, recurring phrase tone, and story momentum clearly distinct. "
+                "Sensory beats are optional ingredients, not the universal dominant loop."
+            ),
+        },
         "hard_size_limits": {
             "world_setting.core_locations": 2,
             "world_setting.world_rules": 3,
