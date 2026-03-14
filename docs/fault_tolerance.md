@@ -233,17 +233,10 @@ user-api 侧只需拿到 `story_id`，然后通过 `GET /api/v1/story/{story_id}
 
 ## 5. 故障演练（E2E）
 
-### 5.1 模拟 LLM 很慢
+### 5.1 模拟生成链路变慢
 
-backend 提供测试接口（需 `x-admin-key`）：
-
-- `POST /api/v1/admin/test/llm_delay?seconds=600`
-
-Playwright E2E 用例：
-
-- `e2e/slow-llm.spec.ts`
-  - 将文案生成延迟设为 10 分钟
-  - 验证前端进入并保持“生成中”状态（不应出现确认按钮）
+`/api/v1/admin/test/llm_delay` 测试接口已移除。  
+如需演练“生成慢”场景，请通过环境、网络或模型侧限流方式模拟慢请求，并验证前端轮询 `home/status` 的行为。
 
 ---
 

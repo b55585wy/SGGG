@@ -7,7 +7,7 @@
 ## 生产版 System Prompt v2.0
 
 **日期**：2026-03-05
-**文件**：`backend/prompt.py` → `SYSTEM_PROMPT`
+**文件**：`backend/episode_module.py`（`build_developer_policy()`）
 **调用端**：`backend/routers/story.py`（`POST /api/v1/story/generate` 和 `POST /api/v1/story/regenerate`）
 **模型**：DeepSeek（OpenAI 兼容接口），`temperature=0.9`
 
@@ -228,7 +228,7 @@ score ≤ 3                                   →  easy
 |------|------|------|
 | `previous_story_id` | temp book 的 `bookID` | FastAPI 可参考历史内容避免重复 |
 | `target_food` | Avatar 的 `themeFood`（或用户临时覆盖） | 本次目标食物 |
-| `story_type` | RegenModal 用户选择 | 故事类型（interactive / 冒险 / 校园 / 童话） |
+| `story_type` | RegenModal 用户选择 | 故事类型（curious_discovery / everyday_routine / light_fantasy / journey_discovery） |
 | `pages` | RegenModal 故事设置滑块（4–12） | 页数，2026-03-05 起修复转发 |
 | `difficulty` | RegenModal 故事设置 | 难度（easy/medium/hard） |
 | `interaction_density` | RegenModal 故事设置 | 互动密度（low/medium/high） |
@@ -240,7 +240,7 @@ score ≤ 3                                   →  easy
 
 **日期**：2026-02-28（项目初始阶段）
 **状态**：参考文档，未在生产中使用
-**背景**：项目设计阶段整理的 prompt 思路，后续在 `backend/prompt.py` 中实际实现时有所调整。
+**背景**：项目设计阶段整理的 prompt 思路，后续在 `backend/episode_module.py` 中实际实现时有所调整。
 
 ### 系统角色设定
 
@@ -282,5 +282,5 @@ score ≤ 3                                   →  easy
 | 日期 | 变更 | 文件 |
 |------|------|------|
 | 2026-02-28 | 初始 prompt 设计（v1.0 原型） | `docs/prompts/绘本故事prompt.md` |
-| 2026-03-01 | 生产 system prompt 实现（v2.0），加入分支故事结构、行为锚点渐进规则 | `backend/prompt.py` |
+| 2026-03-01 | 生产 system prompt 实现（v2.0），加入分支故事结构、行为锚点渐进规则 | `backend/episode_module.py` |
 | 2026-03-05 | user-api 加入 JITAI 字段（food_history、reading_context、attempt_number）；重生成端点修复 pages/difficulty/interaction_density 转发 | `user-api/src/index.ts` |

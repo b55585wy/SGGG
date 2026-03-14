@@ -7,10 +7,9 @@ import { FeedbackModal, type FeedbackDoneData } from '@/components/FeedbackModal
 import { useSession } from '@/hooks/useSession';
 import { useTelemetry } from '@/hooks/useTelemetry';
 import { useTTS } from '@/hooks/useTTS';
-import { SUSModal } from '@/components/SUSModal';
 import { storyGet } from '@/lib/api';
 import { postJson } from '@/lib/ncApi';
-import type { Draft, FeedbackStatus } from '@/types/story';
+import type { Draft } from '@/types/story';
 
 export default function ReaderPage() {
   const navigate = useNavigate();
@@ -20,14 +19,12 @@ export default function ReaderPage() {
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pageIdx, setPageIdx] = useState(0);
-  const [feedback, setFeedback] = useState<FeedbackStatus | null>(null);
-  const [showSUS, setShowSUS] = useState(false);
+  const [showAbortFeedback, setShowAbortFeedback] = useState(false);
   const [autoReadEnabled, setAutoReadEnabled] = useState(false);
   const [interactionFrameShown, setInteractionFrameShown] = useState<Record<string, boolean>>({});
   const autoReadRef = useRef(false);
   const autoReadSeqRef = useRef(0);
   const lastAutoReadKeyRef = useRef<string | null>(null);
-  const completionLoggedRef = useRef(false);
   const enterRef = useRef(Date.now());
   const trackedRef = useRef(false);
   const sessionStartRef = useRef(new Date().toISOString());
@@ -139,12 +136,10 @@ export default function ReaderPage() {
     tts.stop();
   }, [tts]);
 
-  const TOTAL_SESSIONS = 9;
-
   const logReadingSession = useCallback(async (
-    feedbackData: FeedbackDoneData | null,
     pagesRead: number,
     completed: boolean,
+    options?: { tryLevel?: string | null; abortReason?: string | null },
   ) => {
     if (!draft) return;
     const bookId = localStorage.getItem('storybook_book_id') ?? undefined;
@@ -168,8 +163,8 @@ export default function ReaderPage() {
         interactionCount: interactionCountRef.current,
         completed,
         sessionType,
-        tryLevel: feedbackData?.tryLevel ?? null,
-        abortReason: feedbackData?.abortReason ?? null,
+        tryLevel: options?.tryLevel ?? null,
+        abortReason: options?.abortReason ?? null,
       }, { keepalive: true });
     } catch { /* best-effort */ }
   }, [draft, session]);
@@ -194,15 +189,18 @@ export default function ReaderPage() {
         if (!readingEndedAtRef.current) readingEndedAtRef.current = new Date().toISOString();
         track('story_complete', { completion_rate: 1.0 }, draft.pages[draft.pages.length - 1].page_id);
         flush();
-        // Mark completed as soon as user taps "完成", so backend can trigger next-book generation
-        // even if the feedback modal is never submitted.
-        completionLoggedRef.current = true;
-        void logReadingSession(null, draft.pages.length, true);
-        setFeedback('COMPLETED');
+        void logReadingSession(draft.pages.length, true);
+        clearSession();
+        localStorage.removeItem('storybook_draft');
+        localStorage.removeItem('storybook_book_id');
+        localStorage.removeItem('storybook_source');
+        navigate('/noa/home');
       } else {
         // Read-only mode — just go home
         clearSession();
         localStorage.removeItem('storybook_draft');
+        localStorage.removeItem('storybook_book_id');
+        localStorage.removeItem('storybook_source');
         navigate('/noa/home');
       }
       return;
@@ -273,55 +271,33 @@ export default function ReaderPage() {
 
   const onExit = useCallback(() => {
     tts.stop();
+    if (session && !readingEndedAtRef.current) readingEndedAtRef.current = new Date().toISOString();
     if (session) {
-      if (!readingEndedAtRef.current) readingEndedAtRef.current = new Date().toISOString();
       trackDwell();
       flush();
-      // Persist abort timing immediately so closing the app on feedback modal
-      // does not drop this reading session.
-      void logReadingSession(null, pageIdx + 1, false);
-      setFeedback('ABORTED');
-    } else {
-      // Preview / review mode — log the visit and go home
-      void logReadingSession(null, pageIdx + 1, false);
-      clearSession();
-      localStorage.removeItem('storybook_draft');
-      localStorage.removeItem('storybook_book_id');
-      localStorage.removeItem('storybook_source');
-      navigate('/noa/home');
+      setShowAbortFeedback(true);
+      return;
     }
-  }, [session, trackDwell, flush, clearSession, navigate, logReadingSession, pageIdx, tts]);
-
-  const onFeedbackDone = useCallback((data: FeedbackDoneData) => {
-    tts.stop();
-    setFeedback(null);
-    if (data.status === 'ABORTED') {
-      void logReadingSession(data, pageIdx + 1, false);
-    } else if (draft) {
-      // COMPLETED path: update the same session row with try_level while keeping
-      // the end timestamp fixed at the moment user tapped "完成".
-      completionLoggedRef.current = true;
-      void logReadingSession(data, draft.pages.length, true);
-    }
-    if (session && session.session_index >= TOTAL_SESSIONS - 1) {
-      setShowSUS(true);
-    } else {
-      clearSession();
-      localStorage.removeItem('storybook_draft');
-      localStorage.removeItem('storybook_book_id');
-      localStorage.removeItem('storybook_source');
-      navigate('/noa/home');
-    }
-  }, [session, clearSession, navigate, logReadingSession, pageIdx, tts, draft]);
-
-  const onSUSDone = useCallback(() => {
-    tts.stop();
+    // 预览模式直接落阅读会话并返回
+    void logReadingSession(pageIdx + 1, false);
     clearSession();
     localStorage.removeItem('storybook_draft');
     localStorage.removeItem('storybook_book_id');
     localStorage.removeItem('storybook_source');
     navigate('/noa/home');
-  }, [clearSession, navigate, tts]);
+  }, [session, trackDwell, flush, clearSession, navigate, logReadingSession, pageIdx, tts]);
+
+  const onAbortFeedbackDone = useCallback((data: FeedbackDoneData) => {
+    tts.stop();
+    setShowAbortFeedback(false);
+    if (!readingEndedAtRef.current) readingEndedAtRef.current = new Date().toISOString();
+    void logReadingSession(pageIdx + 1, false, { abortReason: data.abortReason ?? null });
+    clearSession();
+    localStorage.removeItem('storybook_draft');
+    localStorage.removeItem('storybook_book_id');
+    localStorage.removeItem('storybook_source');
+    navigate('/noa/home');
+  }, [clearSession, logReadingSession, navigate, pageIdx, tts]);
 
   if (!draft) return (
     <div className="flex items-center justify-center min-h-screen" style={{ background: 'linear-gradient(145deg, #ecfdf5 0%, #f8faf9 55%, #fafaf9 100%)' }}>
@@ -518,12 +494,10 @@ export default function ReaderPage() {
         </div>
       </div>
 
-      {feedback && session && (
-        <FeedbackModal status={feedback} session_id={session.session_id} onDone={onFeedbackDone} />
+      {showAbortFeedback && session && (
+        <FeedbackModal status="ABORTED" session_id={session.session_id} onDone={onAbortFeedbackDone} />
       )}
-      {showSUS && session && (
-        <SUSModal session_id={session.session_id} onDone={onSUSDone} />
-      )}
+
     </div>
   );
 }

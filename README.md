@@ -174,9 +174,8 @@ SGGG/
 |------|------|------|
 | POST | `/api/v1/session/start` | 创建故事会话 |
 | GET | `/api/v1/story/{story_id}` | 获取故事 |
-| POST | `/api/v1/story/generate` | 创建 story 并启动后台生成（返回占位 draft；最终结果用 story_id 轮询获取） |
-| POST | `/api/v1/story/regenerate` | 创建新 story 并启动后台重新生成（返回占位 draft） |
-| POST | `/api/v1/story/{story_id}/ensure_images` | 仅补齐缺失插图（已生成部分插图时不会重复生成） |
+| POST | `/api/v1/story/generate` | 生成故事文案与提示词，并后台异步生成插图 |
+| POST | `/api/v1/story/regenerate` | 重新生成故事文案与提示词，并后台异步生成插图 |
 | POST | `/api/v1/feedback/submit` | 提交反馈 |
 | POST | `/api/v1/sus/submit` | 提交 SUS 问卷 |
 | POST | `/api/v1/telemetry/report` | 遥测上报 |
@@ -185,12 +184,6 @@ SGGG/
 | POST | `/api/v1/voice/transcribe` | 语音转写 |
 | GET | `/api/v1/export/child/{id}` | 导出儿童数据 |
 | GET | `/api/v1/admin/stats` | 后端统计数据 |
-
-用于 E2E/故障演练（需 `ADMIN_API_KEY`）：
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/admin/test/llm_delay?seconds=10` | 模拟“文案 LLM 很慢”（仅测试用途） |
 
 ## 登录与首次登录
 
@@ -260,8 +253,8 @@ cd user-api && npx tsc --noEmit
 SGGG/
 ├── backend/               # FastAPI 故事生成服务
 │   ├── main.py
-│   ├── prompt.py          # LLM prompt 定义
-│   ├── llm.py             # LLM 调用 (OpenAI/DashScope)
+│   ├── episode_module.py  # Episode 生成核心（LLM 结构化输出）
+│   ├── episode_text.py    # Episode 结果封装为 story draft
 │   ├── models.py          # Pydantic 请求/响应模型
 │   ├── database.py
 │   ├── routers/           # API 路由模块

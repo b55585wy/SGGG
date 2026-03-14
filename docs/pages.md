@@ -471,7 +471,7 @@
 
 | 字段 | 选项 | 说明 |
 |------|------|------|
-| `story_type` | `interactive`（互动冒险）/ `adventure`（探险故事）/ `social`（社交故事）/ `sensory`（感官体验） | 故事类型，影响情节结构 |
+| `story_type` | `curious_discovery`（好奇发现）/ `everyday_routine`（日常小事）/ `light_fantasy`（轻趣幻想）/ `journey_discovery`（奇妙探索） | 故事类型，映射到不同 story arc 模板 |
 | `difficulty` | `easy` / `medium` / `hard` | 难度，影响词汇量和行为期望层级 |
 | `interaction_density` | `low` / `medium` / `high` | 互动频率，影响每页互动指令的数量 |
 | `pages` | 数字（如 `6`、`8`、`12`） | 绘本总页数 |
@@ -484,4 +484,4 @@
 - **user-api 数据层**：`user-api/src/db.ts`（含 Avatar 资源种子数据）
 - **backend 入口**：`backend/main.py`
 - **backend 路由模块**：`backend/routers/`（session, story, feedback, sus, telemetry, tts, export, admin_stats）
-- **LLM Prompt**：`backend/prompt.py`
+- **Episode 生成核心**：`backend/episode_module.py` + `backend/episode_text.py`

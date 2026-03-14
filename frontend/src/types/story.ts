@@ -155,11 +155,13 @@ export interface RegenerateRequest {
 export interface SessionStartRequest {
   story_id: string;
   client_session_token: string;
+  child_id?: string;
 }
 
 export interface SessionStartResponse {
   session_id: string;
   status: 'created' | 'existed';
+  session_index: number;
 }
 
 export interface FeedbackSubmitRequest {

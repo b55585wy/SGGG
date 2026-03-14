@@ -24,13 +24,20 @@ function mockDelay<T>(data: T, ms = 1200): Promise<T> {
 }
 
 export class ApiClientError extends Error {
+  status: number;
+  code: string;
+  details?: Record<string, unknown>;
+
   constructor(
-    public status: number,
-    public code: string,
-    public details?: Record<string, unknown>
+    status: number,
+    code: string,
+    details?: Record<string, unknown>
   ) {
     super(`API Error [${status}] ${code}`);
     this.name = 'ApiClientError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -69,14 +76,18 @@ export const storyRegenerate = (_body: RegenerateRequest): Promise<GenerateRespo
 
 export const sessionStart = (_body: SessionStartRequest): Promise<SessionStartResponse> => {
   if (IS_MOCK) {
-    return mockDelay({ session_id: crypto.randomUUID(), status: 'created' as const }, 600);
+    return mockDelay({
+      session_id: crypto.randomUUID(),
+      status: 'created' as const,
+      session_index: 0,
+    }, 600);
   }
   return request<SessionStartResponse>('/api/v1/session/start', _body);
 };
 
 export const telemetryReport = (_body: TelemetryReportRequest): Promise<TelemetryReportResponse> => {
   if (IS_MOCK) {
-    return mockDelay({ ok: true }, 0);
+    return mockDelay({ accepted: 0, deduped: 0, rejected: 0 }, 0);
   }
   return request<TelemetryReportResponse>('/api/v1/telemetry/report', _body);
 };

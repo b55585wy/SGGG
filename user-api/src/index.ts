@@ -807,18 +807,6 @@ app.post("/api/avatar/save", authRequired, async (req: AuthenticatedRequest, res
     avatarUnderdress: underdress,
     avatarGlasses: glasses,
   });
-  const latestAvatar = await getUserAvatar(req.user.userID);
-  if (latestAvatar) {
-    generateAndSaveStoryArcBase({
-      userID: req.user.userID,
-      themeFood: latestAvatar.themeFood,
-      nickname: latestAvatar.nickname,
-      gender: latestAvatar.gender,
-      trigger: "avatar_save",
-    }).catch((err) => {
-      console.error("[STORY_ARC] async refresh after avatar save failed:", err);
-    });
-  }
   res.json({ ok: true });
 });
 
