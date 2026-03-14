@@ -2,6 +2,11 @@
 
 本文档按页面维度汇总：route、功能、相关 API 端点及示例请求/响应。
 
+> 更新时间提示（2026-03-14）  
+> 若需要“当前代码真实行为”与参数真值，请优先查看：  
+> - `docs/misc/CURRENT_IMPLEMENTATION_2026-03-14.md`  
+> - `docs/misc/DOCS_AUDIT_2026-03-14.md`
+
 ## 登录页
 
 - **Route**：`/noa/login`
@@ -469,7 +474,7 @@
 | `story_type` | `interactive`（互动冒险）/ `adventure`（探险故事）/ `social`（社交故事）/ `sensory`（感官体验） | 故事类型，影响情节结构 |
 | `difficulty` | `easy` / `medium` / `hard` | 难度，影响词汇量和行为期望层级 |
 | `interaction_density` | `low` / `medium` / `high` | 互动频率，影响每页互动指令的数量 |
-| `pages` | 数字（如 `6`、`8`、`10`） | 绘本总页数 |
+| `pages` | 数字（如 `6`、`8`、`12`） | 绘本总页数 |
 
 ---
 

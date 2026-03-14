@@ -206,12 +206,12 @@ test.describe('重新生成 — 设置传递（需要 FastAPI）', () => {
     expect(pageCount).toBe(4);
   });
 
-  test('页数设置传递：设为 10 页时生成的绘本应有 10 页', async ({ page }) => {
+  test('页数设置传递：设为 12 页时生成的绘本应有 12 页', async ({ page }) => {
     await submitFoodLog(page);
     const firstBook = await waitForUnconfirmedBook(page, 60_000);
     if (!firstBook) return;
 
-    await openAndSubmitRegen(page, { pages: 10, reason: '太短了' });
+    await openAndSubmitRegen(page, { pages: 12, reason: '太短了' });
     const regenDone = await waitForUnconfirmedBook(page, 90_000);
     if (!regenDone) return;
 
@@ -224,7 +224,7 @@ test.describe('重新生成 — 设置传递（需要 FastAPI）', () => {
       try { return JSON.parse(raw).pages?.length ?? -1; } catch { return -1; }
     });
 
-    expect(pageCount).toBe(10);
+    expect(pageCount).toBe(12);
   });
 
   test('重新生成后页码显示正确（Reader 进度条）', async ({ page }) => {

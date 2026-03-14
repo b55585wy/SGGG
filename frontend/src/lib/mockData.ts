@@ -8,7 +8,7 @@ export const MOCK_DRAFT: Draft = {
     title: '小明和神奇的西兰花',
     subtitle: '一个关于勇气和尝试的故事',
     theme_food: '西兰花',
-    story_type: 'adventure',
+    story_type: 'everyday_routine',
     target_behavior_level: 'Lv2',
     summary:
       '小明从来不敢吃西兰花，直到有一天他遇见了一棵会说话的小西兰花，带他踏上了一段奇妙的探险之旅……',

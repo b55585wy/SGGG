@@ -6,6 +6,22 @@ import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 let sqlPromise: Promise<SqlJsStatic> | null = null;
 let dbPromise: Promise<Database> | null = null;
 
+function parsePositiveIntEnv(name: string, fallback: number) {
+  const raw = Number(process.env[name] ?? String(fallback));
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
+}
+
+const GENERATING_TIMEOUT_ERROR = "绘本生成超时，请截图联系管理员";
+function getGeneratingMaxWaitSec() {
+  const generate = parsePositiveIntEnv("BOOK_GENERATE_MAX_WAIT_SEC", 1200);
+  const regenerate = parsePositiveIntEnv("BOOK_REGENERATE_MAX_WAIT_SEC", 1200);
+  return Math.max(generate, regenerate);
+}
+
+function getGeneratingSlowSec() {
+  return parsePositiveIntEnv("BOOK_GENERATE_SLOW_SEC", 180);
+}
+
 function getDataDir() {
   return path.join(process.cwd(), "data");
 }
@@ -32,7 +48,9 @@ function ensureSchema(db: Database) {
       user_id TEXT PRIMARY KEY,
       password TEXT NOT NULL,
       first_login INTEGER NOT NULL DEFAULT 1,
-      theme_food TEXT DEFAULT '胡萝卜'
+      theme_food TEXT DEFAULT '胡萝卜',
+      generating_since TEXT DEFAULT NULL,
+      generating_error TEXT DEFAULT NULL
     );
   `);
   db.run(`
@@ -68,6 +86,7 @@ function ensureSchema(db: Database) {
       log_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       food_name TEXT NOT NULL,
+      specific_thing TEXT,
       score INTEGER NOT NULL,
       content TEXT NOT NULL,
       voice_data TEXT,
@@ -88,6 +107,16 @@ function ensureSchema(db: Database) {
       body_posture TEXT,
       feedback_text TEXT,
       created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_story_arcs (
+      user_id TEXT PRIMARY KEY,
+      story_arc_json TEXT NOT NULL,
+      source_profile_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(user_id)
     );
   `);
@@ -238,6 +267,9 @@ function ensureFoodLogColumns(db: Database) {
   }
   if (!columns.has("emotion")) {
     db.run("ALTER TABLE user_food_logs ADD COLUMN emotion INTEGER;");
+  }
+  if (!columns.has("specific_thing")) {
+    db.run("ALTER TABLE user_food_logs ADD COLUMN specific_thing TEXT;");
   }
 }
 
@@ -432,6 +464,27 @@ export async function getUserThemeFood(userID: string): Promise<string> {
   } finally {
     stmt.free();
   }
+}
+
+export async function updateUserThemeFood(userID: string, themeFood: string) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    "UPDATE users SET theme_food = $theme_food WHERE user_id = $user_id;",
+    {
+      $user_id: userID,
+      $theme_food: themeFood,
+    },
+  );
+  db.run(
+    "UPDATE user_avatars SET theme_food = $theme_food, updated_at = $updated_at WHERE user_id = $user_id;",
+    {
+      $user_id: userID,
+      $theme_food: themeFood,
+      $updated_at: now,
+    },
+  );
+  await persistDb(db);
 }
 
 export type AvatarOption = {
@@ -637,9 +690,89 @@ export async function setUserAvatarEmotion(userID: string, emotion: number | nul
   await persistDb(db);
 }
 
+export type UserStoryArc = {
+  userID: string;
+  storyArcJson: string;
+  sourceProfileJson: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function saveUserStoryArc(params: {
+  userID: string;
+  storyArcJson: string;
+  sourceProfileJson: string;
+}) {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.run(
+    `
+    INSERT INTO user_story_arcs (
+      user_id,
+      story_arc_json,
+      source_profile_json,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      $user_id,
+      $story_arc_json,
+      $source_profile_json,
+      $created_at,
+      $updated_at
+    )
+    ON CONFLICT(user_id) DO UPDATE SET
+      story_arc_json = $story_arc_json,
+      source_profile_json = $source_profile_json,
+      updated_at = $updated_at;
+    `,
+    {
+      $user_id: params.userID,
+      $story_arc_json: params.storyArcJson,
+      $source_profile_json: params.sourceProfileJson,
+      $created_at: now,
+      $updated_at: now,
+    },
+  );
+  await persistDb(db);
+}
+
+export async function getUserStoryArc(userID: string): Promise<UserStoryArc | null> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT user_id, story_arc_json, source_profile_json, created_at, updated_at
+    FROM user_story_arcs
+    WHERE user_id = $user_id
+    LIMIT 1;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID });
+    if (!stmt.step()) return null;
+    const row = stmt.getAsObject() as unknown as {
+      user_id: string;
+      story_arc_json: string;
+      source_profile_json: string;
+      created_at: string;
+      updated_at: string;
+    };
+    return {
+      userID: row.user_id,
+      storyArcJson: row.story_arc_json,
+      sourceProfileJson: row.source_profile_json,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  } finally {
+    stmt.free();
+  }
+}
+
 export async function insertFoodLog(params: {
   userID: string;
   foodName: string;
+  specificThing?: string | null;
   score: number;
   content: string;
   voiceData?: string | null;
@@ -657,6 +790,7 @@ export async function insertFoodLog(params: {
       log_id,
       user_id,
       food_name,
+      specific_thing,
       score,
       content,
       voice_data,
@@ -671,6 +805,7 @@ export async function insertFoodLog(params: {
       $log_id,
       $user_id,
       $food_name,
+      $specific_thing,
       $score,
       $content,
       $voice_data,
@@ -686,6 +821,7 @@ export async function insertFoodLog(params: {
       $log_id: crypto.randomUUID(),
       $user_id: params.userID,
       $food_name: params.foodName,
+      $specific_thing: params.specificThing ?? null,
       $score: params.score,
       $content: params.content,
       $voice_data: params.voiceData ?? null,
@@ -1209,6 +1345,46 @@ export async function getLatestHistoryBook(userID: string): Promise<HistoryBook 
   }
 }
 
+export async function getRecentHistoryBooks(userID: string, limit = 3): Promise<HistoryBook[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `
+    SELECT book_id, user_id, title, preview, description, content, confirmed_at
+    FROM history_books
+    WHERE user_id = $user_id
+    ORDER BY confirmed_at DESC
+    LIMIT $limit;
+    `,
+  );
+  try {
+    stmt.bind({ $user_id: userID, $limit: limit });
+    const items: HistoryBook[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as {
+        book_id: string;
+        user_id: string;
+        title: string;
+        preview: string;
+        description: string;
+        content: string;
+        confirmed_at: string;
+      };
+      items.push({
+        bookID: row.book_id,
+        userID: row.user_id,
+        title: row.title,
+        preview: row.preview,
+        description: row.description,
+        content: row.content,
+        confirmedAt: row.confirmed_at,
+      });
+    }
+    return items;
+  } finally {
+    stmt.free();
+  }
+}
+
 export async function deleteUser(userID: string): Promise<boolean> {
   const db = await getDb();
   const existsStmt = db.prepare(
@@ -1228,7 +1404,10 @@ export async function deleteUser(userID: string): Promise<boolean> {
     db.run("DELETE FROM temp_books WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM history_books WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM user_avatar_states WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM user_story_arcs WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM user_food_logs WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM voice_recordings WHERE user_id = $user_id", { $user_id: userID });
+    db.run("DELETE FROM reading_sessions WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM user_avatars WHERE user_id = $user_id", { $user_id: userID });
     db.run("DELETE FROM users WHERE user_id = $user_id", { $user_id: userID });
     db.run("COMMIT");
@@ -1257,17 +1436,73 @@ export async function insertReadingSession(params: {
   sessionType?: string;
   tryLevel?: string | null;
   abortReason?: string | null;
-}) {
+}): Promise<{ id: string; created: boolean }> {
   const db = await getDb();
   const now = new Date().toISOString();
+  const sessionType = params.sessionType ?? "experiment";
+  const bookID = params.bookID ?? null;
+  const existingStmt = db.prepare(
+    `
+    SELECT id
+    FROM reading_sessions
+    WHERE user_id = $user_id
+      AND started_at = $started_at
+      AND session_type = $session_type
+      AND ((book_id = $book_id) OR (book_id IS NULL AND $book_id IS NULL))
+    ORDER BY created_at DESC
+    LIMIT 1;
+    `,
+  );
+  try {
+    existingStmt.bind({
+      $user_id: params.userID,
+      $book_id: bookID,
+      $started_at: params.startedAt,
+      $session_type: sessionType,
+    });
+    if (existingStmt.step()) {
+      const row = existingStmt.getAsObject() as unknown as { id: string };
+      db.run(
+        `
+        UPDATE reading_sessions
+        SET ended_at = $ended_at,
+            duration_ms = CASE WHEN $duration_ms > duration_ms THEN $duration_ms ELSE duration_ms END,
+            total_pages = CASE WHEN $total_pages > total_pages THEN $total_pages ELSE total_pages END,
+            pages_read = CASE WHEN $pages_read > pages_read THEN $pages_read ELSE pages_read END,
+            interaction_count = CASE WHEN $interaction_count > interaction_count THEN $interaction_count ELSE interaction_count END,
+            completed = CASE WHEN completed = 1 OR $completed = 1 THEN 1 ELSE 0 END,
+            try_level = COALESCE($try_level, try_level),
+            abort_reason = COALESCE($abort_reason, abort_reason)
+        WHERE id = $id;
+        `,
+        {
+          $id: row.id,
+          $ended_at: params.endedAt,
+          $duration_ms: params.durationMs,
+          $total_pages: params.totalPages,
+          $pages_read: params.pagesRead,
+          $interaction_count: params.interactionCount,
+          $completed: params.completed ? 1 : 0,
+          $try_level: params.tryLevel ?? null,
+          $abort_reason: params.abortReason ?? null,
+        },
+      );
+      await persistDb(db);
+      return { id: row.id, created: false };
+    }
+  } finally {
+    existingStmt.free();
+  }
+
+  const id = crypto.randomUUID();
   db.run(
     `INSERT INTO reading_sessions
       (id, user_id, book_id, started_at, ended_at, duration_ms, total_pages, pages_read, interaction_count, completed, session_type, try_level, abort_reason, created_at)
      VALUES ($id, $user_id, $book_id, $started_at, $ended_at, $duration_ms, $total_pages, $pages_read, $interaction_count, $completed, $session_type, $try_level, $abort_reason, $created_at);`,
     {
-      $id: crypto.randomUUID(),
+      $id: id,
       $user_id: params.userID,
-      $book_id: params.bookID ?? null,
+      $book_id: bookID,
       $started_at: params.startedAt,
       $ended_at: params.endedAt,
       $duration_ms: params.durationMs,
@@ -1275,13 +1510,14 @@ export async function insertReadingSession(params: {
       $pages_read: params.pagesRead,
       $interaction_count: params.interactionCount,
       $completed: params.completed ? 1 : 0,
-      $session_type: params.sessionType ?? "experiment",
+      $session_type: sessionType,
       $try_level: params.tryLevel ?? null,
       $abort_reason: params.abortReason ?? null,
       $created_at: now,
     },
   );
   await persistDb(db);
+  return { id, created: true };
 }
 
 export async function insertVoiceRecording(params: {
@@ -1650,7 +1886,10 @@ export async function getTempBookById(
 
 export async function setUserGenerating(userID: string) {
   const db = await getDb();
-  db.run("UPDATE users SET generating_since = datetime('now') WHERE user_id = $uid;", { $uid: userID });
+  db.run(
+    "UPDATE users SET generating_since = datetime('now'), generating_error = NULL WHERE user_id = $uid;",
+    { $uid: userID },
+  );
   await persistDb(db);
 }
 
@@ -1660,47 +1899,12 @@ export async function clearUserGenerating(userID: string) {
   await persistDb(db);
 }
 
-export async function isUserGenerating(userID: string): Promise<boolean> {
+export async function setUserGeneratingError(userID: string, error: string) {
   const db = await getDb();
-  const stmt = db.prepare(
-    "SELECT generating_since FROM users WHERE user_id = $uid;",
+  db.run(
+    "UPDATE users SET generating_error = $error WHERE user_id = $uid;",
+    { $uid: userID, $error: error.trim() || "绘本生成失败，请截图联系管理员" },
   );
-  stmt.bind({ $uid: userID });
-  try {
-    if (!stmt.step()) return false;
-    const row = stmt.getAsObject() as { generating_since: string | null };
-    if (!row.generating_since) return false;
-    const parseDbDateTimeMs = (value: string): number | null => {
-      const iso = value.includes("T") ? value : value.replace(" ", "T");
-      const ts = new Date(`${iso}Z`).getTime();
-      return Number.isFinite(ts) ? ts : null;
-    };
-    const sinceMs = parseDbDateTimeMs(row.generating_since);
-    const genMax = Number(process.env.BOOK_GENERATE_MAX_WAIT_SEC ?? "1200");
-    const regenMax = Number(process.env.BOOK_REGENERATE_MAX_WAIT_SEC ?? "1200");
-    const maxWaitSec = Math.max(
-      Number.isFinite(genMax) && genMax > 0 ? genMax : 1200,
-      Number.isFinite(regenMax) && regenMax > 0 ? regenMax : 1200,
-    );
-
-    if (!sinceMs || Date.now() - sinceMs >= maxWaitSec * 1000) {
-      const msg = "生成任务超时或服务中断，请重新生成或联系管理员。";
-      db.run(
-        "UPDATE users SET generating_since = NULL, generating_error = CASE WHEN generating_error IS NULL OR generating_error = '' THEN $msg ELSE generating_error END WHERE user_id = $uid;",
-        { $uid: userID, $msg: msg },
-      );
-      await persistDb(db);
-      return false;
-    }
-    return true;
-  } finally {
-    stmt.free();
-  }
-}
-
-export async function setUserGeneratingError(userID: string, message: string) {
-  const db = await getDb();
-  db.run("UPDATE users SET generating_error = $msg WHERE user_id = $uid;", { $uid: userID, $msg: message });
   await persistDb(db);
 }
 
@@ -1710,17 +1914,77 @@ export async function clearUserGeneratingError(userID: string) {
   await persistDb(db);
 }
 
-export async function getUserGeneratingState(userID: string): Promise<{ generatingSince: string | null; generatingError: string | null }> {
+export type UserGeneratingState = {
+  generating: boolean;
+  generatingSince: string | null;
+  generatingSlow: boolean;
+  generationError: string | null;
+};
+
+export async function getUserGeneratingState(userID: string): Promise<UserGeneratingState> {
   const db = await getDb();
-  const stmt = db.prepare("SELECT generating_since, generating_error FROM users WHERE user_id = $uid;");
+  const stmt = db.prepare(
+    "SELECT generating_since, generating_error FROM users WHERE user_id = $uid;",
+  );
   stmt.bind({ $uid: userID });
   try {
-    if (!stmt.step()) return { generatingSince: null, generatingError: null };
-    const row = stmt.getAsObject() as { generating_since: string | null; generating_error: string | null };
-    return { generatingSince: row.generating_since, generatingError: row.generating_error };
+    if (!stmt.step()) {
+      return {
+        generating: false,
+        generatingSince: null,
+        generatingSlow: false,
+        generationError: null,
+      };
+    }
+    const row = stmt.getAsObject() as {
+      generating_since: string | null;
+      generating_error: string | null;
+    };
+    const generatingSinceRaw = row.generating_since;
+    const generationError = row.generating_error || null;
+    if (!generatingSinceRaw) {
+      return {
+        generating: false,
+        generatingSince: null,
+        generatingSlow: false,
+        generationError,
+      };
+    }
+
+    const sinceMs = new Date(generatingSinceRaw + "Z").getTime();
+    const elapsedMs = Date.now() - sinceMs;
+    const maxWaitMs = getGeneratingMaxWaitSec() * 1000;
+    const slowMs = getGeneratingSlowSec() * 1000;
+
+    if (!Number.isFinite(sinceMs) || elapsedMs >= maxWaitMs) {
+      const nextError = generationError || GENERATING_TIMEOUT_ERROR;
+      db.run(
+        "UPDATE users SET generating_since = NULL, generating_error = $err WHERE user_id = $uid;",
+        { $uid: userID, $err: nextError },
+      );
+      await persistDb(db);
+      return {
+        generating: false,
+        generatingSince: null,
+        generatingSlow: false,
+        generationError: nextError,
+      };
+    }
+
+    return {
+      generating: true,
+      generatingSince: generatingSinceRaw,
+      generatingSlow: elapsedMs >= slowMs,
+      generationError,
+    };
   } finally {
     stmt.free();
   }
+}
+
+export async function isUserGenerating(userID: string): Promise<boolean> {
+  const state = await getUserGeneratingState(userID);
+  return state.generating;
 }
 
 // ─── Admin CSV Exports ────────────────────────────────────
@@ -1751,7 +2015,7 @@ export async function exportAllUsers(): Promise<Record<string, unknown>[]> {
 export async function exportAllFoodLogs(): Promise<Record<string, unknown>[]> {
   const db = await getDb();
   return execRows(db, `
-    SELECT log_id, user_id, food_name, score, content, feedback_text, emotion, related_book_id, related_reading_session_id, related_reading_ended_at, created_at
+    SELECT log_id, user_id, food_name, specific_thing, score, content, feedback_text, emotion, related_book_id, related_reading_session_id, related_reading_ended_at, created_at
     FROM user_food_logs
     ORDER BY created_at DESC;
   `);

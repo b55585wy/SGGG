@@ -1,0 +1,25 @@
+{
+      "language": "zh-CN",
+      "episode_page_count": 12,
+      "image_count_target": [12, 14],
+      "words_per_page_target_cn": [60,80],
+      "word_count_cn_profiles": {
+        "standard": [720,960]
+        },
+      "three_element_minimums": {
+        "sensory_min_per_episode": 2,
+        "knowledge_min_per_episode": 1,
+        "role_model_min_per_episode": 1
+      },
+      "safety_rules": [
+        "No shaming or blame.",
+        "No coercion or force.",
+        "No punishment or threat.",
+        "No transactional reward framing.",
+        "No medical or nutritional diagnosis."
+      ],
+      "interaction_constraints": {
+        "micro_interactions_max_per_episode": 4,
+        "choice_points_max_per_episode": 2
+      }
+  }
