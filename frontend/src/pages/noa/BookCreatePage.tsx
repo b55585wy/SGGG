@@ -40,10 +40,10 @@ const REASONS = [
 ]
 
 const STORY_TYPES = [
-  { value: 'interactive', label: '互动冒险', Icon: GameController },
-  { value: 'adventure',   label: '探险故事', Icon: Compass },
-  { value: 'social',      label: '社交故事', Icon: UsersThree },
-  { value: 'sensory',     label: '感官体验', Icon: Palette },
+  { value: 'curious_discovery', label: '好奇发现', Icon: GameController },
+  { value: 'everyday_routine',  label: '日常小事', Icon: Compass },
+  { value: 'light_fantasy',     label: '轻趣幻想', Icon: UsersThree },
+  { value: 'journey_discovery', label: '奇妙探索', Icon: Palette },
 ]
 
 const spring = { type: 'spring' as const, stiffness: 100, damping: 20 }
@@ -79,10 +79,14 @@ export default function BookCreatePage() {
   const [note, setNote] = useState('')
 
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [storyType, setStoryType] = useState('interactive')
+  const [storyType, setStoryType] = useState('light_fantasy')
+  const [storyTypeTouched, setStoryTypeTouched] = useState(false)
   const [difficulty, setDifficulty] = useState('medium')
-  const [pages, setPages] = useState(6)
+  const [pages, setPages] = useState(12)
   const [interactionDensity, setInteractionDensity] = useState('medium')
+  const [difficultyTouched, setDifficultyTouched] = useState(false)
+  const [pagesTouched, setPagesTouched] = useState(false)
+  const [interactionDensityTouched, setInteractionDensityTouched] = useState(false)
 
   const allowEntry =
     location.state &&
@@ -133,16 +137,17 @@ export default function BookCreatePage() {
     if (!reason) { setError('请先选择一个不满意的原因'); return }
     setSubmitting(true)
     try {
-      await postJson('/api/book/regenerate', {
+      const payload: Record<string, unknown> = {
         reason,
         target_food: foodOverride.trim() || undefined,
         title: title.trim() || undefined,
         note: note.trim() || undefined,
-        story_type: storyType,
-        difficulty,
-        pages,
-        interaction_density: interactionDensity,
-      })
+      }
+      if (storyTypeTouched) payload.story_type = storyType
+      if (difficultyTouched) payload.difficulty = difficulty
+      if (pagesTouched) payload.pages = pages
+      if (interactionDensityTouched) payload.interaction_density = interactionDensity
+      await postJson('/api/book/regenerate', payload)
       navigate('/noa/home', { replace: true })
     } catch (e) {
       const message =
@@ -473,7 +478,7 @@ export default function BookCreatePage() {
                         <button
                           key={value}
                           type="button"
-                          onClick={() => setStoryType(value)}
+                          onClick={() => { setStoryType(value); setStoryTypeTouched(true) }}
                           className="flex items-center gap-2 py-2.5 px-3 rounded-xl text-sm font-medium border transition-colors active:scale-[0.97]"
                           style={
                             storyType === value
@@ -506,7 +511,7 @@ export default function BookCreatePage() {
                       </label>
                       <select
                         value={difficulty}
-                        onChange={(e) => setDifficulty(e.target.value)}
+                        onChange={(e) => { setDifficulty(e.target.value); setDifficultyTouched(true) }}
                         className="form-input"
                       >
                         <option value="easy">简单</option>
@@ -523,7 +528,7 @@ export default function BookCreatePage() {
                       </label>
                       <select
                         value={interactionDensity}
-                        onChange={(e) => setInteractionDensity(e.target.value)}
+                        onChange={(e) => { setInteractionDensity(e.target.value); setInteractionDensityTouched(true) }}
                         className="form-input"
                       >
                         <option value="low">少</option>
@@ -545,7 +550,7 @@ export default function BookCreatePage() {
                       min={4}
                       max={12}
                       value={pages}
-                      onChange={(e) => setPages(Number(e.target.value))}
+                        onChange={(e) => { setPages(Number(e.target.value)); setPagesTouched(true) }}
                       className="w-full accent-[var(--color-accent)]"
                     />
                   </div>

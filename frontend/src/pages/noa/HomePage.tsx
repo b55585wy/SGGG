@@ -101,6 +101,40 @@ function feedbackFontSize(text: string): number {
   return 10
 }
 
+function audioExtFromMime(mime: string): string {
+  const normalized = mime.toLowerCase().split(';')[0].trim()
+  if (!normalized) return 'webm'
+  if (normalized === 'audio/webm') return 'webm'
+  if (normalized === 'audio/mp4' || normalized === 'audio/x-m4a') return 'm4a'
+  if (normalized === 'audio/mpeg' || normalized === 'audio/mp3' || normalized === 'audio/mpga') return 'mp3'
+  if (normalized === 'audio/wav' || normalized === 'audio/x-wav' || normalized === 'audio/wave') return 'wav'
+  if (normalized === 'audio/ogg') return 'ogg'
+  if (normalized === 'audio/flac') return 'flac'
+  if (normalized === 'audio/aiff') return 'aiff'
+  return 'webm'
+}
+
+function chooseRecorderMimeType(): string | undefined {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return undefined
+  }
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+  ]
+  for (const candidate of candidates) {
+    if (MediaRecorder.isTypeSupported(candidate)) return candidate
+  }
+  return undefined
+}
+
+function buildRecordingFilename(blob: Blob): string {
+  return `recording.${audioExtFromMime(blob.type || '')}`
+}
+
 // ─── Regen Modal ─────────────────────────────────────────────────────────────
 
 const REASONS = [
@@ -117,10 +151,10 @@ const REASONS = [
 ]
 
 const STORY_TYPES = [
-  { value: 'interactive', label: '互动冒险', Icon: GameController },
-  { value: 'adventure',   label: '探险故事', Icon: Compass },
-  { value: 'social',      label: '社交故事', Icon: UsersThree },
-  { value: 'sensory',     label: '感官体验', Icon: Palette },
+  { value: 'curious_discovery', label: '好奇发现', Icon: GameController },
+  { value: 'everyday_routine',  label: '日常小事', Icon: Compass },
+  { value: 'light_fantasy',     label: '轻趣幻想', Icon: UsersThree },
+  { value: 'journey_discovery', label: '奇妙探索', Icon: Palette },
 ]
 
 const spring = { type: 'spring' as const, stiffness: 120, damping: 22 }
@@ -144,10 +178,14 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   const [reason, setReason] = useState('')
   const [foodOverride, setFoodOverride] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [storyType, setStoryType] = useState('interactive')
+  const [storyType, setStoryType] = useState('light_fantasy')
+  const [storyTypeTouched, setStoryTypeTouched] = useState(false)
   const [difficulty, setDifficulty] = useState('medium')
-  const [pages, setPages] = useState(6)
+  const [pages, setPages] = useState(12)
   const [interactionDensity, setInteractionDensity] = useState('medium')
+  const [difficultyTouched, setDifficultyTouched] = useState(false)
+  const [pagesTouched, setPagesTouched] = useState(false)
+  const [interactionDensityTouched, setInteractionDensityTouched] = useState(false)
 
   const reachedLimit = regenerateCount >= 2
   const canSubmit = !reachedLimit
@@ -155,14 +193,15 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
   function onSubmit() {
     // Close immediately — fire API in background
     onSuccess()
-    postJson('/api/book/regenerate', {
+    const payload: Record<string, unknown> = {
       reason: reason || undefined,
       target_food: foodOverride.trim() || undefined,
-      story_type: storyType,
-      difficulty,
-      pages,
-      interaction_density: interactionDensity,
-    }).catch(() => { /* silently handle */ })
+    }
+    if (storyTypeTouched) payload.story_type = storyType
+    if (difficultyTouched) payload.difficulty = difficulty
+    if (pagesTouched) payload.pages = pages
+    if (interactionDensityTouched) payload.interaction_density = interactionDensity
+    postJson('/api/book/regenerate', payload).catch(() => { /* silently handle */ })
   }
 
   return (
@@ -239,7 +278,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                   <button
                     key={value}
                     type="button"
-                    onClick={() => setStoryType(value)}
+                    onClick={() => { setStoryType(value); setStoryTypeTouched(true) }}
                     className="flex items-center gap-2 py-2.5 px-3 rounded-2xl text-sm font-medium border transition-colors text-left"
                     style={
                       storyType === value
@@ -294,7 +333,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                           <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>难度</label>
-                          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className="form-input">
+                          <select value={difficulty} onChange={(e) => { setDifficulty(e.target.value); setDifficultyTouched(true) }} className="form-input">
                             <option value="easy">简单</option>
                             <option value="medium">中等</option>
                             <option value="hard">困难</option>
@@ -302,7 +341,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                         </div>
                         <div className="space-y-1.5">
                           <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>交互密度</label>
-                          <select value={interactionDensity} onChange={(e) => setInteractionDensity(e.target.value)} className="form-input">
+                          <select value={interactionDensity} onChange={(e) => { setInteractionDensity(e.target.value); setInteractionDensityTouched(true) }} className="form-input">
                             <option value="low">少</option>
                             <option value="medium">中</option>
                             <option value="high">多</option>
@@ -311,7 +350,7 @@ function RegenModal({ themeFood, regenerateCount, onClose, onSuccess }: RegenMod
                       </div>
                       <div className="space-y-1.5">
                         <label className="block text-xs font-medium" style={{ color: 'var(--color-muted)' }}>页数 <span className="font-mono">{pages}</span></label>
-                        <input type="range" min={4} max={12} value={pages} onChange={(e) => setPages(Number(e.target.value))} className="w-full accent-[var(--color-accent)]" />
+                        <input type="range" min={4} max={12} value={pages} onChange={(e) => { setPages(Number(e.target.value)); setPagesTouched(true) }} className="w-full accent-[var(--color-accent)]" />
                       </div>
                     </div>
                   </motion.div>
@@ -387,6 +426,7 @@ type InlineFoodLogProps = {
 
 function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
   const [foodName, setFoodName] = useState('')
+  const [specificThing, setSpecificThing] = useState('')
   const [foodVoiceLoading, setFoodVoiceLoading] = useState(false)
   const [foodIsRecording, setFoodIsRecording] = useState(false)
   const [foodAudioUrl, setFoodAudioUrl] = useState<string | null>(null)
@@ -419,8 +459,17 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
     if (!content.trim()) { setError('请输入进食记录'); return }
     setSending(true)
     try {
-      const data = await postJson<FoodLogResponse>('/api/food/log', { foodName: foodName.trim(), score, content: content.trim() })
-      setFoodName(''); setScore(0); setScoreTouched(false); setContent('')
+      const data = await postJson<FoodLogResponse>('/api/food/log', {
+        foodName: foodName.trim(),
+        specificThing: specificThing.trim() || null,
+        score,
+        content: content.trim(),
+      })
+      setFoodName('')
+      setSpecificThing('')
+      setScore(0)
+      setScoreTouched(false)
+      setContent('')
       onSuccess(data)
     } catch (e) {
       const message =
@@ -442,7 +491,7 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
     try {
       const token = getToken()
       const form = new FormData()
-      form.append('file', blob, 'recording.webm')
+      form.append('file', blob, buildRecordingFilename(blob))
       const res = await fetch('/api/user/voice/transcribe', {
         method: 'POST',
         headers: token ? { authorization: `Bearer ${token}` } : undefined,
@@ -473,7 +522,7 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
 
   async function startRecording(target: 'food' | 'content') {
     setError('')
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setError('当前浏览器不支持录音')
       return
     }
@@ -486,7 +535,15 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
         streamRef.current = stream
         chunksRef.current = []
       }
-      const recorder = new MediaRecorder(stream)
+      const preferredMimeType = chooseRecorderMimeType()
+      let recorder: MediaRecorder
+      try {
+        recorder = preferredMimeType
+          ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+          : new MediaRecorder(stream)
+      } catch {
+        recorder = new MediaRecorder(stream)
+      }
       recorder.ondataavailable = (e) => {
         if (e.data.size <= 0) return
         if (target === 'food') {
@@ -496,9 +553,12 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
         }
       }
       recorder.onstop = async () => {
+        const recordedChunks = target === 'food' ? foodChunksRef.current : chunksRef.current
+        const chunkMime = recordedChunks.find((c) => c.size > 0 && !!c.type)?.type
+        const resolvedMimeType = chunkMime || recorder.mimeType || preferredMimeType || 'audio/webm'
         const blob = new Blob(
-          target === 'food' ? foodChunksRef.current : chunksRef.current,
-          { type: recorder.mimeType || 'audio/webm' },
+          recordedChunks,
+          { type: resolvedMimeType },
         )
         if (target === 'food') {
           setFoodAudioUrl((prev) => {
@@ -577,6 +637,17 @@ function InlineFoodLog({ onSuccess }: InlineFoodLogProps) {
           {foodAudioUrl && (
             <audio controls src={foodAudioUrl} className="w-full h-8" />
           )}
+        </div>
+
+        {/* Specific thing */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold" style={{ color: 'var(--color-muted)' }}>特定事物（可选）</label>
+          <input
+            value={specificThing}
+            onChange={(e) => setSpecificThing(e.target.value)}
+            placeholder="例如：绿色豆荚、脆脆的边缘、小颗粒感"
+            className="form-input w-full text-sm"
+          />
         </div>
 
         {/* Score section */}
@@ -845,6 +916,7 @@ export default function HomePage() {
 
   const avatar = status?.avatar
   const book = status?.book
+  const feedbackVoice = avatar?.gender === 'male' ? 'zhishuo' : 'zhimiao'
   const previewSrc = normalizePreview(book?.preview)
   const confirmDisabled = !book || book.confirmed || !previewSrc || previewSrc.startsWith('data:image/svg+xml') || bookGenerating
   const regenerateReached = book ? book.regenerateCount >= 2 : false
@@ -967,7 +1039,7 @@ export default function HomePage() {
                 onClick={() => {
                   if (!tts.isSupported) return
                   if (tts.isSpeaking) { tts.stop(); return }
-                  void tts.speak(feedbackText, 'zhimiao')
+                  void tts.speak(feedbackText, feedbackVoice)
                 }}
                 className="absolute z-20 left-1/2 -translate-x-1/2 top-4 w-[min(92%,320px)] text-left transition-all active:scale-[0.98]"
                 style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
@@ -1074,7 +1146,7 @@ export default function HomePage() {
             >
               {/* Book cover thumbnail */}
               <div
-                className="w-[35%] lg:w-[38%] relative shrink-0 overflow-hidden"
+                className="w-[35%] lg:w-[38%] relative shrink-0 overflow-hidden flex items-center justify-center p-4 lg:p-5"
                 style={{
                   background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
                   borderRight: '1px solid rgba(231,229,228,0.4)',
@@ -1099,24 +1171,29 @@ export default function HomePage() {
                   </div>
                 ) : previewSrc ? (
                   <>
-                    <img
-                      src={previewSrc}
-                      alt={book?.title ?? ''}
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
                     <div
-                      className="absolute inset-0 pointer-events-none"
-                      style={{ background: 'linear-gradient(to right, transparent 60%, rgba(255,255,255,0.12))' }}
-                    />
-                    {book?.confirmed && (
-                      <span
-                        className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white"
-                        style={{ background: 'var(--color-accent)', boxShadow: '0 2px 8px rgba(5,150,105,0.4)' }}
-                      >
-                        <CheckCircle size={9} weight="fill" />
-                        已确认
-                      </span>
-                    )}
+                      className="relative h-full max-h-[96%] aspect-[3/4] w-auto rounded-[1.25rem] overflow-hidden"
+                      style={{ boxShadow: '0 12px 26px rgba(15,23,42,0.18)' }}
+                    >
+                      <img
+                        src={previewSrc}
+                        alt={book?.title ?? ''}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                      <div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{ background: 'linear-gradient(to right, transparent 62%, rgba(255,255,255,0.14))' }}
+                      />
+                      {book?.confirmed && (
+                        <span
+                          className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white"
+                          style={{ background: 'var(--color-accent)', boxShadow: '0 2px 8px rgba(5,150,105,0.4)' }}
+                        >
+                          <CheckCircle size={9} weight="fill" />
+                          已确认
+                        </span>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">

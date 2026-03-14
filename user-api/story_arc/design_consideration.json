@@ -1,0 +1,40 @@
+{
+      "DC1": {
+        "title": "Cognitive & experiential change → willingness to try",
+        "summary": "Design should focus on changing picky-eating children's food-related cognition and experiences, so that they become willing to try unfamiliar or disliked foods. Treat willingness-to-try (e.g., approach, smell, lick, tiny bite) as the key outcome rather than completion or quantity."
+      },
+      "DC2": {
+        "title": "Non-mealtime, low-pressure narrative intervention + sustainable reinforcement",
+        "summary": "Design should primarily intervene in non-mealtime contexts via low-pressure, long-term, playful narrative (e.g., picture-book stories) and provide sustainable daily reinforcement. Respect real-world constraints (eye strain, screen time, timing) and avoid high-operation, disruptive interactions.",
+        "content_level_dimensions": [
+          {
+            "name": "personalization",
+            "label_cn": "个性化",
+            "definition": "Lightweight personalization based on child differences (interests, preferences, target food category/instance) without increasing parent burden."
+          },
+          {
+            "name": "low_barrier_participation",
+            "label_cn": "过程参与感重要，低门槛（简单交互）",
+            "definition": "Support child agency through simple, optional micro-interactions (tap/drag/choice) rather than high-condition participation (e.g., complex cooking/planting)."
+          },
+          {
+            "name": "peer_role_model_no_comparison",
+            "label_cn": "同伴 / 榜样影响，避免竞争/比较",
+            "definition": "Use peers/role models to normalize gentle approach and trying, while avoiding competition, ranking, or comparison frames."
+          },
+          {
+            "name": "contextualized_knowledge_age_timing",
+            "label_cn": "食物知识情景化呈现",
+            "definition": "Embed food knowledge contextually within story and experiences; avoid direct lecturing, and adapt to age and timing constraints."
+          }
+        ]
+      },
+      "DC3": {
+        "title": "Lightweight, variable post-meal positive reinforcement without taskification",
+        "summary": "Design can use lightweight and varied post-meal positive reinforcement to consolidate cognition and willingness-to-try, while avoiding rigid rule-bound rewards that make eating feel like a task or transaction."
+      },
+      "DC4": {
+        "title": "Parent-in-the-loop as co-user and context owner",
+        "summary": "Design should involve parents in the system loop because parents and the feeding context strongly shape picky eating. Provide low-burden parent scaffolds and guardrails to support sustainable use without coercion."
+      }
+}

@@ -12,7 +12,7 @@ from routers import feedback_words as feedback_words_router
 from routers import export as export_router
 from routers import sus as sus_router
 from routers import admin_stats as admin_stats_router
-from routers import admin_test as admin_test_router
+from routers import continuity as continuity_router
 
 app = FastAPI(title="AI Storybook API", version="1.0.0")
 
@@ -51,7 +51,7 @@ app.include_router(feedback_words_router.router)
 app.include_router(export_router.router)
 app.include_router(sus_router.router)
 app.include_router(admin_stats_router.router)
-app.include_router(admin_test_router.router)
+app.include_router(continuity_router.router)
 
 os.makedirs("static/images", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
